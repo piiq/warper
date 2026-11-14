@@ -24,7 +24,7 @@ pub use imp::{load_launch_configs, load_theme_configs};
 
 lazy_static! {
     pub static ref LAUNCH_CONFIG_COMMENT: String = format!(
-        "# Warp Launch Configuration
+        "# Warper Launch Configuration
 #
 #
 # Use this to start a certain configuration of windows, tabs, and panes.
@@ -32,7 +32,7 @@ lazy_static! {
 #
 # This file defines your launch configuration.
 # More on how to do so here:
-# https://docs.warp.dev/terminal/sessions/launch-configurations
+# https://github.com/piiq/warper#readme
 #
 # All launch configurations are stored under {}.
 # Edit them anytime!

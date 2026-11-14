@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::sync::LazyLock;
 use std::time::Duration;
 
@@ -10,7 +10,7 @@ use warp_core::ui::theme::color::internal_colors;
 use warpui::r#async::{SpawnedFutureHandle, Timer};
 
 use regex::Regex;
-use settings::{Setting as _, SyncToCloud};
+use settings::Setting as _;
 use warp_core::ui::theme::WarpTheme;
 use warpui::elements::{
     ChildView, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Expanded, Flex,
@@ -30,17 +30,12 @@ use warpui::{
 
 use crate::settings::{CustomSecretRegex, RegexDisplayInfo};
 use crate::settings_view::privacy::AddRegexModalViewState;
-use crate::terminal::safe_mode_settings::{
-    get_effective_secret_display_mode, SecretDisplayMode, SecretDisplayModeSetting,
-};
+use crate::terminal::safe_mode_settings::{get_effective_secret_display_mode, SecretDisplayMode};
 use crate::ui_components::buttons::icon_button;
 use crate::view_components::{Dropdown, DropdownItem};
 use crate::{
-    appearance::Appearance,
-    report_if_error,
-    settings::PrivacySettings,
-    terminal::safe_mode_settings::{SafeModeEnabled, SafeModeSettings},
-    ui_components::icons::Icon,
+    appearance::Appearance, report_if_error, settings::PrivacySettings,
+    terminal::safe_mode_settings::SafeModeSettings, ui_components::icons::Icon,
 };
 
 use super::{
@@ -50,7 +45,7 @@ use super::{
         render_sub_header, SettingsPageMeta, SettingsPageViewHandle, HEADER_PADDING,
         TOGGLE_BUTTON_RIGHT_PADDING,
     },
-    settings_page::{LocalOnlyIconState, MatchData, PageType, SettingsWidget, PAGE_PADDING},
+    settings_page::{MatchData, PageType, SettingsWidget, PAGE_PADDING},
     SettingsAction, SettingsSection, ToggleSettingActionPair,
 };
 
@@ -72,7 +67,6 @@ const USER_SECRET_REGEX_DESCRIPTION: &str =
     to make it case-insensitive.";
 pub struct PrivacyPageView {
     page: PageType<Self>,
-    local_only_icon_tooltip_states: RefCell<HashMap<String, MouseStateHandle>>,
     /// This needs to mirror the length of PrivacySettings::user_secret_regex_list.
     added_user_secret_regex_list_button_handles: Vec<MouseStateHandle>,
     /// Set of indices for regex items that are pending removal
@@ -169,7 +163,6 @@ impl PrivacyPageView {
 
         let mut privacy_page_view = Self {
             page: Self::build_page(),
-            local_only_icon_tooltip_states: Default::default(),
             added_user_secret_regex_list_button_handles: Default::default(),
             pending_regex_removals: Default::default(),
             pending_timer: None,
@@ -846,21 +839,10 @@ impl SettingsWidget for SecretRedactionWidget {
         let ui_builder = appearance.ui_builder();
         let is_secret_redaction_locked = false;
 
-        let local_only_icon_state = LocalOnlyIconState::for_setting(
-            SafeModeEnabled::storage_key(),
-            SyncToCloud::Never,
-            &mut view.local_only_icon_tooltip_states.borrow_mut(),
-            app,
-        );
-
         let secret_redaction_title_row = Container::new(
             Flex::row()
                 .with_child(
-                    Shrinkable::new(
-                        1.0,
-                        render_sub_header(appearance, SAFE_MODE_TITLE, Some(local_only_icon_state)),
-                    )
-                    .finish(),
+                    Shrinkable::new(1.0, render_sub_header(appearance, SAFE_MODE_TITLE)).finish(),
                 )
                 .with_child(
                     Container::new({
@@ -907,25 +889,17 @@ impl SettingsWidget for SecretRedactionWidget {
 
         if *safe_mode_settings.safe_mode_enabled {
             // Add the secret display mode dropdown
-            let local_only_icon_state = LocalOnlyIconState::for_setting(
-                SecretDisplayModeSetting::storage_key(),
-                SyncToCloud::Never,
-                &mut view.local_only_icon_tooltip_states.borrow_mut(),
-                app,
-            );
 
-            // Create the label with local-only icon if needed
-            let label_with_icon = super::settings_page::render_dropdown_item_label(
+            let label = super::settings_page::render_dropdown_item_label(
                 "Secret visual redaction mode".to_string(),
                 None,
-                local_only_icon_state,
                 None,
                 appearance,
             );
 
             // Create left column with label and description
             let left_content = Flex::column()
-                .with_child(label_with_icon)
+                .with_child(label)
                 .with_child(
                     Container::new(
                         ui_builder

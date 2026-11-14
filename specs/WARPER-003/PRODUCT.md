@@ -6,7 +6,7 @@ Warper must not expose Warp-hosted feedback, Slack, What's New, or changelog ent
 
 ## Problem
 
-The app still exposes hosted or upstream-branded support/community surfaces in menus and settings, including Feedback, Slack, changelog UI, and Warp-branded About copy. These surfaces conflict with the local-only product shape defined by WARPER-001 and make the fork look partially branded as upstream Warp.
+The app still exposes hosted or upstream-branded support/community features in menus and settings, including Feedback, Slack, changelog UI, and Warp-branded About copy. These conflict with WARPER-001's requirement to operate without Warp-hosted services and identify parts of the fork as upstream Warp.
 
 ## Goals / Non-goals
 
@@ -15,7 +15,6 @@ The app still exposes hosted or upstream-branded support/community surfaces in m
 - Goal: make Settings -> About identify Warper, not Warp, and use copyleft wording.
 - Goal: remove What's New and changelog UI from app menus, top-right menus, settings, resource-center surfaces, slash commands, and command palette entrypoints.
 - Goal: keep local logs and local diagnostics available to the user.
-- Non-goal: remove Warp-hosted documentation links before Warper-owned documentation exists.
 - Non-goal: add a replacement hosted support system.
 - Non-goal: remove local settings, local logs, keyboard shortcuts, or documentation.
 - Non-goal: remove a Warper-owned GitHub Issues link.
@@ -23,11 +22,11 @@ The app still exposes hosted or upstream-branded support/community surfaces in m
 ## Behavior
 
 1. The top-right gearbox menu may contain settings, keyboard shortcuts, documentation, and local diagnostics if available. It does not show `Feedback`, `Slack`, `Warp Slack Community`, `What's New`, hosted changelog entries, or equivalent hosted/community entries.
-2. Documentation links may continue to open existing Warp documentation until Warper-owned documentation exists. Documentation links must not be labeled as feedback, Slack, What's New, changelog, or Warper-owned support.
+2. Documentation links open the [Warper repository README](https://github.com/piiq/warper#readme). Documentation links must not be labeled as feedback, Slack, What's New, changelog, or Warper-owned support.
 3. The top-bar Help menu does not show `Send Feedback`, `Warp Slack Community`, `Slack`, `What's New`, hosted changelog entries, or equivalent hosted/community entries.
 4. The top-bar Help menu may show `GitHub Issues` only when the action opens the Warper repository issues page. It must not open Warp issues, Warp feedback forms, Warp support, or a Slack invite.
 5. Any GitHub issue-reporting link elsewhere in these menu surfaces uses Warper repository issue tracking and is labeled as a Warper/project issue link, not as Warp feedback.
-6. Documentation/help menu items may point to Warp documentation. They must not point to Warp changelog, Warp support, Warp feedback forms, or Warp Slack.
+6. Documentation/help menu items must not point to Warp documentation, Warp changelog, Warp support, Warp feedback forms, or Warp Slack.
 7. Settings -> Features does not show `Show changelog toast after updates` or any other setting whose only purpose is a hosted or upstream Warp changelog.
 8. Warper does not show a What's New section, changelog toast, release-notes modal, resource-center changelog item, or slash command that opens a changelog.
 9. Search, command palette, keybindings, slash commands, app menus, and resource-center surfaces cannot resurrect removed feedback, Slack, What's New, or changelog entrypoints.

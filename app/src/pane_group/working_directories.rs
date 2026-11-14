@@ -6,15 +6,13 @@ use std::collections::HashMap;
 #[cfg(feature = "local_fs")]
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use warpui::ViewHandle;
 #[cfg(feature = "local_fs")]
 use warpui::{AppContext, SingletonEntity as _};
 use warpui::{Entity, EntityId, ModelContext};
-use warpui::{ModelHandle, ViewHandle};
 
 #[cfg(feature = "local_fs")]
 use crate::code::file_tree::FileTreeView;
-use crate::code_review::comments::ReviewCommentBatch;
-use crate::code_review::{code_review_view::CodeReviewView, diff_state::DiffStateModel};
 use crate::workspace::view::global_search::view::GlobalSearchView;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -76,17 +74,6 @@ pub struct WorkingDirectoriesModel {
     /// Note, a single root path can be associated with multiple terminals.
     /// we're just storing an arbitrary terminal ID for each root path.
     directory_to_terminal: HashMap<EntityId, HashMap<PathBuf, EntityId>>,
-    /// Global mapping from repository root paths to their DiffStateModel.
-    /// Since git state is inherently tied to a repository (not a pane group),
-    /// this is stored globally and shared across all pane groups viewing the same repo.
-    diff_state_models: HashMap<PathBuf, ModelHandle<DiffStateModel>>,
-    /// Global mapping from repository root paths to their CommentBatch.
-    /// Like the DiffStateModel mapping, comments are inherently tied to git diffs
-    /// and are shared across all pane groups viewing the same repo.
-    comment_models: HashMap<PathBuf, ModelHandle<ReviewCommentBatch>>,
-    /// Per-pane-group mapping from repository root paths to their CodeReviewView.
-    /// This allows reusing code review views across multiple requests for the same repo.
-    code_review_views: HashMap<EntityId, HashMap<PathBuf, ViewHandle<CodeReviewView>>>,
     /// Per-pane-group tracking of the focused repository root path.
     focused_repo: HashMap<EntityId, Option<PathBuf>>,
     global_search_views: HashMap<EntityId, ViewHandle<GlobalSearchView>>,
@@ -167,105 +154,6 @@ impl WorkingDirectoriesModel {
             .and_then(|roots| roots.get(root_path).copied())
     }
 
-    /// Get or create a DiffStateModel for a specific repository.
-    /// If the model doesn't exist, it will be created.
-    pub fn get_or_create_diff_state_model(
-        &mut self,
-        repo_path: PathBuf,
-        ctx: &mut ModelContext<Self>,
-    ) -> Option<ModelHandle<DiffStateModel>> {
-        if let Some(model) = self.diff_state_models.get(&repo_path) {
-            return Some(model.clone());
-        }
-
-        // Create new DiffStateModel for this repo
-        let diff_state_model =
-            ctx.add_model(|ctx| DiffStateModel::new(Some(repo_path.display().to_string()), ctx));
-
-        self.diff_state_models
-            .insert(repo_path.clone(), diff_state_model.clone());
-
-        Some(diff_state_model)
-    }
-
-    /// DiffStateModels are shared across tabs. When you delete repos from one tab,
-    /// we should check if its still in use in any tab. If not, stop its watcher and delete it.
-    fn drop_unused_diff_state_models(
-        &mut self,
-        removed_repos: impl Iterator<Item = PathBuf>,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        for repo_path in removed_repos {
-            if self
-                .repository_roots
-                .values()
-                .all(|tab| !tab.contains(&repo_path))
-            {
-                if let Some(model) = self.diff_state_models.remove(&repo_path) {
-                    model.update(ctx, |model, ctx| {
-                        model.stop_active_watcher(ctx);
-                    });
-                }
-            }
-        }
-    }
-
-    /// Get or create a ReviewCommentBatch for a specific repository.
-    /// If the model doesn't exist, it will be created.
-    pub fn get_or_create_code_review_comments(
-        &mut self,
-        repo_path: &Path,
-        ctx: &mut ModelContext<Self>,
-    ) -> Option<ModelHandle<ReviewCommentBatch>> {
-        if let Some(existing) = self.comment_models.get(repo_path) {
-            return Some(existing.clone());
-        }
-        let model = ctx.add_model(|_ctx| ReviewCommentBatch::default());
-        self.comment_models
-            .insert(repo_path.to_path_buf(), model.clone());
-        Some(model)
-    }
-
-    /// Store a CodeReviewView for a specific repository in a pane group.
-    pub fn store_code_review_view(
-        &mut self,
-        pane_group_id: EntityId,
-        repo_path: PathBuf,
-        view: ViewHandle<CodeReviewView>,
-    ) {
-        let pane_group_views = self.code_review_views.entry(pane_group_id).or_default();
-        pane_group_views.insert(repo_path, view);
-
-        // Remove any inactive code reviews here. This allows these to be garbage collected.
-        self.remove_inactive_code_reviews(pane_group_id);
-    }
-
-    /// Remove any code review view state that is not active in any of the terminal views that belong to this pane group.
-    fn remove_inactive_code_reviews(&mut self, pane_group_id: EntityId) {
-        let Some(code_review_views) = self.code_review_views.get_mut(&pane_group_id) else {
-            return;
-        };
-
-        let Some(terminal_mapping) = self.directory_to_terminal.get(&pane_group_id) else {
-            return;
-        };
-
-        code_review_views.retain(|path, _| terminal_mapping.contains_key(path));
-    }
-
-    /// Get an existing CodeReviewView for a specific repository in a pane group.
-    /// Returns None if no view exists for this combination.
-    pub fn get_code_review_view(
-        &self,
-        pane_group_id: EntityId,
-        repo_path: &Path,
-    ) -> Option<ViewHandle<CodeReviewView>> {
-        self.code_review_views
-            .get(&pane_group_id)
-            .and_then(|pane_group_views| pane_group_views.get(repo_path))
-            .cloned()
-    }
-
     pub fn store_global_search_view(
         &mut self,
         pane_group_id: EntityId,
@@ -305,7 +193,6 @@ impl WorkingDirectoriesModel {
         // but need to be removed when the pane group is destroyed
         self.global_search_views.remove(&pane_group_id);
         self.file_tree_views.remove(&pane_group_id);
-        self.code_review_views.remove(&pane_group_id);
         self.focused_repo.remove(&pane_group_id);
     }
 
@@ -314,10 +201,6 @@ impl WorkingDirectoriesModel {
         let did_remove_terminals = self.directory_to_terminal.remove(&pane_group_id).is_some();
         let removed_repos = self.repository_roots.remove(&pane_group_id);
         let did_remove_repos = removed_repos.is_some();
-
-        if let Some(removed_repos) = removed_repos {
-            self.drop_unused_diff_state_models(removed_repos.into_iter(), ctx);
-        }
 
         if did_remove_dirs {
             ctx.emit(WorkingDirectoriesEvent::DirectoriesChanged {
@@ -487,12 +370,6 @@ impl WorkingDirectoriesModel {
         }
 
         if old_repos != new_deduplicated_repos {
-            self.drop_unused_diff_state_models(
-                old_repos
-                    .into_iter()
-                    .filter(|repo| !new_deduplicated_repos.contains(repo)),
-                ctx,
-            );
             self.emit_repositories_changed(pane_group_id, ctx);
         }
 
@@ -589,38 +466,6 @@ impl WorkingDirectoriesModel {
         _focused_terminal_id: Option<EntityId>,
         _ctx: &mut ModelContext<Self>,
     ) {
-    }
-
-    pub fn get_or_create_diff_state_model(
-        &mut self,
-        _repo_path: PathBuf,
-        _ctx: &mut ModelContext<Self>,
-    ) -> Option<ModelHandle<DiffStateModel>> {
-        None
-    }
-
-    pub fn get_or_create_code_review_comments(
-        &mut self,
-        _repo_path: &Path,
-        _ctx: &mut ModelContext<Self>,
-    ) -> Option<ModelHandle<ReviewCommentBatch>> {
-        None
-    }
-
-    pub fn store_code_review_view(
-        &mut self,
-        _pane_group_id: EntityId,
-        _repo_path: PathBuf,
-        _view: ViewHandle<CodeReviewView>,
-    ) {
-    }
-
-    pub fn get_code_review_view(
-        &self,
-        _pane_group_id: EntityId,
-        _repo_path: &Path,
-    ) -> Option<ViewHandle<CodeReviewView>> {
-        None
     }
 
     pub fn store_global_search_view(

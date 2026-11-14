@@ -18,9 +18,6 @@ use warpui::SingletonEntity;
 pub enum RepoDetectionSource {
     /// User actively navigated to this repo in a terminal (via cd/pwd change).
     TerminalNavigation,
-
-    /// Repo was detected for code review/diff state initialization.
-    CodeReviewInitialization,
 }
 
 pub enum DetectedRepositoriesEvent {

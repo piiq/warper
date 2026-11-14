@@ -42,7 +42,7 @@ Visible app surfaces still contain upstream Warp identity, including about-page 
 
 11. App menus and keybinding descriptions that identify the app use `Warper`, including About, help, settings, logs, and product-level commands.
 
-12. Terminal prompts, onboarding copy, empty states, and AI input placeholders use `Warper` when addressing the installed app or local agent.
+12. Terminal prompts, onboarding copy, and empty states use `Warper` when identifying the installed app.
 
 13. Compatibility values that external shells or integrations depend on may remain unchanged when required for behavior. Examples include terminal compatibility environment values or protocol names. These values are not shown as product branding unless necessary for compatibility.
 

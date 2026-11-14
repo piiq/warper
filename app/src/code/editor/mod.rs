@@ -1,8 +1,5 @@
-pub(crate) mod comment_editor;
-mod comments;
 pub(super) mod diff;
 mod element;
-pub mod embedded_comment;
 pub mod find;
 pub mod goto_line;
 pub mod line;
@@ -12,8 +9,4 @@ mod nav_bar;
 pub mod scroll;
 pub mod view;
 
-pub use comment_editor::{CommentEditor, CommentEditorEvent};
-pub use comments::EditorCommentsModel;
-pub use comments::EditorReviewComment;
 pub(crate) use diff::{add_color, remove_color};
-pub use element::GutterHoverTarget;

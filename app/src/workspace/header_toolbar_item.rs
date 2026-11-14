@@ -4,7 +4,6 @@ use crate::features::FeatureFlag;
 use crate::ui_components::icons::Icon;
 use crate::workspace::tab_settings::TabSettings;
 
-use settings::Setting as _;
 use warpui::{AppContext, SingletonEntity};
 
 /// A configurable item in the vertical tabs header toolbar.
@@ -27,7 +26,6 @@ use warpui::{AppContext, SingletonEntity};
 pub enum HeaderToolbarItemKind {
     TabsPanel,
     ToolsPanel,
-    CodeReview,
 }
 
 impl HeaderToolbarItemKind {
@@ -35,7 +33,6 @@ impl HeaderToolbarItemKind {
         match self {
             Self::TabsPanel => "Tabs Panel",
             Self::ToolsPanel => "Tools Panel",
-            Self::CodeReview => "Code Review",
         }
     }
 
@@ -43,13 +40,10 @@ impl HeaderToolbarItemKind {
         match self {
             Self::TabsPanel => Icon::Menu,
             Self::ToolsPanel => Icon::Tool2,
-            Self::CodeReview => Icon::Diff,
         }
     }
 
-    /// Whether this item is supported on the current platform/configuration
-    /// (feature flags and compile-time features).
-    /// Does not check user show/hide preferences — use `is_available` for that.
+    /// Whether this item is supported by the current layout and feature flags.
     pub fn is_supported(&self, app: &AppContext) -> bool {
         match self {
             Self::TabsPanel => {
@@ -57,26 +51,18 @@ impl HeaderToolbarItemKind {
                     && *TabSettings::as_ref(app).use_vertical_tabs
             }
             Self::ToolsPanel => true,
-            Self::CodeReview => cfg!(feature = "local_fs"),
         }
     }
 
     /// Whether this item should be shown in the toolbar.
-    /// Checks both `is_supported` and user show/hide preferences.
     pub fn is_available(&self, app: &AppContext) -> bool {
-        if !self.is_supported(app) {
-            return false;
-        }
-        match self {
-            Self::CodeReview => *TabSettings::as_ref(app).show_code_review_button.value(),
-            _ => true,
-        }
+        self.is_supported(app)
     }
 
     /// Whether this item opens a side panel (as opposed to replacing the content
     /// area or opening a popover).
     pub fn is_panel(&self) -> bool {
-        matches!(self, Self::TabsPanel | Self::ToolsPanel | Self::CodeReview)
+        matches!(self, Self::TabsPanel | Self::ToolsPanel)
     }
 
     pub fn default_left() -> Vec<Self> {
@@ -84,11 +70,11 @@ impl HeaderToolbarItemKind {
     }
 
     pub fn default_right() -> Vec<Self> {
-        vec![Self::CodeReview]
+        vec![]
     }
 
     /// All toolbar item variants (availability filtering is done at the call site).
     pub fn all_items() -> Vec<Self> {
-        vec![Self::TabsPanel, Self::ToolsPanel, Self::CodeReview]
+        vec![Self::TabsPanel, Self::ToolsPanel]
     }
 }

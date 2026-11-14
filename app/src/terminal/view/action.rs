@@ -10,7 +10,6 @@ use warpui::elements::HyperlinkUrl;
 use warpui::event::ModifiersState;
 use warpui::units::Lines;
 
-use crate::code_review::metadata::CodeReviewPaneEntrypoint;
 use crate::terminal::available_shells::AvailableShell;
 use crate::terminal::metadata::ToggleBlockFilterSource;
 use crate::terminal::model::completions::ShellCompletion;
@@ -252,10 +251,6 @@ pub enum TerminalAction {
         index: usize,
     },
 
-    ToggleCodeReviewPane {
-        entrypoint: CodeReviewPaneEntrypoint,
-    },
-
     AddProjectAtCurrentDirectory,
 
     PickRepoToOpen,
@@ -471,7 +466,6 @@ impl fmt::Debug for TerminalAction {
 
 
 
-            ToggleCodeReviewPane { .. } => write!(f, "ToggleCodeReviewPane"),
 
 
             AddProjectAtCurrentDirectory => write!(f, "AddProjectAtCurrentDirectory"),

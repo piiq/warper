@@ -1,24 +1,26 @@
 # WARPER-006: stop-ship local security ports
 
+This document records an earlier upstream port audit. Its source references and candidate-selection rules are historical; they do not limit later maintainer-requested improvements. [WARPER-015](../WARPER-015/PRODUCT.md) supersedes the built-in agent requirements, including agent file/repo predicates, command approvals, and conversation restore. The retained terminal security behavior still applies.
+
 ## Summary
 
 Warper should port only the upstream security fixes that protect retained local execution boundaries from command execution, local file overwrite, clipboard exposure, spoofed terminal lifecycle hooks, or restore-time shell injection. Dependency bumps, memory leaks, and general hardening stay out until a targeted pass proves Warper will fail without them.
 
-## Why this matters for Warper
+## Affected inputs
 
-Warper's local-first promise collapses if untrusted repository names, file paths, markdown, terminal output, or saved conversation paths can execute commands or mutate local files. These are not "cybersecurity" decorations. They are the line between a local terminal/agent the user can run and one that can be driven by hostile local data.
+Untrusted repository names, file paths, markdown, terminal output, and saved conversation paths can reach shell execution or local file operations. The fixes below prevent those inputs from executing unintended commands, overwriting files, or accessing the clipboard.
 
 ## What goes wrong without this
 
-1. Malicious branch or repository names can become terminal commands. A user opens a repo or changes branches, Warper renders a display chip, and the chip builds a shell command such as `git checkout {branch_name}` from the raw branch name. If the branch name contains shell metacharacters, clicking or accepting the chip can run more than checkout. This matters because branch names come from the repo, not from Warper.
+1. Malicious branch or repository names can become terminal commands. A user opens a repo or changes branches, Warper renders a display chip, and the chip builds a shell command such as `git checkout {branch_name}` from the raw branch name. If the branch name contains shell metacharacters, clicking or accepting the chip can execute additional commands from the repository-provided name.
 2. Local agent file checks can execute code before the agent action is even approved. OpenRouter tools ask Warper whether a string is a file path or a git repo; current predicates interpolate that path into a shell check. A repo path or tool argument containing shell syntax can turn a harmless classification check into command execution. The user may only see an agent trying to inspect files, while the shell has already interpreted attacker-controlled path text.
 3. Denied commands can hide behind leading environment assignments. A command shaped like `NAME=value <denied-command>` can be parsed as an allowed command if the denylist compares the first token literally. The user relies on denylist enforcement as the last local-agent safety boundary; if the boundary ignores env prefixes, blocked destructive commands can be presented or executed under a harmless-looking prefix.
-4. Rendered markdown can launch local targets the user did not intend to run. A notebook or markdown surface emits `OpenFileWithTarget` from a link target. Without the upstream trust gate, an untrusted markdown document can steer Warper toward opening a local file or application target instead of merely showing or revealing a file. The dangerous input is the rendered document, not a command the user typed.
+4. Rendered markdown can launch local targets the user did not intend to run. A notebook or markdown surface emits `OpenFileWithTarget` from a link target. Without the upstream trust gate, a link in an untrusted markdown document can open a local file or application target.
 5. Terminal output can read or overwrite the clipboard. OSC 52 is just bytes written by a process running in the terminal. If Warper honors OSC 52 by default, a command, build tool, remote shell, or pasted log replay can write to the system clipboard or request clipboard contents. The user does not have to click anything; printing the escape sequence is enough for the terminal model to reach the clipboard path.
-6. Terminal output can write files into the current directory through non-inline iTerm payloads. Warper retains iTerm image and payload handling. Non-inline file payloads are not just rendering metadata; they can carry a filename and file data. If accepted, output from a command can create or overwrite cwd files while looking like terminal rendering activity.
+6. Terminal output can write files into the current directory through non-inline iTerm payloads. Warper retains iTerm image and payload handling. Non-inline file payloads can carry a filename and file data. Accepting them allows command output to create or overwrite cwd files.
 7. Raw PTY output can spoof lifecycle hooks. Warper keeps DCS lifecycle/bootstrap hooks for terminal sessions. If hook identifiers are not proven to have been generated by this client, arbitrary process output can imitate internal lifecycle messages. That lets untrusted terminal output mutate session/bootstrap state instead of remaining display data.
-8. Restoring a conversation can execute shell syntax embedded in a saved path. The restore path builds `cd "{path}"` from saved working-directory data. A path with embedded quote or command-substitution syntax can break out of the intended `cd` command during restore. The user action is opening or restoring local history, not approving a new shell command.
-9. Linux external-editor launch can treat filenames as shell programs. Desktop file field-code expansion produces a command string, and the current path invokes `sh`. A filename containing shell metacharacters can be interpreted by the shell when the user asks Warper to open that file in an editor. The expected behavior is opening a file; the failure mode is running shell text derived from the filename.
+8. Restoring a conversation can execute shell syntax embedded in a saved path. The restore path builds `cd "{path}"` from saved working-directory data. A path with embedded quote or command-substitution syntax can break out of the intended `cd` command and execute additional commands when the user restores local history.
+9. Linux external-editor launch can treat filenames as shell programs. Desktop file field-code expansion produces a command string, and the current path invokes `sh`. A filename containing shell metacharacters can execute additional commands when the user asks Warper to open that file in an editor.
 
 ## Source commits
 

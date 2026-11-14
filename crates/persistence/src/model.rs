@@ -4,11 +4,10 @@ use chrono::NaiveDateTime;
 use diesel::prelude::*;
 
 use super::schema::{
-    app, blocks, code_pane_tabs, code_panes, code_review_panes, commands, env_var_collection_panes,
-    folders, ignored_suggestions, notebook_panes, notebooks, pane_branches, pane_leaves,
-    pane_nodes, panels, projects, server_experiments, settings_panes, tabs, terminal_panes,
-    welcome_panes, windows, workflow_panes, workflows, workspace_language_server,
-    workspace_metadata,
+    app, blocks, code_pane_tabs, code_panes, commands, env_var_collection_panes, folders,
+    ignored_suggestions, notebook_panes, notebooks, pane_branches, pane_leaves, pane_nodes, panels,
+    projects, server_experiments, settings_panes, tabs, terminal_panes, welcome_panes, windows,
+    workflow_panes, workflows, workspace_language_server, workspace_metadata,
 };
 
 #[derive(Insertable)]
@@ -250,16 +249,6 @@ pub struct CodePaneTab {
 }
 
 #[derive(Identifiable, Queryable, Selectable)]
-#[diesel(table_name = code_review_panes)]
-#[diesel(primary_key(id))]
-pub struct CodeReviewPane {
-    pub id: i32,
-    pub kind: String,
-    pub terminal_uuid: Vec<u8>,
-    pub repo_path: String,
-}
-
-#[derive(Identifiable, Queryable, Selectable)]
 #[diesel(table_name = settings_panes)]
 #[diesel(primary_key(id))]
 pub struct SettingsPane {
@@ -392,14 +381,6 @@ pub struct NewCodePaneTab {
     pub code_pane_id: i32,
     pub tab_index: i32,
     pub local_path: Option<Vec<u8>>,
-}
-
-#[derive(Insertable)]
-#[diesel(table_name = code_review_panes)]
-pub struct NewCodeReviewPane {
-    pub id: i32,
-    pub terminal_uuid: Vec<u8>,
-    pub repo_path: String,
 }
 
 #[derive(Insertable)]

@@ -4,7 +4,7 @@
 
 Warper is a terminal with support for third-party CLI agents. Remove Warper's built-in AI agent and every feature, service, setting, command, and dependency that exists to support it.
 
-This spec supersedes the built-in AI requirements in earlier Warper specs, including WARPER-001 and WARPER-005. There is no requirement to preserve built-in agent functionality or compatibility with its saved data.
+This spec supersedes the built-in AI requirements in earlier Warper specs, including WARPER-001 and [the archived WARPER-005](../archive/WARPER-005/PRODUCT.md). There is no requirement to preserve built-in agent functionality or compatibility with its saved data. [WARPER-016](../WARPER-016/PRODUCT.md) supersedes this spec's requirement to preserve built-in diff inspection.
 
 ## Behavior
 

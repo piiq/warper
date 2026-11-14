@@ -186,26 +186,6 @@ where
         }
     }
 
-    pub fn set_font_color(&mut self, color: ColorU, ctx: &mut ViewContext<Self>) {
-        self.font_color = Some(color);
-        ctx.notify();
-    }
-
-    pub fn set_font_size(&mut self, size: f32, ctx: &mut ViewContext<Self>) {
-        self.font_size = Some(size);
-        ctx.notify();
-    }
-
-    pub fn set_vertical_margin(&mut self, margin: f32, ctx: &mut ViewContext<Self>) {
-        self.vertical_margin = margin;
-        ctx.notify();
-    }
-
-    pub fn set_top_bar_height(&mut self, height: f32, ctx: &mut ViewContext<Self>) {
-        self.top_bar_height = height;
-        ctx.notify();
-    }
-
     /// Set the main_axis_size behavior for the dropdown header button.
     ///
     /// Default is MainAxisSize::Max, set to MainAxisSize::Min if you want to wrap the dropdown to
@@ -219,27 +199,11 @@ where
         ctx.notify();
     }
 
-    pub fn set_padding(&mut self, padding: Coords, ctx: &mut ViewContext<Self>) {
-        self.padding = Some(padding);
-        ctx.notify();
-    }
-
     pub fn set_menu_header_text_override<F>(&mut self, formatter: F)
     where
         F: Fn(&str) -> String + 'static,
     {
         self.menu_header_text_override = Some(Box::new(formatter));
-    }
-
-    pub fn set_menu_position(
-        &mut self,
-        element_anchor: PositionedElementAnchor,
-        child_anchor: ChildAnchor,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        self.element_anchor = element_anchor;
-        self.child_anchor = child_anchor;
-        ctx.notify();
     }
 
     pub fn add_items(&mut self, items: Vec<DropdownItem<A>>, ctx: &mut ViewContext<Self>) {

@@ -76,7 +76,7 @@ ADDITIONAL_LICENSES=(
     "Roboto Font|SIL Open Font License|app/assets/bundled/fonts/roboto/LICENSE.txt"
     "bash-preexec|MIT|app/assets/bundled/bootstrap/bash-preexec-LICENSE.md"
     "Windows Terminal|MIT|app/assets/windows/LICENSE-WINDOWS-TERMINAL"
-    "GitHub Desktop|MIT|app/src/code_review/GITHUB-DESKTOP-LICENSE"
+    "GitHub Desktop|MIT|app/src/git_status/GITHUB-DESKTOP-LICENSE"
 )
 
 # Build the third-party licenses file unless the NO_LICENSES envvar is set.

@@ -1,11 +1,9 @@
 use std::fmt::Display;
 
-use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
 use regex::Regex;
-use warpui::elements::{FormattedTextElement, HighlightedHyperlink};
 use warpui::keymap::ContextPredicate;
 use warpui::{
-    elements::{Container, Flex, MouseStateHandle, ParentElement},
+    elements::{Container, Flex, MouseStateHandle, ParentElement, Text},
     presenter::ChildView,
     ui_components::components::{UiComponent, UiComponentStyles},
     Action, AppContext, Element, Entity, ModelHandle, SingletonEntity, TypedActionView, View,
@@ -107,7 +105,7 @@ impl WarpifyPageView {
 
     fn build_page(_ctx: &mut ViewContext<Self>) -> PageType<Self> {
         let categories = vec![
-            Category::new("", vec![Box::new(TitleWidget::default())]),
+            Category::new("", vec![Box::new(TitleWidget)]),
             Category::new("Subshells", vec![Box::new(SubshellsWidget::default())])
                 .with_subtitle("Subshells supported: bash, zsh, and fish."),
         ];
@@ -255,7 +253,6 @@ impl View for WarpifyPageView {
 pub enum WarpifyPageAction {
     RemoveAddedCommand(usize),
     RemoveDenylistedCommand(usize),
-    OpenUrl(String),
 }
 
 impl TypedActionView for WarpifyPageView {
@@ -266,9 +263,6 @@ impl TypedActionView for WarpifyPageView {
         match action {
             RemoveDenylistedCommand(index) => self.remove_denylisted_command(*index, ctx),
             RemoveAddedCommand(index) => self.remove_added_command(*index, ctx),
-            OpenUrl(url) => {
-                ctx.open_url(url.as_str());
-            }
         }
     }
 }
@@ -302,32 +296,20 @@ impl From<ViewHandle<WarpifyPageView>> for SettingsPageViewHandle {
 }
 
 #[derive(Default)]
-struct TitleWidget {
-    learn_more_highlight_index: HighlightedHyperlink,
-}
+struct TitleWidget;
 
 impl TitleWidget {
     fn render_top_of_page(&self, appearance: &Appearance, _app: &AppContext) -> Box<dyn Element> {
-        let warpify_description = vec![
-            FormattedTextFragment::plain_text(
-                "Configure whether Warper attempts to “Warpify” (add support for blocks, \
-                    input modes, etc) certain shells. ",
-            ),
-            FormattedTextFragment::hyperlink("Learn more", "about:blank"),
-        ];
-
-        let warpify_description = FormattedTextElement::new(
-            FormattedText::new([FormattedTextLine::Line(warpify_description)]),
+        let warpify_description = Text::new_inline(
+            "Configure whether Warper attempts to “Warpify” (add support for blocks, \
+                input modes, etc) certain shells.",
+            appearance.ui_font_family(),
             CONTENT_FONT_SIZE,
-            appearance.ui_font_family(),
-            appearance.ui_font_family(),
-            blended_colors::text_sub(appearance.theme(), appearance.theme().surface_1()),
-            self.learn_more_highlight_index.clone(),
         )
-        .with_hyperlink_font_color(appearance.theme().accent().into_solid())
-        .register_default_click_handlers(|url, _, ctx| {
-            ctx.open_url(&url.url);
-        })
+        .with_color(blended_colors::text_sub(
+            appearance.theme(),
+            appearance.theme().surface_1(),
+        ))
         .finish();
 
         Flex::column()

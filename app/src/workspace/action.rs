@@ -156,7 +156,7 @@ pub enum WorkspaceAction {
         source: PaletteSource,
     },
     ViewUserDocs,
-    ViewPrivacyPolicy,
+    ViewLocalData,
     SendFeedback,
     /// Open the log directory in the system file explorer with the current log file selected.
     ViewLogs,
@@ -202,11 +202,6 @@ pub enum WorkspaceAction {
     FinalizeDropTab,
     /// Toggles the left panel. This happens as explicit action from the user.
     ToggleLeftPanel,
-    /// Toggles the right panel. This happens as an explicit action from the user.
-    ToggleRightPanel,
-    /// Opens the code review panel (right panel) without toggling. If already open,
-    /// switches to the target pane's repo. Used by vertical tabs diff stats chip.
-    OpenCodeReviewPanel(PaneViewLocator),
     /// Toggles the vertical tabs panel. This happens as an explicit action from the user.
     ToggleVerticalTabsPanel,
     ToggleVerticalTabsSettingsPopup,
@@ -319,10 +314,6 @@ pub enum WorkspaceAction {
     /// Uninstall the Warp CLI command from /usr/local/bin
     #[cfg(target_os = "macos")]
     UninstallCLI,
-    UndoRevertInCodeReviewPane {
-        window_id: WindowId,
-        view_id: EntityId,
-    },
     /// Handle a file being renamed in the file tree
     #[cfg(feature = "local_fs")]
     FileRenamed {
@@ -480,7 +471,7 @@ impl WorkspaceAction {
             | OpenPalette { .. }
             | TogglePalette { mode: _, source: _ }
             | ViewUserDocs
-            | ViewPrivacyPolicy
+            | ViewLocalData
             | SendFeedback
             | ChangeCursor(_)
             | ToggleBlockSnackbar
@@ -516,8 +507,6 @@ impl WorkspaceAction {
             | FinalizeDropTab
             | ToggleLeftPanel
             | ClosePanel
-            | ToggleRightPanel
-            | OpenCodeReviewPanel(..)
             | ToggleVerticalTabsSettingsPopup
             | SetVerticalTabsDisplayGranularity(_)
             | SetVerticalTabsTabItemMode(_)
@@ -564,7 +553,6 @@ impl WorkspaceAction {
             | TabHoverWidthEnd
             | FocusTerminalViewInWorkspace { .. }
             | FocusPane(..)
-            | UndoRevertInCodeReviewPane { .. }
             | NavigatePrevPaneOrPanel
             | NavigateNextPaneOrPanel
             | ToggleProjectExplorer

@@ -4,6 +4,8 @@ use std::{
     sync::Arc,
 };
 
+use crate::util::links::USER_DOCS_URL;
+
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use warp_util::path::EscapeChar;
@@ -41,9 +43,8 @@ use super::{Event, InlineBannerItem, InlineBannerType, TerminalView};
 #[path = "open_in_warp_tests.rs"]
 mod tests;
 
-const LEARN_MORE_MARKDOWN_URL: &str =
-    "https://docs.warp.dev/terminal/more-features/markdown-viewer";
-const LEARN_MORE_CODE_URL: &str = "https://docs.warp.dev/code/overview#built-in-code-editor";
+const LEARN_MORE_MARKDOWN_URL: &str = USER_DOCS_URL;
+const LEARN_MORE_CODE_URL: &str = USER_DOCS_URL;
 
 /// A path to a file that can be opened in the built-in viewer or editor, along with its type.
 #[derive(Debug, Clone, PartialEq, Eq)]

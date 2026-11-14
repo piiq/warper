@@ -3,7 +3,7 @@ pkgver=@@VERSION@@
 pkgrel=@@RELEASE@@
 pkgdesc="Warper command line interface"
 arch=('@@ARCH@@')
-url="https://github.com/ruslanvakhitov/warper"
+url="https://github.com/piiq/warper"
 license=('custom')
 depends=(
 	'curl'

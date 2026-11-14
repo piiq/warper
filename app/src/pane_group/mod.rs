@@ -16,6 +16,7 @@ use crate::terminal::available_shells::{AvailableShell, AvailableShells};
 use crate::terminal::cli_agent_sessions::plugin_manager::PluginModalKind;
 use crate::undo_close::UndoCloseStack;
 use crate::undo_close::UndoCloseStackEvent;
+use crate::util::links::USER_DOCS_URL;
 #[cfg(feature = "local_fs")]
 use crate::util::openable_file_type::FileTarget;
 use crate::view_components::ToastFlavor;
@@ -110,7 +111,6 @@ use focus_state::PaneGroupFocusState;
 #[path = "mod_tests.rs"]
 mod tests;
 
-pub use crate::code_review::CodeReviewPanelArg;
 pub use pane::code_pane::CodePane;
 pub use pane::file_pane::FilePane;
 pub use pane::settings_pane::SettingsPane;
@@ -171,8 +171,7 @@ fn resolve_tab_config_shell(name: &str, ctx: &AppContext) -> Option<AvailableShe
 
     AvailableShell::try_from(name).ok()
 }
-const WARP_SHELL_COMPATIBILITY_DOCS: &str =
-    "https://docs.warp.dev/getting-started/supported-shells";
+const WARP_SHELL_COMPATIBILITY_DOCS: &str = USER_DOCS_URL;
 
 #[derive(Debug, Clone, Copy)]
 pub enum ActivationReason {
@@ -441,8 +440,6 @@ pub enum Event {
         source: CodeSource,
     },
 
-    OpenCodeReviewPane(CodeReviewPanelArg),
-    ToggleCodeReviewPane(CodeReviewPanelArg),
     /// Tell the workspace to run a workflow in the active tab's active session.
     RunWorkflow {
         workflow: Arc<WorkflowType>,
@@ -678,9 +675,7 @@ pub struct PaneGroup {
     /// If the left panel is open for this pane group
     pub left_panel_open: bool,
     /// If the right panel is open for this pane group
-    pub right_panel_open: bool,
     /// If the right panel is maximized
-    pub is_right_panel_maximized: bool,
 
     /// Tab-level custom title set via the rename-tab flow.
     custom_title: Option<String>,
@@ -1381,10 +1376,6 @@ impl PaneGroup {
                 Ok((PaneData::new(pane_id), focus))
             }
 
-            LeafContents::CodeReview(_) => {
-                Err(anyhow::anyhow!("Code review panes are no longer supported"))
-            }
-
             LeafContents::GetStarted => {
                 if !FeatureFlag::GetStartedTab.is_enabled() {
                     Err(anyhow::anyhow!("GetStarted pane not supported"))
@@ -1774,9 +1765,7 @@ impl PaneGroup {
             dragged_border: None,
             user_default_shell_changed_banner,
             active_file_model,
-            right_panel_open: false,
             left_panel_open: false,
-            is_right_panel_maximized: false,
             custom_title: None,
         };
 

@@ -212,7 +212,7 @@ impl FileDataSource {
         // If the query looks like an absolute path, strip the common prefix with the
         // repo root (first) or working directory (second) so it can match against the
         // relative paths stored in the file index.  This allows users to paste absolute
-        // paths — e.g. copied via "Copy file path" in the Code Review pane — directly
+        // paths copied from another application directly
         // into the Command-Palette file picker.  We pass the tilde-expanded
         // `query_file_name` so that `~/...` paths are also handled.
         #[cfg(feature = "local_fs")]

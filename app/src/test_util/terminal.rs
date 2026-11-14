@@ -5,7 +5,7 @@ use repo_metadata::repositories::DetectedRepositories;
 use repo_metadata::RepoMetadataModel;
 use warp_core::ui::appearance::Appearance;
 
-use crate::code_review::git_status_update::GitStatusUpdateModel;
+use crate::git_status::status_update::GitStatusUpdateModel;
 use crate::terminal::cli_agent_sessions::CLIAgentSessionsModel;
 use crate::warp_managed_paths_watcher::WarpManagedPathsWatcher;
 use warpui::{platform::WindowStyle, App, ViewHandle, WindowId};

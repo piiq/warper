@@ -1,11 +1,6 @@
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use lsp::supported_servers::LSPServerType;
-use lsp::{
-    LanguageId, LanguageServerId, LspManagerModel, LspManagerModelEvent, LspServerModel,
-    LspState as LspModelState,
-};
+use lsp::{LanguageId, LspManagerModel, LspServerModel, LspState as LspModelState};
 
 use pathfinder_color::ColorU;
 use pathfinder_geometry::vector::vec2f;
@@ -52,70 +47,22 @@ struct SingleFileMouseStates {
     remove_server: MouseStateHandle,
 }
 
-#[derive(Default)]
-struct WorkspaceMouseStates {
-    restart_all: MouseStateHandle,
-    stop_all: MouseStateHandle,
-    start_all: MouseStateHandle,
-    manage_servers: MouseStateHandle,
+struct FooterState {
+    path: PathBuf,
+    mouse_states: SingleFileMouseStates,
+    lsp_repo_status: LspRepoStatus,
 }
 
-/// Determines the operating mode of the footer.
-enum FooterMode {
-    /// Single file editor — tracks one server for one file path.
-    SingleFile {
-        path: PathBuf,
-        mouse_states: SingleFileMouseStates,
-        /// Status of LSP server relevance and installation for the file's repo.
-        lsp_repo_status: LspRepoStatus,
-    },
-    /// Workspace-level — tracks all servers for a repo root.
-    Workspace {
-        root_path: PathBuf,
-        mouse_states: WorkspaceMouseStates,
-        /// Per-server-type status of LSP relevance and installation.
-        lsp_repo_statuses: LspRepoStatuses,
-    },
-}
-
-impl FooterMode {
+impl FooterState {
     fn path(&self) -> &Path {
-        match self {
-            FooterMode::SingleFile { path, .. } => path,
-            FooterMode::Workspace { root_path, .. } => root_path,
-        }
+        &self.path
     }
 
-    /// Returns all CTA-worthy `LspRepoStatus` entries (i.e. those that need user action).
-    /// For SingleFile, returns at most one. For Workspace, returns all
-    /// `DisabledAndInstalled` or `DisabledAndNotInstalled` entries.
-    fn cta_lsp_repo_statuses(&self) -> Vec<&LspRepoStatus> {
-        match self {
-            FooterMode::SingleFile {
-                lsp_repo_status, ..
-            } => {
-                if matches!(
-                    lsp_repo_status,
-                    LspRepoStatus::DisabledAndInstalled { .. }
-                        | LspRepoStatus::DisabledAndNotInstalled { .. }
-                ) {
-                    vec![lsp_repo_status]
-                } else {
-                    vec![]
-                }
-            }
-            FooterMode::Workspace {
-                lsp_repo_statuses, ..
-            } => lsp_repo_statuses
-                .values()
-                .filter(|s| {
-                    matches!(
-                        s,
-                        LspRepoStatus::DisabledAndInstalled { .. }
-                            | LspRepoStatus::DisabledAndNotInstalled { .. }
-                    )
-                })
-                .collect(),
+    fn cta_lsp_repo_status(&self) -> Option<&LspRepoStatus> {
+        match &self.lsp_repo_status {
+            status @ (LspRepoStatus::DisabledAndInstalled { .. }
+            | LspRepoStatus::DisabledAndNotInstalled { .. }) => Some(status),
+            _ => None,
         }
     }
 }
@@ -137,14 +84,6 @@ pub enum CodeFooterViewAction {
     StartServer,
     #[cfg_attr(not(feature = "local_fs"), allow(dead_code))]
     RemoveServer,
-    #[cfg_attr(not(feature = "local_fs"), allow(dead_code))]
-    RestartAllServers,
-    #[cfg_attr(not(feature = "local_fs"), allow(dead_code))]
-    StopAllServers,
-    #[cfg_attr(not(feature = "local_fs"), allow(dead_code))]
-    StartAllServers,
-    #[cfg_attr(not(feature = "local_fs"), allow(dead_code))]
-    ManageServers,
 }
 
 enum LSPServerRenderStatus {
@@ -190,62 +129,11 @@ impl LSPServerRenderStatus {
 }
 
 pub struct CodeFooterView {
-    mode: FooterMode,
+    state: FooterState,
     lsp_servers: Vec<WeakModelHandle<LspServerModel>>,
-    /// Tracks the server IDs we've already subscribed to, so we don't duplicate subscriptions.
-    subscribed_server_ids: Vec<LanguageServerId>,
     lsp_status_button: ViewHandle<ActionButton>,
     enable_lsp_button: Option<ViewHandle<ActionButton>>,
     is_lsp_menu_open: bool,
-    /// Whether to render the top border. Disabled for code review footer.
-    show_border: bool,
-}
-
-/// Wraps the per-server-type status map and enforces a single invariant on
-/// every mutation: **a running server always wins**. All status updates must
-/// go through [`update_status`](Self::update_status) so that stale async
-/// results (e.g. an `InstallStatusUpdate` arriving after the server has
-/// already started) can never clobber a live server's `Ready` status.
-#[derive(Debug, Default)]
-struct LspRepoStatuses {
-    inner: HashMap<LSPServerType, LspRepoStatus>,
-}
-
-impl LspRepoStatuses {
-    /// The single mutation point for workspace repo statuses.
-    ///
-    /// If the server type has a live (upgradeable) server in `lsp_servers`,
-    /// the effective status is forced to `Ready` regardless of `proposed`.
-    /// Otherwise `proposed` is used as-is.
-    fn update_status(
-        &mut self,
-        server_type: LSPServerType,
-        proposed: LspRepoStatus,
-        lsp_servers: &[WeakModelHandle<LspServerModel>],
-        app: &AppContext,
-    ) {
-        let is_live = lsp_servers.iter().any(|w| {
-            w.upgrade(app)
-                .is_some_and(|s| s.as_ref(app).server_type() == server_type)
-        });
-        let effective = if is_live {
-            LspRepoStatus::Ready
-        } else {
-            proposed
-        };
-        self.inner.insert(server_type, effective);
-    }
-
-    fn is_empty(&self) -> bool {
-        self.inner.is_empty()
-    }
-    fn contains_key(&self, server_type: &LSPServerType) -> bool {
-        self.inner.contains_key(server_type)
-    }
-
-    fn values(&self) -> impl Iterator<Item = &LspRepoStatus> {
-        self.inner.values()
-    }
 }
 
 impl CodeFooterView {
@@ -311,9 +199,7 @@ impl CodeFooterView {
                     return;
                 };
 
-                let FooterMode::SingleFile { path, .. } = &me.mode else {
-                    return;
-                };
+                let path = &me.state.path;
 
                 let Some(current_server_type) =
                     LanguageId::from_path(path).map(|id| id.server_type())
@@ -330,12 +216,7 @@ impl CodeFooterView {
                 let new_status =
                     LspRepoStatus::from_installation_status(status, *event_server_type);
 
-                if let FooterMode::SingleFile {
-                    lsp_repo_status, ..
-                } = &mut me.mode
-                {
-                    *lsp_repo_status = new_status;
-                }
+                me.state.lsp_repo_status = new_status;
                 me.update_enable_button_label(ctx);
                 ctx.notify();
             });
@@ -346,211 +227,16 @@ impl CodeFooterView {
         let initial_status = LspRepoStatus::CheckingForInstallation;
 
         Self {
-            mode: FooterMode::SingleFile {
+            state: FooterState {
                 path,
                 mouse_states: SingleFileMouseStates::default(),
                 lsp_repo_status: initial_status,
             },
             lsp_servers: Vec::new(),
-            subscribed_server_ids: Vec::new(),
             is_lsp_menu_open: false,
             lsp_status_button,
             enable_lsp_button,
-            show_border: true,
         }
-    }
-
-    /// Creates a footer in workspace mode that tracks all LSP servers for a repo root.
-    /// Used by code review to show a single aggregated footer.
-    pub fn new_for_workspace(root_path: PathBuf, ctx: &mut ViewContext<Self>) -> Self {
-        let lsp_status_button = Self::create_lsp_status_button(true, ctx);
-
-        // Subscribe to LspManagerModel to auto-track server lifecycle
-        let workspace_root = root_path.clone();
-        ctx.subscribe_to_model(
-            &LspManagerModel::handle(ctx),
-            move |me, _, event, ctx| match event {
-                LspManagerModelEvent::ServerStarted(path) if path == &workspace_root => {
-                    me.refresh_workspace_servers(ctx);
-                }
-                LspManagerModelEvent::ServerStopped(path) if path == &workspace_root => {
-                    ctx.notify();
-                }
-                LspManagerModelEvent::ServerRemoved {
-                    workspace_root: removed_root,
-                    ..
-                } if removed_root == &workspace_root => {
-                    me.refresh_workspace_servers(ctx);
-                }
-                _ => {}
-            },
-        );
-
-        // Kick off async detection of available servers for this workspace
-        #[cfg(feature = "local_fs")]
-        {
-            let persisted = PersistedWorkspace::handle(ctx);
-            persisted.update(ctx, |model, ctx| {
-                model.detect_available_servers_for_workspaces(vec![root_path.clone()], false, ctx);
-            });
-
-            // Subscribe to AvailableServersDetected to populate per-server statuses
-            let workspace_root_for_detect = root_path.clone();
-            ctx.subscribe_to_model(&persisted, move |me, _model_handle, event, ctx| {
-                match event {
-                    PersistedWorkspaceEvent::AvailableServersDetected {
-                        workspace_path,
-                        servers,
-                    } if *workspace_path == workspace_root_for_detect => {
-                        let FooterMode::Workspace {
-                            root_path,
-                            lsp_repo_statuses,
-                            ..
-                        } = &mut me.mode
-                        else {
-                            return;
-                        };
-
-                        // For each suggested server, detect its installation status
-                        let root = root_path.clone();
-                        for &server_type in servers {
-                            let proposed =
-                                PersistedWorkspace::handle(ctx).update(ctx, |model, ctx| {
-                                    model.detect_lsp_workspace_status(
-                                        root.clone(),
-                                        server_type,
-                                        ctx,
-                                    )
-                                });
-                            lsp_repo_statuses.update_status(
-                                server_type,
-                                proposed,
-                                &me.lsp_servers,
-                                ctx,
-                            );
-                        }
-
-                        // Create enable button for all CTA-worthy servers
-                        let cta_statuses = me.mode.cta_lsp_repo_statuses();
-                        if let Some(label) = Self::button_label_for_cta_statuses(&cta_statuses) {
-                            me.enable_lsp_button = Some(ctx.add_typed_action_view(|_ctx| {
-                                ActionButton::new(label, NakedTheme)
-                                    .with_size(ButtonSize::Small)
-                                    .on_click(|ctx| {
-                                        ctx.dispatch_typed_action(CodeFooterViewAction::EnableLSP);
-                                    })
-                            }));
-                        }
-
-                        ctx.notify();
-                    }
-                    PersistedWorkspaceEvent::InstallStatusUpdate {
-                        server_type,
-                        status,
-                    } => {
-                        let FooterMode::Workspace {
-                            lsp_repo_statuses, ..
-                        } = &mut me.mode
-                        else {
-                            return;
-                        };
-
-                        // Only update if we're tracking this server type
-                        if lsp_repo_statuses.contains_key(server_type) {
-                            let proposed =
-                                LspRepoStatus::from_installation_status(status, *server_type);
-                            lsp_repo_statuses.update_status(
-                                *server_type,
-                                proposed,
-                                &me.lsp_servers,
-                                ctx,
-                            );
-                            me.update_enable_button_label(ctx);
-                            ctx.notify();
-                        }
-                    }
-                    PersistedWorkspaceEvent::AvailableServersDetected { .. }
-                    | PersistedWorkspaceEvent::InstallationSucceeded
-                    | PersistedWorkspaceEvent::InstallationFailed
-                    | PersistedWorkspaceEvent::WorkspaceAdded { .. } => {}
-                }
-            });
-        }
-
-        let mut view = Self {
-            mode: FooterMode::Workspace {
-                root_path,
-                mouse_states: WorkspaceMouseStates::default(),
-                lsp_repo_statuses: LspRepoStatuses::default(),
-            },
-            lsp_servers: Vec::new(),
-            subscribed_server_ids: Vec::new(),
-            is_lsp_menu_open: false,
-            lsp_status_button,
-            enable_lsp_button: None,
-            show_border: false,
-        };
-
-        // Populate initial servers from the manager
-        view.refresh_workspace_servers(ctx);
-        view
-    }
-
-    /// Refreshes the server list from the LspManagerModel for workspace mode.
-    fn refresh_workspace_servers(&mut self, ctx: &mut ViewContext<Self>) {
-        let FooterMode::Workspace { root_path, .. } = &self.mode else {
-            return;
-        };
-
-        let lsp_manager = LspManagerModel::handle(ctx);
-        let new_servers: Vec<ModelHandle<LspServerModel>> = lsp_manager
-            .as_ref(ctx)
-            .servers_for_workspace(root_path)
-            .cloned()
-            .unwrap_or_default();
-
-        // Subscribe to any newly added servers (check by LanguageServerId)
-        for server in &new_servers {
-            let server_id = server.as_ref(ctx).id();
-            if !self.subscribed_server_ids.contains(&server_id) {
-                ctx.subscribe_to_model(server, |_, _, _, ctx| {
-                    ctx.notify();
-                });
-            }
-        }
-
-        // Mark any server types that now have live servers as Ready.
-        // Uses reconciled_repo_status (with Ready as the proposed status)
-        // which is a no-op here since the server IS live, but keeps all
-        // mutations going through the single reconciliation point.
-        if let FooterMode::Workspace {
-            lsp_repo_statuses, ..
-        } = &mut self.mode
-        {
-            for server in &new_servers {
-                let server_type = server.as_ref(ctx).server_type();
-                lsp_repo_statuses.update_status(
-                    server_type,
-                    LspRepoStatus::Ready,
-                    &self.lsp_servers,
-                    ctx,
-                );
-            }
-        }
-
-        // Rebuild subscribed IDs to match current server set
-        self.subscribed_server_ids = new_servers.iter().map(|s| s.as_ref(ctx).id()).collect();
-
-        self.lsp_servers = new_servers.iter().map(|s| s.downgrade()).collect();
-        let has_servers = !self.lsp_servers.is_empty();
-        self.lsp_status_button.update(ctx, |button, ctx| {
-            button.set_disabled(!has_servers, ctx);
-        });
-
-        // Update (or hide) the enable button based on remaining CTA statuses.
-        self.update_enable_button_label(ctx);
-
-        ctx.notify();
     }
 
     /// Returns the appropriate button label for the given LSP repo status.
@@ -566,28 +252,8 @@ impl CodeFooterView {
         }
     }
 
-    /// Returns the appropriate button label for a set of CTA-worthy statuses.
-    /// When multiple servers need action, uses plural labels
-    /// ("Enable servers" / "Install servers").
-    fn button_label_for_cta_statuses(statuses: &[&LspRepoStatus]) -> Option<String> {
-        match statuses.len() {
-            0 => None,
-            1 => Self::button_label_for_status(statuses[0]),
-            _ => {
-                let any_needs_install = statuses
-                    .iter()
-                    .any(|s| matches!(s, LspRepoStatus::DisabledAndNotInstalled { .. }));
-                if any_needs_install {
-                    Some("Install servers".to_string())
-                } else {
-                    Some("Enable servers".to_string())
-                }
-            }
-        }
-    }
-
     /// Detects LSP installation status for the given file path and returns the initial status.
-    /// This is shared between `new` and `clear_server_subscription`. Only used in SingleFile mode.
+    /// This is shared between `new` and `clear_server_subscription`.
     #[cfg(feature = "local_fs")]
     fn detect_installation_status(
         file_path: &std::path::Path,
@@ -615,8 +281,11 @@ impl CodeFooterView {
     /// Updates the enable button label based on the current CTA-worthy repo statuses.
     /// Hides the button when no CTAs remain.
     fn update_enable_button_label(&mut self, ctx: &mut ViewContext<Self>) {
-        let cta_statuses = self.mode.cta_lsp_repo_statuses();
-        let Some(label) = Self::button_label_for_cta_statuses(&cta_statuses) else {
+        let Some(label) = self
+            .state
+            .cta_lsp_repo_status()
+            .and_then(Self::button_label_for_status)
+        else {
             // No CTA-worthy statuses remain — hide the button.
             self.enable_lsp_button = None;
             return;
@@ -637,7 +306,7 @@ impl CodeFooterView {
         }
     }
 
-    /// Subscribes to a single server's events and adds it. Used in SingleFile mode.
+    /// Subscribes to a single server's events and adds it.
     pub fn subscribe_to_server_events(
         &mut self,
         lsp_server: &ModelHandle<LspServerModel>,
@@ -648,13 +317,7 @@ impl CodeFooterView {
         });
 
         self.lsp_servers = vec![lsp_server.downgrade()];
-        self.subscribed_server_ids = vec![lsp_server.as_ref(ctx).id()];
-        if let FooterMode::SingleFile {
-            lsp_repo_status, ..
-        } = &mut self.mode
-        {
-            *lsp_repo_status = LspRepoStatus::Ready;
-        }
+        self.state.lsp_repo_status = LspRepoStatus::Ready;
 
         self.lsp_status_button.update(ctx, |button, ctx| {
             button.set_disabled(false, ctx);
@@ -664,10 +327,9 @@ impl CodeFooterView {
 
     /// Clears the server subscription when a server is removed from the manager.
     /// This resets the footer to the "no server" state and kicks off installation detection.
-    /// Used in SingleFile mode.
+    ///
     pub fn clear_server_subscription(&mut self, ctx: &mut ViewContext<Self>) {
         self.lsp_servers.clear();
-        self.subscribed_server_ids.clear();
         self.is_lsp_menu_open = false;
 
         self.lsp_status_button.update(ctx, |button, ctx| {
@@ -676,21 +338,13 @@ impl CodeFooterView {
 
         // Set initial status and kick off installation status detection
         #[cfg(feature = "local_fs")]
-        if let FooterMode::SingleFile {
-            path,
-            lsp_repo_status,
-            ..
-        } = &mut self.mode
         {
-            *lsp_repo_status = Self::detect_installation_status(path, ctx);
+            self.state.lsp_repo_status = Self::detect_installation_status(&self.state.path, ctx);
             self.update_enable_button_label(ctx);
         }
         #[cfg(not(feature = "local_fs"))]
-        if let FooterMode::SingleFile {
-            lsp_repo_status, ..
-        } = &mut self.mode
         {
-            *lsp_repo_status = LspRepoStatus::CheckingForInstallation;
+            self.state.lsp_repo_status = LspRepoStatus::CheckingForInstallation;
         }
 
         ctx.notify();
@@ -844,7 +498,7 @@ impl CodeFooterView {
         .finish()
     }
 
-    /// Renders the menu for SingleFile mode (single server detail + per-server actions).
+    /// Renders the server details and actions for the open file.
     fn render_single_server_menu(
         &self,
         model: &LspServerModel,
@@ -853,7 +507,7 @@ impl CodeFooterView {
         app: &AppContext,
     ) -> Box<dyn Element> {
         let title = PersistedWorkspace::as_ref(app)
-            .root_for_workspace(self.mode.path())
+            .root_for_workspace(self.state.path())
             .and_then(|path| path.file_name())
             .and_then(|directory_name| directory_name.to_str().map(|s| s.to_string()))
             .unwrap_or("unknown workspace".to_string());
@@ -912,82 +566,6 @@ impl CodeFooterView {
         Self::wrap_menu_in_dismiss(col, appearance)
     }
 
-    /// Renders the menu for Workspace mode (multi-server list + global actions).
-    fn render_workspace_menu(
-        &self,
-        mouse_states: &WorkspaceMouseStates,
-        appearance: &Appearance,
-        app: &AppContext,
-    ) -> Box<dyn Element> {
-        let title = self
-            .mode
-            .path()
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("unknown workspace")
-            .to_string();
-
-        let background = appearance.theme().surface_2();
-
-        let mut col =
-            Flex::column().with_child(Self::render_menu_title(title, background, appearance));
-
-        // Render a row per server
-        let mut has_running = false;
-        let mut has_stopped = false;
-        let mut server_count: usize = 0;
-        for weak in &self.lsp_servers {
-            let Some(server) = weak.upgrade(app) else {
-                continue;
-            };
-            server_count += 1;
-            let server_ref = server.as_ref(app);
-            match LSPServerRenderStatus::render_status(Some(server_ref)) {
-                LSPServerRenderStatus::Available | LSPServerRenderStatus::Busy => {
-                    has_running = true;
-                }
-                LSPServerRenderStatus::Stopped | LSPServerRenderStatus::Failed => {
-                    has_stopped = true;
-                }
-            }
-            col.add_child(
-                Container::new(Self::render_server_row(server_ref, appearance))
-                    .with_vertical_padding(4.)
-                    .with_horizontal_padding(16.)
-                    .finish(),
-            );
-        }
-
-        // Separator + conditional global actions based on server states
-        col.add_child(Self::render_menu_separator(appearance));
-        let is_plural = server_count > 1;
-        if has_running {
-            col.add_child(Self::render_restart_all_servers_menu_item(
-                mouse_states,
-                is_plural,
-                appearance,
-            ));
-            col.add_child(Self::render_stop_all_servers_menu_item(
-                mouse_states,
-                is_plural,
-                appearance,
-            ));
-        }
-        if has_stopped {
-            col.add_child(Self::render_start_all_servers_menu_item(
-                mouse_states,
-                has_running,
-                is_plural,
-                appearance,
-            ));
-        }
-        col.add_child(Self::render_manage_servers_menu_item(
-            mouse_states,
-            appearance,
-        ));
-
-        Self::wrap_menu_in_dismiss(col, appearance)
-    }
     /// Generic rendering function for each action row in the menu. Note that we need to take in a closure here
     /// as Hoverable needs to dynamically construct its inner element.
     fn render_menu_item<F: 'static + Fn() -> Box<dyn Element>>(
@@ -1152,106 +730,6 @@ impl CodeFooterView {
             CodeFooterViewAction::RemoveServer,
         )
     }
-    fn render_restart_all_servers_menu_item(
-        mouse_states: &WorkspaceMouseStates,
-        is_plural: bool,
-        appearance: &Appearance,
-    ) -> Box<dyn Element> {
-        let theme = appearance.theme();
-        let background = theme.surface_2();
-        let text_color: ColorU = theme.main_text_color(background).into();
-
-        Self::render_menu_item(
-            appearance,
-            mouse_states.restart_all.clone(),
-            move || {
-                Icon::RefreshCcw
-                    .to_warpui_icon(ThemeFill::Solid(text_color))
-                    .finish()
-            },
-            if is_plural {
-                "Restart all servers"
-            } else {
-                "Restart server"
-            },
-            CodeFooterViewAction::RestartAllServers,
-        )
-    }
-    fn render_stop_all_servers_menu_item(
-        mouse_states: &WorkspaceMouseStates,
-        is_plural: bool,
-        appearance: &Appearance,
-    ) -> Box<dyn Element> {
-        let theme = appearance.theme();
-        let stop_color: ColorU = AnsiColorIdentifier::Red
-            .to_ansi_color(&theme.terminal_colors().bright)
-            .into();
-
-        Self::render_menu_item(
-            appearance,
-            mouse_states.stop_all.clone(),
-            move || {
-                Container::new(Rect::new().with_background_color(stop_color).finish())
-                    .with_uniform_padding(2.)
-                    .finish()
-            },
-            if is_plural {
-                "Stop all servers"
-            } else {
-                "Stop server"
-            },
-            CodeFooterViewAction::StopAllServers,
-        )
-    }
-    fn render_start_all_servers_menu_item(
-        mouse_states: &WorkspaceMouseStates,
-        has_running: bool,
-        is_plural: bool,
-        appearance: &Appearance,
-    ) -> Box<dyn Element> {
-        let theme = appearance.theme();
-        let background = theme.surface_2();
-        let text_color: ColorU = theme.main_text_color(background).into();
-
-        Self::render_menu_item(
-            appearance,
-            mouse_states.start_all.clone(),
-            move || {
-                Icon::Play
-                    .to_warpui_icon(ThemeFill::Solid(text_color))
-                    .finish()
-            },
-            if !is_plural {
-                "Start server"
-            } else if has_running {
-                "Start all stopped servers"
-            } else {
-                "Start all servers"
-            },
-            CodeFooterViewAction::StartAllServers,
-        )
-    }
-    fn render_manage_servers_menu_item(
-        mouse_states: &WorkspaceMouseStates,
-        appearance: &Appearance,
-    ) -> Box<dyn Element> {
-        let theme = appearance.theme();
-        let background = theme.surface_2();
-        let text_color: ColorU = theme.main_text_color(background).into();
-
-        Self::render_menu_item(
-            appearance,
-            mouse_states.manage_servers.clone(),
-            move || {
-                Icon::Gear
-                    .to_warpui_icon(ThemeFill::Solid(text_color))
-                    .finish()
-            },
-            "Manage servers",
-            CodeFooterViewAction::ManageServers,
-        )
-    }
-
     /// Computes the aggregate indicator color across all tracked servers.
     /// Priority: Failed > Busy > Stopped > Available.
     fn aggregate_indicator_color(&self, theme: &WarpTheme, app: &AppContext) -> ColorU {
@@ -1299,15 +777,9 @@ impl CodeFooterView {
             return indicator;
         }
 
-        let menu = match &self.mode {
-            FooterMode::SingleFile { mouse_states, .. } => {
-                let server = live[0].as_ref(app);
-                self.render_single_server_menu(server, mouse_states, appearance, app)
-            }
-            FooterMode::Workspace { mouse_states, .. } => {
-                self.render_workspace_menu(mouse_states, appearance, app)
-            }
-        };
+        let server = live[0].as_ref(app);
+        let menu =
+            self.render_single_server_menu(server, &self.state.mouse_states, appearance, app);
 
         let mut element = Stack::new().with_child(indicator);
         element.add_positioned_child(
@@ -1361,47 +833,6 @@ impl CodeFooterView {
         }
     }
 
-    /// Returns the CTA message and button flag for workspace mode if any servers
-    /// are disabled and need user action. Returns `None` if not in workspace mode
-    /// or no CTA is needed.
-    fn workspace_cta_message(&self) -> Option<(Option<String>, bool)> {
-        let FooterMode::Workspace {
-            root_path,
-            lsp_repo_statuses,
-            ..
-        } = &self.mode
-        else {
-            return None;
-        };
-
-        if lsp_repo_statuses.is_empty() {
-            return None;
-        }
-
-        let has_cta = lsp_repo_statuses.values().any(|s| {
-            matches!(
-                s,
-                LspRepoStatus::DisabledAndInstalled { .. }
-                    | LspRepoStatus::DisabledAndNotInstalled { .. }
-            )
-        });
-
-        if has_cta {
-            let root_name = root_path
-                .file_name()
-                .and_then(|s| s.to_str())
-                .unwrap_or("this workspace");
-            Some((
-                Some(format!(
-                    "Language support is not currently enabled for {root_name}"
-                )),
-                true,
-            ))
-        } else {
-            None
-        }
-    }
-
     /// Computes the aggregated status message across all servers.
     /// Priority: failed error > starting/progress text > stopped text.
     fn compute_status_message(&self, app: &AppContext) -> (Option<String>, bool) {
@@ -1442,96 +873,42 @@ impl CodeFooterView {
                     );
                 }
             }
-            // All servers are available with no progress — but in workspace mode,
-            // there may still be disabled servers that need a CTA.
-            if let Some(cta) = self.workspace_cta_message() {
-                return cta;
-            }
             return (None, false);
         }
 
-        // No servers — show enablement CTA based on mode
-        match &self.mode {
-            FooterMode::SingleFile {
-                path,
-                lsp_repo_status,
-                ..
-            } => match PersistedWorkspace::as_ref(app).has_enabled_lsp_server_for_file_path(path) {
-                LSPEnablementResultForFile::UnsupportedLanguage => (
-                    Some("Language support is unavailable for this file type".to_string()),
+        let path = &self.state.path;
+        let lsp_repo_status = &self.state.lsp_repo_status;
+        match PersistedWorkspace::as_ref(app).has_enabled_lsp_server_for_file_path(path) {
+            LSPEnablementResultForFile::UnsupportedLanguage => (
+                Some("Language support is unavailable for this file type".to_string()),
+                false,
+            ),
+            LSPEnablementResultForFile::LSPNotEnabled { root_name } => match lsp_repo_status {
+                LspRepoStatus::CheckingForInstallation => (
+                    Some(format!(
+                        "Language support is not currently enabled for {}",
+                        root_name.unwrap_or("this codebase".to_string())
+                    )),
                     false,
                 ),
-                LSPEnablementResultForFile::LSPNotEnabled { root_name } => match lsp_repo_status {
-                    LspRepoStatus::CheckingForInstallation => (
-                        Some(format!(
-                            "Language support is not currently enabled for {}",
-                            root_name.unwrap_or("this codebase".to_string())
-                        )),
-                        false,
-                    ),
-                    LspRepoStatus::Ready | LspRepoStatus::Enabled => (
-                        Some("Language server is unavailable for this codebase".to_string()),
-                        false,
-                    ),
-                    LspRepoStatus::DisabledAndNotInstalled { .. }
-                    | LspRepoStatus::DisabledAndInstalled { .. } => (
-                        Some(format!(
-                            "Language support is not currently enabled for {}",
-                            root_name.unwrap_or("this codebase".to_string())
-                        )),
-                        true,
-                    ),
-                    LspRepoStatus::Installing { server_type } => (
-                        Some(format!("Installing {}...", server_type.binary_name())),
-                        false,
-                    ),
-                },
-                LSPEnablementResultForFile::Enabled => (None, false),
-            },
-            FooterMode::Workspace {
-                root_path,
-                lsp_repo_statuses,
-                ..
-            } => {
-                if lsp_repo_statuses.is_empty() {
-                    // Still waiting for async detection
-                    return (None, false);
-                }
-
-                let root_name = root_path
-                    .file_name()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("this workspace");
-
-                // Check if any server has a CTA-worthy status
-                if let Some(cta) = self.workspace_cta_message() {
-                    return cta;
-                }
-
-                // Check if any server is installing
-                for status in lsp_repo_statuses.values() {
-                    if let LspRepoStatus::Installing { server_type } = status {
-                        return (
-                            Some(format!("Installing {}...", server_type.binary_name())),
-                            false,
-                        );
-                    }
-                }
-
-                // Check if all are still checking
-                let all_checking = lsp_repo_statuses
-                    .values()
-                    .all(|s| matches!(s, LspRepoStatus::CheckingForInstallation));
-                if all_checking {
-                    return (None, false);
-                }
-
-                // All servers are enabled/ready but no live servers — unavailable
-                (
-                    Some(format!("Language support is unavailable for {root_name}")),
+                LspRepoStatus::Ready | LspRepoStatus::Enabled => (
+                    Some("Language server is unavailable for this codebase".to_string()),
                     false,
-                )
-            }
+                ),
+                LspRepoStatus::DisabledAndNotInstalled { .. }
+                | LspRepoStatus::DisabledAndInstalled { .. } => (
+                    Some(format!(
+                        "Language support is not currently enabled for {}",
+                        root_name.unwrap_or("this codebase".to_string())
+                    )),
+                    true,
+                ),
+                LspRepoStatus::Installing { server_type } => (
+                    Some(format!("Installing {}...", server_type.binary_name())),
+                    false,
+                ),
+            },
+            LSPEnablementResultForFile::Enabled => (None, false),
         }
     }
 }
@@ -1539,36 +916,12 @@ impl CodeFooterView {
 #[derive(Clone)]
 #[cfg_attr(not(feature = "local_fs"), allow(dead_code))]
 pub enum CodeFooterViewEvent {
-    EnableLSP {
-        path: PathBuf,
-        server_type: Option<LSPServerType>,
-    },
-    InstallAndEnableLSP {
-        path: PathBuf,
-        server_type: Option<LSPServerType>,
-    },
-    OpenLogs {
-        path: PathBuf,
-    },
-    RestartServer {
-        server: ModelHandle<LspServerModel>,
-    },
-    StopServer {
-        server: ModelHandle<LspServerModel>,
-    },
-    StartServer {
-        server: ModelHandle<LspServerModel>,
-    },
-    RestartAllServers {
-        servers: Vec<ModelHandle<LspServerModel>>,
-    },
-    StopAllServers {
-        servers: Vec<ModelHandle<LspServerModel>>,
-    },
-    StartAllServers {
-        servers: Vec<ModelHandle<LspServerModel>>,
-    },
-    ManageServers,
+    EnableLSP { path: PathBuf },
+    InstallAndEnableLSP { path: PathBuf },
+    OpenLogs { path: PathBuf },
+    RestartServer { server: ModelHandle<LspServerModel> },
+    StopServer { server: ModelHandle<LspServerModel> },
+    StartServer { server: ModelHandle<LspServerModel> },
 }
 
 impl Entity for CodeFooterView {
@@ -1615,7 +968,7 @@ impl View for CodeFooterView {
             }
         }
 
-        let mut container = Container::new(
+        Container::new(
             ConstrainedBox::new(
                 Container::new(footer_content.finish())
                     .with_padding(Padding::uniform(4.0))
@@ -1624,15 +977,10 @@ impl View for CodeFooterView {
             .with_height(FOOTER_HEIGHT)
             .finish(),
         )
-        .with_background_color(theme.background().into());
-
-        if self.show_border {
-            container = container
-                .with_border(Border::top(2.0).with_border_fill(internal_colors::neutral_2(theme)))
-                .with_corner_radius(CornerRadius::with_bottom(Radius::Pixels(8.)));
-        }
-
-        container.finish()
+        .with_background_color(theme.background().into())
+        .with_border(Border::top(2.0).with_border_fill(internal_colors::neutral_2(theme)))
+        .with_corner_radius(CornerRadius::with_bottom(Radius::Pixels(8.)))
+        .finish()
     }
 }
 
@@ -1651,42 +999,21 @@ impl TypedActionView for CodeFooterView {
             }
 
             CodeFooterViewAction::EnableLSP => {
-                let path = self.mode.path().to_path_buf();
-                let cta_statuses: Vec<LspRepoStatus> = self
-                    .mode
-                    .cta_lsp_repo_statuses()
-                    .into_iter()
-                    .cloned()
-                    .collect();
-
-                for status in &cta_statuses {
-                    let needed_install =
-                        matches!(status, LspRepoStatus::DisabledAndNotInstalled { .. });
-                    let server_type = match status {
-                        LspRepoStatus::DisabledAndInstalled { server_type }
-                        | LspRepoStatus::DisabledAndNotInstalled { server_type } => {
-                            Some(*server_type)
-                        }
-                        _ => None,
-                    };
-
-                    if needed_install {
-                        ctx.emit(CodeFooterViewEvent::InstallAndEnableLSP {
-                            path: path.clone(),
-                            server_type,
-                        });
-                    } else {
-                        ctx.emit(CodeFooterViewEvent::EnableLSP {
-                            path: path.clone(),
-                            server_type,
-                        });
+                let path = self.state.path().to_path_buf();
+                match self.state.cta_lsp_repo_status() {
+                    Some(LspRepoStatus::DisabledAndNotInstalled { .. }) => {
+                        ctx.emit(CodeFooterViewEvent::InstallAndEnableLSP { path });
                     }
+                    Some(LspRepoStatus::DisabledAndInstalled { .. }) => {
+                        ctx.emit(CodeFooterViewEvent::EnableLSP { path });
+                    }
+                    _ => {}
                 }
             }
             CodeFooterViewAction::OpenLogs => {
                 self.is_lsp_menu_open = false;
                 ctx.emit(CodeFooterViewEvent::OpenLogs {
-                    path: self.mode.path().to_path_buf(),
+                    path: self.state.path().to_path_buf(),
                 });
                 ctx.notify();
             }
@@ -1733,29 +1060,6 @@ impl TypedActionView for CodeFooterView {
                         workspace.disable_lsp_server_for_path(&workspace_root, server_type);
                     });
                 }
-                ctx.notify();
-            }
-            CodeFooterViewAction::RestartAllServers => {
-                self.is_lsp_menu_open = false;
-                let live = self.live_servers(ctx);
-                ctx.emit(CodeFooterViewEvent::RestartAllServers { servers: live });
-                ctx.notify();
-            }
-            CodeFooterViewAction::StopAllServers => {
-                self.is_lsp_menu_open = false;
-                let live = self.live_servers(ctx);
-                ctx.emit(CodeFooterViewEvent::StopAllServers { servers: live });
-                ctx.notify();
-            }
-            CodeFooterViewAction::StartAllServers => {
-                self.is_lsp_menu_open = false;
-                let live = self.live_servers(ctx);
-                ctx.emit(CodeFooterViewEvent::StartAllServers { servers: live });
-                ctx.notify();
-            }
-            CodeFooterViewAction::ManageServers => {
-                self.is_lsp_menu_open = false;
-                ctx.emit(CodeFooterViewEvent::ManageServers);
                 ctx.notify();
             }
         }

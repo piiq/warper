@@ -75,7 +75,6 @@ pub enum PromptDisplayEvent {
     OpenFile(String),
     OpenTextFileInCodeEditor(String),
     ToggleMenu { open: bool },
-    OpenCodeReview,
     OpenCommandPaletteFiles,
     TryExecuteCommand(PromptChipShellCommand),
 }
@@ -192,10 +191,6 @@ impl PromptDisplay {
                 }
                 PromptDisplayChipEvent::ToggleMenu { open } => {
                     ctx.emit(PromptDisplayEvent::ToggleMenu { open: *open });
-                    ctx.notify();
-                }
-                PromptDisplayChipEvent::OpenCodeReview => {
-                    ctx.emit(PromptDisplayEvent::OpenCodeReview);
                     ctx.notify();
                 }
 

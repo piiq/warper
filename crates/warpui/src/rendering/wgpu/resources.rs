@@ -717,8 +717,8 @@ fn adapter_stability_sort_func(
     } else if window_server_is_wayland && is_older_nvidia_adapter(&adapter_info) {
         log::warn!(
             "Deprioritizing Vulkan-backed Nvidia adapter due to version < {} (unsupported).\nSee \
-            the \"Graphics\" secion of our docs here: \
-            https://docs.warp.dev/help/known-issues#linux-1",
+            the project README here: \
+            https://github.com/piiq/warper#readme",
             *MIN_SUPPORTED_NVIDIA_VERSION
         );
         AdapterSupport::Unsupported

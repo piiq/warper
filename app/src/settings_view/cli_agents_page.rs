@@ -1,8 +1,7 @@
 use super::{
     settings_page::{
-        build_sub_header, build_toggle_element, render_body_item_label, LocalOnlyIconState,
-        MatchData, PageType, SettingsPageMeta, SettingsPageViewHandle, SettingsWidget, ToggleState,
-        HEADER_PADDING,
+        build_sub_header, build_toggle_element, render_body_item_label, MatchData, PageType,
+        SettingsPageMeta, SettingsPageViewHandle, SettingsWidget, ToggleState, HEADER_PADDING,
     },
     SettingsSection,
 };
@@ -11,7 +10,7 @@ use crate::{
     appearance::Appearance,
     menu::{MenuItem, MenuItemFields},
     report_if_error,
-    settings::{CLIAgentSettings, CLIAgentSettingsChangedEvent, ShouldRenderCLIAgentToolbar},
+    settings::{CLIAgentSettings, CLIAgentSettingsChangedEvent},
     terminal::CLIAgent,
     view_components::{
         dropdown::DropdownAction, Dropdown, SubmittableTextInput, SubmittableTextInputEvent,
@@ -21,7 +20,6 @@ use enum_iterator::all;
 use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
 use regex::Regex;
 use settings::{Setting, ToggleableSetting};
-use std::{cell::RefCell, collections::HashMap};
 use warp_core::{features::FeatureFlag, ui::theme::color::internal_colors};
 use warpui::{
     elements::{
@@ -40,7 +38,6 @@ const CONTENT_FONT_SIZE: f32 = 12.;
 
 pub struct CLIAgentSettingsPageView {
     page: PageType<Self>,
-    local_only_icon_tooltip_states: RefCell<HashMap<String, MouseStateHandle>>,
     cli_agent_footer_command_editor: ViewHandle<SubmittableTextInput>,
     cli_agent_footer_command_mouse_state_handles: Vec<MouseStateHandle>,
     cli_agent_footer_command_agent_dropdowns: Vec<ViewHandle<Dropdown<CLIAgentSettingsPageAction>>>,
@@ -110,7 +107,6 @@ impl CLIAgentSettingsPageView {
                 vec![Box::new(CLIAgentWidget::default())],
                 Some("Third party CLI agents"),
             ),
-            local_only_icon_tooltip_states: RefCell::default(),
             cli_agent_footer_command_editor,
             cli_agent_footer_command_mouse_state_handles,
             cli_agent_footer_command_agent_dropdowns: Self::create_cli_agent_dropdowns(ctx),
@@ -263,13 +259,12 @@ impl From<ViewHandle<CLIAgentSettingsPageView>> for SettingsPageViewHandle {
     }
 }
 
-fn render_setting_toggle<S: Setting>(
+fn render_setting_toggle(
     label: impl Into<String>,
     action: CLIAgentSettingsPageAction,
     is_setting_enabled: bool,
     is_setting_toggleable: bool,
     switch_state: SwitchStateHandle,
-    tooltip_states: &RefCell<HashMap<String, MouseStateHandle>>,
     app: &AppContext,
 ) -> Box<dyn Element> {
     let appearance = Appearance::as_ref(app);
@@ -278,12 +273,6 @@ fn render_setting_toggle<S: Setting>(
             label.into(),
             Some(styles::header_font_color(is_setting_toggleable, app)),
             None,
-            LocalOnlyIconState::for_setting(
-                S::storage_key(),
-                S::sync_to_cloud(),
-                &mut tooltip_states.borrow_mut(),
-                app,
-            ),
             ToggleState::Enabled,
             appearance,
         ),
@@ -379,13 +368,12 @@ impl SettingsWidget for CLIAgentWidget {
     ) -> Box<dyn Element> {
         let cli_agent_settings = CLIAgentSettings::as_ref(app);
 
-        let cli_agent_footer_toggle = render_setting_toggle::<ShouldRenderCLIAgentToolbar>(
+        let cli_agent_footer_toggle = render_setting_toggle(
             "Show coding agent toolbar",
             CLIAgentSettingsPageAction::ToggleCLIAgentToolbar,
             *cli_agent_settings.should_render_cli_agent_footer,
             true,
             self.cli_agent_footer_toggle.clone(),
-            &view.local_only_icon_tooltip_states,
             app,
         );
 
@@ -433,11 +421,6 @@ impl SettingsWidget for CLIAgentWidget {
 
         if is_footer_enabled {
             use super::settings_page::AdditionalInfo;
-            use crate::settings::{
-                AutoDismissRichInputAfterSubmit, AutoOpenRichInputOnCLIAgentStart,
-                AutoToggleRichInput,
-            };
-
             if FeatureFlag::CLIAgentRichInput.is_enabled() {
                 // Setting 1: Auto show/hide rich input based on agent status
                 let auto_show_toggle_label = render_body_item_label::<CLIAgentSettingsPageAction>(
@@ -451,12 +434,6 @@ impl SettingsWidget for CLIAgentWidget {
                             "Requires the Warper plugin for your coding agent".to_owned(),
                         ),
                     }),
-                    LocalOnlyIconState::for_setting(
-                        AutoToggleRichInput::storage_key(),
-                        AutoToggleRichInput::sync_to_cloud(),
-                        &mut view.local_only_icon_tooltip_states.borrow_mut(),
-                        app,
-                    ),
                     ToggleState::Enabled,
                     appearance,
                 );
@@ -473,24 +450,22 @@ impl SettingsWidget for CLIAgentWidget {
                     None,
                 ));
 
-                column.add_child(render_setting_toggle::<AutoOpenRichInputOnCLIAgentStart>(
+                column.add_child(render_setting_toggle(
                     "Auto open Rich Input when a coding agent session starts",
                     CLIAgentSettingsPageAction::ToggleAutoOpenRichInputOnCLIAgentStart,
                     *cli_agent_settings.auto_open_rich_input_on_cli_agent_start,
                     true,
                     self.auto_open_rich_input_on_cli_agent_start_toggle.clone(),
-                    &view.local_only_icon_tooltip_states,
                     app,
                 ));
 
                 // Setting 2: Auto dismiss rich input after prompt submission
-                column.add_child(render_setting_toggle::<AutoDismissRichInputAfterSubmit>(
+                column.add_child(render_setting_toggle(
                     "Auto dismiss Rich Input after prompt submission",
                     CLIAgentSettingsPageAction::ToggleAutoDismissRichInputAfterSubmit,
                     *cli_agent_settings.auto_dismiss_rich_input_after_submit,
                     true,
                     self.auto_dismiss_rich_input_toggle.clone(),
-                    &view.local_only_icon_tooltip_states,
                     app,
                 ));
             }

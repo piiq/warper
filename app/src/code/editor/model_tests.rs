@@ -7,8 +7,8 @@ use warp_util::content_version::ContentVersion;
 use warpui::App;
 
 use crate::{
-    code::editor::line::EditorLineLocation, code::editor::view::code_text_styles,
-    settings::FontSettings, test_util::settings::initialize_settings_for_tests,
+    code::editor::view::code_text_styles, settings::FontSettings,
+    test_util::settings::initialize_settings_for_tests,
 };
 
 use super::*;
@@ -621,142 +621,6 @@ fn test_match_line_to_text_search_window_expansion() {
             );
             assert_eq!(result, Some(3)); // Should find "Target" at position 3
         });
-    })
-}
-
-#[test]
-fn test_update_comment_location_current_moved_line() {
-    App::test((), |mut app| async move {
-        initialize_deps(&mut app);
-        let base_text = "First line\nSecond line\nThird line";
-        let current_text = "First line\nThird line\nSecond line"; // Lines 2 and 3 swapped
-        let editor = mock_model_with_diff(&mut app, base_text, current_text, ContentVersion::new());
-        layout_model(&mut app, &editor).await;
-
-        let original_text = "Second line";
-        let original_location = EditorLineLocation::Current {
-            line_number: LineCount::from(1),
-            line_range: LineCount::from(1)..LineCount::from(2),
-        };
-
-        let (line, content, _) = editor.update(&mut app, |editor, ctx| {
-            editor.get_new_line_location(&original_location, original_text.to_string(), ctx)
-        });
-
-        // Comment should be moved to line 3 where "Second line" now appears
-        match line {
-            EditorLineLocation::Current { line_number, .. } => {
-                assert_eq!(line_number, LineCount::from(2));
-            }
-            _ => panic!("Expected Current location"),
-        }
-
-        // Now delete the second line (`Third line`)
-        editor.update(&mut app, |editor, ctx| {
-            editor.apply_diffs(
-                vec![DiffDelta {
-                    replacement_line_range: 2..3,
-                    insertion: "".to_string(),
-                }],
-                ctx,
-            );
-        });
-
-        let (line, content, _) = editor.update(&mut app, |editor, ctx| {
-            editor.get_new_line_location(&line, content.original_text(), ctx)
-        });
-
-        // Comment should be moved to line 2
-        match line {
-            EditorLineLocation::Current { line_number, .. } => {
-                assert_eq!(line_number, LineCount::from(1));
-            }
-            _ => panic!("Expected Current location"),
-        }
-
-        // Adding new lines should push the comment down
-        editor.update(&mut app, |editor, ctx| {
-            editor.apply_diffs(
-                vec![DiffDelta {
-                    replacement_line_range: 1..1,
-                    insertion: "New line".to_string(),
-                }],
-                ctx,
-            );
-        });
-
-        let (line, _, _) = editor.update(&mut app, |editor, ctx| {
-            editor.get_new_line_location(&line, content.original_text(), ctx)
-        });
-
-        editor.read(&app, |editor, ctx| {
-            assert_eq!(
-                editor.content.as_ref(ctx).text().as_str(),
-                "New line\nFirst line\nSecond line"
-            );
-        });
-
-        // Comment should be moved to line 2
-        match line {
-            EditorLineLocation::Current { line_number, .. } => {
-                assert_eq!(line_number, LineCount::from(2));
-            }
-            _ => panic!("Expected Current location"),
-        }
-    })
-}
-
-#[test]
-fn test_update_comment_location_removed_line() {
-    App::test((), |mut app| async move {
-        initialize_deps(&mut app);
-        let base_text = "First line\nThird line\nSecond line\nFourth line\n";
-        let current_text = "First line\nThird line\nFourth line"; // Lines 2 is deleted
-        let editor = mock_model_with_diff(&mut app, base_text, current_text, ContentVersion::new());
-        layout_model(&mut app, &editor).await;
-
-        let (diff_tx, diff_rx) = oneshot::channel();
-        app.update(|ctx| {
-            let mut diff_tx = Some(diff_tx);
-            ctx.subscribe_to_model(&editor, move |_, event, _| {
-                if let CodeEditorModelEvent::DiffUpdated = event {
-                    diff_tx
-                        .take()
-                        .expect("Should only receive one event")
-                        .send(())
-                        .expect("Receiver should exist");
-                }
-            });
-
-            editor.update(ctx, |editor, ctx| {
-                let new = editor.content.as_ref(ctx).text();
-                editor.diff().update(ctx, |diff, ctx| {
-                    diff.compute_diff(new, false, BufferVersion::new(), ctx);
-                });
-            });
-        });
-
-        // Verify that we received a diff and it has the expected content.
-        diff_rx.await.expect("Event should be sent");
-
-        let line = EditorLineLocation::Removed {
-            line_number: LineCount::from(0),
-            line_range: LineCount::from(0)..LineCount::from(1),
-            index: 0,
-        };
-        let content = "Second line";
-
-        let (line, _, _) = editor.update(&mut app, |editor, ctx| {
-            editor.get_new_line_location(&line, content.to_string(), ctx)
-        });
-
-        // Comment should be moved to line 2
-        match line {
-            EditorLineLocation::Removed { line_number, .. } => {
-                assert_eq!(line_number, LineCount::from(2));
-            }
-            _ => panic!("Expected Removed location"),
-        }
     })
 }
 

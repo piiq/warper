@@ -7,7 +7,6 @@ use crate::terminal::cli_agent_toolbar::editor::{
 mod crash_recovery;
 pub mod global_search;
 pub(crate) mod left_panel;
-pub(crate) mod right_panel;
 mod startup_directory;
 #[cfg(test)]
 #[path = "view_test.rs"]
@@ -20,12 +19,9 @@ use self::vertical_tabs::{
 };
 use crate::app_state::{
     LeafContents, LeafSnapshot, LeftPanelDisplayedTab, LeftPanelSnapshot, NotebookPaneSnapshot,
-    PaneNodeSnapshot, PaneUuid, RightPanelSnapshot, SettingsPaneSnapshot, TabSnapshot,
-    WindowSnapshot,
+    PaneNodeSnapshot, PaneUuid, SettingsPaneSnapshot, TabSnapshot, WindowSnapshot,
 };
-use crate::code_review::diff_state::DiffStateModel;
 #[cfg(feature = "local_fs")]
-use crate::code_review::GlobalCodeReviewModel;
 use crate::coding_panel_enablement_state::CodingPanelEnablementState;
 use crate::default_terminal::DefaultTerminal;
 use crate::notification::NotificationContext;
@@ -38,7 +34,6 @@ use crate::workspace::view::global_search::view::GlobalSearchEntryFocus;
 use crate::workspace::view::left_panel::{
     LeftPanelAction, LeftPanelEvent, LeftPanelView, ToolPanelView,
 };
-use crate::workspace::view::right_panel::{RightPanelEvent, RightPanelView};
 
 use crate::ui_components::window_focus_dimming::WindowFocusDimming;
 #[cfg(feature = "local_fs")]
@@ -64,9 +59,7 @@ use super::WorkspaceRegistry;
 use crate::code::editor_management::CodeManager;
 use crate::code::editor_management::CodeSource;
 use crate::launch_configs::launch_config::WindowTemplate;
-use crate::pane_group::{
-    CodeReviewPanelArg, Direction as PaneGroupDirection, PaneGroup, PaneId, TerminalPaneId,
-};
+use crate::pane_group::{Direction as PaneGroupDirection, PaneGroup, PaneId, TerminalPaneId};
 use crate::quit_warning::UnsavedStateSummary;
 use crate::search::command_palette::view::NavigationMode;
 use crate::settings::{
@@ -207,7 +200,6 @@ use warpui::clipboard::ClipboardContent;
 use warpui::elements::{
     CacheOption, DispatchEventResult, DropTarget, EventHandler, Image, MouseInBehavior, Rect,
 };
-use warpui::ui_components::button::Button;
 use warpui::{elements::MouseStateHandle, fonts::Properties};
 
 use crate::channel::ChannelState;
@@ -242,7 +234,6 @@ use crate::tab_configs::{
     NewWorktreeModal, NewWorktreeModalEvent, TabConfigParamsModal, TabConfigParamsModalEvent,
 };
 
-use crate::code::editor::{add_color, remove_color};
 use crate::palette::PaletteMode;
 use crate::search::command_palette::view::{Event as CommandPaletteEvent, View as CommandPalette};
 use crate::tab::{
@@ -285,8 +276,7 @@ use warpui::{
     AppContext, Entity, TypedActionView, UpdateView, View, ViewContext, ViewHandle,
 };
 use warpui::{
-    EntityId, FocusContext, ModelHandle, SingletonEntity, UpdateModel, ViewAsRef, WeakViewHandle,
-    WindowId,
+    EntityId, FocusContext, ModelHandle, SingletonEntity, UpdateModel, ViewAsRef, WindowId,
 };
 
 /// The padding that should be applied to the workspace as a whole.
@@ -355,7 +345,6 @@ const USER_AVATAR_BUTTON_POSITION_ID: &str = "workspace:user_avatar_button";
 
 // these won't have to be public after we deprecate the code mode v1 project explorer which is defined in terminal
 pub(crate) const TOGGLE_PROJECT_EXPLORER_BINDING_NAME: &str = "workspace:toggle_project_explorer";
-pub(crate) const TOGGLE_RIGHT_PANEL_BINDING_NAME: &str = "workspace:toggle_right_panel";
 pub(crate) const TOGGLE_VERTICAL_TABS_PANEL_BINDING_NAME: &str =
     "workspace:toggle_vertical_tabs_panel";
 pub(crate) const OPEN_GLOBAL_SEARCH_BINDING_NAME: &str = "workspace:open_global_search";
@@ -513,21 +502,6 @@ struct WorkspaceBannerFields {
     button: Option<WorkspaceBannerButtonDetails>,
 }
 
-#[cfg_attr(not(feature = "local_fs"), allow(dead_code))]
-struct CodeReviewPaneContext {
-    repo_path: Option<PathBuf>,
-    diff_state_model: ModelHandle<DiffStateModel>,
-    terminal_view: WeakViewHandle<TerminalView>,
-}
-
-/// Parameters for updating the right panel's 'state.
-#[cfg_attr(not(feature = "local_fs"), allow(dead_code))]
-struct RightPanelUpdateParams<'a> {
-    pane_group: &'a ViewHandle<PaneGroup>,
-    target_open_state: bool,
-    review_pane_context: Option<&'a CodeReviewPaneContext>,
-}
-
 /// Context saved when the session config modal triggers `open_tab_config` and
 /// the tab config has params (worktree). The params modal opens asynchronously,
 /// so we store what we need to finish the tab replacement when it completes.
@@ -540,8 +514,6 @@ pub struct TransferredTab {
     pub custom_title: Option<String>,
     pub left_panel_open: bool,
     pub vertical_tabs_panel_open: bool,
-    pub right_panel_open: bool,
-    pub is_right_panel_maximized: bool,
 }
 
 pub struct Workspace {
@@ -615,7 +587,6 @@ pub struct Workspace {
     vertical_tabs_panel: VerticalTabsPanelState,
     left_panel_view: ViewHandle<LeftPanelView>,
     left_panel_views: Vec<ToolPanelView>,
-    right_panel_view: ViewHandle<RightPanelView>,
     working_directories_model: ModelHandle<pane_group::WorkingDirectoriesModel>,
     lightbox_view: Option<ViewHandle<LightboxView>>,
     /// When true, this workspace was created to receive a transferred PaneGroup.
@@ -1739,13 +1710,6 @@ impl Workspace {
             me.handle_left_panel_event(event, ctx);
         });
 
-        let right_panel_view = ctx.add_typed_action_view(|ctx| {
-            RightPanelView::new(working_directories_model.clone(), ctx)
-        });
-        ctx.subscribe_to_view(&right_panel_view, |me, _, event, ctx| {
-            me.handle_right_panel_event(event.clone(), ctx);
-        });
-
         ctx.observe(&tips_completed, Workspace::on_tips_model_changed);
 
         ctx.subscribe_to_model(&CLIAgentSessionsModel::handle(ctx), |me, _, event, ctx| {
@@ -1875,7 +1839,6 @@ impl Workspace {
             vertical_tabs_panel: Default::default(),
             left_panel_view,
             left_panel_views,
-            right_panel_view,
             working_directories_model,
             tab_fixed_width: None,
             lightbox_view: None,
@@ -2007,19 +1970,6 @@ impl Workspace {
                 self.sync_window_button_visibility(ctx);
                 ctx.notify();
             }
-            TabSettingsChangedEvent::ShowCodeReviewButton { .. } => {
-                // Close the right panel if it's open and the setting was just disabled.
-                if !*TabSettings::as_ref(ctx).show_code_review_button {
-                    let pane_group = self.active_tab_pane_group().clone();
-                    if pane_group.as_ref(ctx).right_panel_open {
-                        self.close_right_panel(&pane_group, ctx);
-                    }
-                }
-                ctx.notify();
-            }
-            TabSettingsChangedEvent::ShowCodeReviewDiffStats { .. } => {
-                ctx.notify();
-            }
             TabSettingsChangedEvent::DirectoryTabColors { .. } => {
                 if FeatureFlag::DirectoryTabColors.is_enabled() {
                     for tab in &mut self.tabs {
@@ -2139,14 +2089,6 @@ impl Workspace {
                         if let Some(left_panel_snapshot) = &saved_tab.left_panel {
                             self.restore_left_panel_for_tab(&pane_group, left_panel_snapshot, ctx);
                         }
-
-                        if let Some(right_panel_snapshot) = &saved_tab.right_panel {
-                            self.restore_right_panel_for_tab(
-                                &pane_group,
-                                right_panel_snapshot,
-                                ctx,
-                            );
-                        }
                     });
 
                 if self.tab_count() == 0 {
@@ -2189,8 +2131,6 @@ impl Workspace {
                 tab_color,
                 custom_title,
                 left_panel_open,
-                right_panel_open,
-                is_right_panel_maximized,
                 for_drag_preview,
                 ..
             } => {
@@ -2206,12 +2146,6 @@ impl Workspace {
                 }
                 if self.left_panel_visibility_across_tabs_enabled(ctx) {
                     self.left_panel_open = left_panel_open;
-                }
-                if right_panel_open {
-                    self.right_panel_view.update(ctx, |rp, ctx| {
-                        rp.set_maximized(is_right_panel_maximized, ctx);
-                    });
-                    self.setup_code_review_panel(None, ctx);
                 }
                 self.pending_pane_group_transfer = true;
             }
@@ -2310,32 +2244,6 @@ impl Workspace {
         ctx.notify();
     }
 
-    fn restore_right_panel_for_tab(
-        &mut self,
-        pane_group: &ViewHandle<PaneGroup>,
-        right_panel_snapshot: &RightPanelSnapshot,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        pane_group.update(ctx, |pg, _| {
-            pg.right_panel_open = true;
-            pg.is_right_panel_maximized = right_panel_snapshot.is_maximized;
-        });
-
-        let resizable = ResizableData::handle(ctx);
-        if let Some(modal_sizes) = resizable.as_ref(ctx).get_all_handles(self.window_id) {
-            if let Ok(mut handle) = modal_sizes.right_panel_width.lock() {
-                handle.set_size(right_panel_snapshot.width as f32);
-            }
-        }
-
-        self.right_panel_view.update(ctx, |rp, ctx| {
-            rp.set_active_pane_group(pane_group.clone(), &self.working_directories_model, ctx);
-            rp.set_maximized(right_panel_snapshot.is_maximized, ctx);
-        });
-
-        ctx.notify();
-    }
-
     // Configure an empty workspace. The behavior here is platform-specific.
     fn configure_empty_workspace(
         &mut self,
@@ -2373,9 +2281,6 @@ impl Workspace {
         if self.left_panel_view.is_self_or_child_focused(app) {
             return FocusRegion::LeftPanel;
         }
-        if self.right_panel_view.is_self_or_child_focused(app) {
-            return FocusRegion::RightPanel;
-        }
 
         if self.resource_center_view.is_self_or_child_focused(app) {
             return FocusRegion::RightPanel;
@@ -2388,9 +2293,8 @@ impl Workspace {
         self.active_tab_pane_group().as_ref(app).left_panel_open
     }
 
-    fn has_right_region(&self, app: &AppContext) -> bool {
-        let group = self.active_tab_pane_group().as_ref(app);
-        group.right_panel_open || self.current_workspace_state.is_right_panel_open()
+    fn has_right_region(&self) -> bool {
+        self.current_workspace_state.is_right_panel_open()
     }
 
     fn focus_next_pane_in_group(&mut self, ctx: &mut ViewContext<Self>) -> bool {
@@ -2422,11 +2326,6 @@ impl Workspace {
     }
 
     fn focus_right_region_entry(&mut self, ctx: &mut ViewContext<Self>) {
-        let group = self.active_tab_pane_group().as_ref(ctx);
-        if group.right_panel_open {
-            ctx.focus(&self.right_panel_view);
-            return;
-        }
         if self.current_workspace_state.is_resource_center_open {
             ctx.focus(&self.resource_center_view);
         }
@@ -2439,7 +2338,7 @@ impl Workspace {
     ) {
         let current_region = self.current_focus_region(ctx);
         let has_left_panel = self.has_left_region(ctx);
-        let has_right_panel = self.has_right_region(ctx);
+        let has_right_panel = self.has_right_region();
 
         let target_region = self.compute_target_focus_region(
             current_region,
@@ -2669,8 +2568,6 @@ impl Workspace {
         let custom_title = pane_group.read(ctx, |pg, ctx| pg.custom_title(ctx));
         let left_panel_open = pane_group.read(ctx, |pg, _| pg.left_panel_open);
         let vertical_tabs_panel_open = self.vertical_tabs_panel_open;
-        let right_panel_open = pane_group.read(ctx, |pg, _| pg.right_panel_open);
-        let is_right_panel_maximized = pane_group.read(ctx, |pg, _| pg.is_right_panel_maximized);
 
         Some(TransferredTab {
             pane_group,
@@ -2678,8 +2575,6 @@ impl Workspace {
             custom_title,
             left_panel_open,
             vertical_tabs_panel_open,
-            right_panel_open,
-            is_right_panel_maximized,
         })
     }
 
@@ -2787,19 +2682,11 @@ impl Workspace {
         }
 
         let left_active_pane_group = self.active_tab_pane_group().clone();
-        let right_active_pane_group = self.active_tab_pane_group().clone();
         let working_directories_model = self.working_directories_model.clone();
 
         self.left_panel_view.update(ctx, |left_panel, ctx| {
             left_panel.set_active_pane_group(
                 left_active_pane_group,
-                &working_directories_model,
-                ctx,
-            );
-        });
-        self.right_panel_view.update(ctx, |right_pane, ctx| {
-            right_pane.set_active_pane_group(
-                right_active_pane_group,
                 &working_directories_model,
                 ctx,
             );
@@ -3268,16 +3155,8 @@ impl Workspace {
         } else {
             PanelPosition::Right
         };
-        let code_review_position = if left_items.contains(&HeaderToolbarItemKind::CodeReview) {
-            PanelPosition::Left
-        } else {
-            PanelPosition::Right
-        };
         self.left_panel_view.update(ctx, |view, ctx| {
             view.set_panel_position(tools_position, ctx);
-        });
-        self.right_panel_view.update(ctx, |view, ctx| {
-            view.set_panel_position(code_review_position, ctx);
         });
     }
 
@@ -3480,54 +3359,8 @@ impl Workspace {
         }
     }
 
-    fn handle_right_panel_event(&mut self, event: RightPanelEvent, ctx: &mut ViewContext<Self>) {
-        #[cfg(feature = "local_fs")]
-        match event {
-            RightPanelEvent::ToggleMaximize => {
-                self.toggle_right_panel_maximized(ctx);
-            }
-            RightPanelEvent::OpenFileWithTarget {
-                path,
-                target,
-                line_col,
-            } => {
-                // Exit maximized mode so the opened file is visible.
-                if self
-                    .active_tab_pane_group()
-                    .as_ref(ctx)
-                    .is_right_panel_maximized
-                {
-                    self.toggle_right_panel_maximized(ctx);
-                }
-
-                self.open_file_with_target(
-                    path.clone(),
-                    target,
-                    line_col,
-                    CodeSource::Link {
-                        path,
-                        range_start: None,
-                        range_end: None,
-                    },
-                    ctx,
-                );
-            }
-            RightPanelEvent::OpenFileInNewTab {
-                path,
-                line_and_column,
-            } => {
-                self.add_tab_for_code_file(path, line_and_column, ctx);
-            }
-            RightPanelEvent::OpenLspLogs { log_path } => {
-                self.open_lsp_logs(&log_path, ctx);
-            }
-        }
-        #[cfg(not(feature = "local_fs"))]
-        let _ = (event, ctx);
-    }
-
-    fn view_privacy_policy(&mut self, ctx: &mut ViewContext<Self>) {
-        ctx.open_url(links::PRIVACY_POLICY_URL);
+    fn view_local_data(&mut self, ctx: &mut ViewContext<Self>) {
+        ctx.open_url(links::LOCAL_DATA_URL);
     }
 
     fn view_user_docs(&mut self, ctx: &mut ViewContext<Self>) {
@@ -3815,9 +3648,7 @@ impl Workspace {
                     open_in_active_window: false,
                 },
             ),
-            NewSessionMenuItem::OpenLaunchConfigDocs => {
-                ctx.open_url("https://docs.warp.dev/terminal/sessions/launch-configurations")
-            }
+            NewSessionMenuItem::OpenLaunchConfigDocs => ctx.open_url(links::USER_DOCS_URL),
             #[cfg(feature = "local_fs")]
             NewSessionMenuItem::CreateNewTabConfig => {
                 self.create_and_open_new_tab_config(ctx);
@@ -4459,7 +4290,7 @@ impl Workspace {
                         let toast = DismissibleToast::success(message.to_string())
                             .with_link(
                                 ToastLink::new("Learn more".to_string()).with_href(
-                                    "https://docs.warp.dev/reference/cli".to_string(),
+                                    links::USER_DOCS_URL.to_string(),
                                 ),
                             );
                         toast_stack.add_ephemeral_toast(toast, ctx);
@@ -4500,17 +4331,6 @@ impl Workspace {
                 }
             },
         );
-    }
-
-    fn undo_revert_in_code_review_pane(
-        &mut self,
-        window_id: WindowId,
-        view_id: EntityId,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        GlobalCodeReviewModel::handle(ctx).update(ctx, |global_code_review_model, ctx| {
-            global_code_review_model.undo_revert_in_code_review_pane(window_id, view_id, ctx);
-        });
     }
 
     fn toggle_recording_mode(&self, ctx: &mut ViewContext<Self>) {
@@ -4667,273 +4487,6 @@ impl Workspace {
             self.focus_active_tab(ctx);
         }
 
-        ctx.notify();
-    }
-
-    #[cfg(feature = "local_fs")]
-    fn setup_code_review_panel(
-        &mut self,
-        context: Option<&CodeReviewPaneContext>,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        if !*TabSettings::as_ref(ctx).show_code_review_button {
-            return;
-        }
-
-        // If context is provided, use it directly. Otherwise, derive from active pane group.
-        let context_data: Option<(
-            Option<PathBuf>,
-            ModelHandle<DiffStateModel>,
-            WeakViewHandle<TerminalView>,
-        )> = if let Some(context) = context {
-            Some((
-                context.repo_path.clone(),
-                context.diff_state_model.clone(),
-                context.terminal_view.clone(),
-            ))
-        } else {
-            let active_pane_group = self.active_tab_pane_group().clone();
-            // Read repo_path and terminal_view from the pane group (immutable context).
-            let read_result = active_pane_group.read(ctx, |pane_group, ctx| {
-                pane_group.active_session_view(ctx).map(|terminal_view| {
-                    let repo_path = terminal_view.as_ref(ctx).current_repo_path().cloned();
-                    (repo_path, terminal_view.downgrade())
-                })
-            });
-            // Resolve DiffStateModel outside the read closure (needs mutable context).
-            read_result.and_then(
-                |(repo_path, terminal_view): (Option<PathBuf>, WeakViewHandle<TerminalView>)| {
-                    let diff_state_model = repo_path.as_ref().and_then(|rp: &PathBuf| {
-                        self.working_directories_model.update(ctx, |model, ctx| {
-                            model.get_or_create_diff_state_model(rp.clone(), ctx)
-                        })
-                    })?;
-                    Some((repo_path, diff_state_model, terminal_view))
-                },
-            )
-        };
-
-        if let Some((repo, diff_state_model, terminal_view)) = context_data {
-            self.right_panel_view.update(ctx, |right_pane_view, ctx| {
-                right_pane_view.open_code_review(
-                    repo.clone(),
-                    diff_state_model,
-                    terminal_view,
-                    ctx,
-                );
-            });
-        } else {
-            self.right_panel_view.update(ctx, |right_panel_view, ctx| {
-                right_panel_view.close_code_review(ctx);
-            })
-        }
-    }
-
-    fn open_code_review_panel_from_arg(
-        &mut self,
-        panel_context: &CodeReviewPanelArg,
-        pane_group: ViewHandle<PaneGroup>,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        // Skip the full panel setup when the panel is already open for the target repo.
-        let panel_already_showing_repo = pane_group.as_ref(ctx).right_panel_open
-            && panel_context
-                .repo_path
-                .as_ref()
-                .is_some_and(|target_repo_path| {
-                    self.right_panel_view.as_ref(ctx).selected_repo_path() == Some(target_repo_path)
-                });
-        if panel_already_showing_repo {
-            return;
-        }
-
-        let repo_path = panel_context.repo_path.clone();
-        let diff_state_model = repo_path.as_ref().and_then(|rp| {
-            self.working_directories_model.update(ctx, |model, ctx| {
-                model.get_or_create_diff_state_model(rp.clone(), ctx)
-            })
-        });
-        let Some(diff_state_model) = diff_state_model else {
-            return;
-        };
-        let context = CodeReviewPaneContext {
-            repo_path,
-            diff_state_model,
-            terminal_view: panel_context.terminal_view.clone(),
-        };
-
-        self.open_right_panel(&context, &pane_group, ctx);
-    }
-
-    fn update_right_panel_open_state(
-        &mut self,
-        panel_update_params: RightPanelUpdateParams,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        let should_open = panel_update_params.target_open_state;
-        let should_close = !panel_update_params.target_open_state;
-
-        let new_is_maximized = panel_update_params.pane_group.update(ctx, |pane_group, _| {
-            pane_group.right_panel_open = should_open;
-            pane_group.is_right_panel_maximized
-        });
-
-        self.right_panel_view.update(ctx, |view, ctx| {
-            view.set_maximized(new_is_maximized, ctx);
-            if should_close {
-                view.close_code_review(ctx);
-            }
-        });
-
-        if should_open {
-            #[cfg(feature = "local_fs")]
-            {
-                let window_id = ctx.window_id();
-                let resizable_data = ResizableData::handle(ctx);
-                if let Some(handle) = resizable_data
-                    .as_ref(ctx)
-                    .get_handle(window_id, ModalType::RightPanelWidth)
-                {
-                    if let Ok(mut state) = handle.lock() {
-                        // Get the current width from ResizableData - this reflects the most recent tab's width
-                        let current_width = state.size();
-
-                        // Only recompute default if the current width is at the default value
-                        // This preserves the width from the most recent tab
-                        if current_width == DEFAULT_RIGHT_PANEL_WIDTH {
-                            let has_horizontal_split = panel_update_params
-                                .pane_group
-                                .read(ctx, |pane_group, _| pane_group.has_horizontal_split());
-                            let (_left_width, right_width) =
-                                compute_default_panel_widths(ctx, window_id, has_horizontal_split);
-                            state.set_size(right_width);
-                        }
-                        // If current_width is not the default, it means we have a width from a previous tab,
-                        // so we don't need to do anything - the width is already preserved
-                    }
-                }
-                self.setup_code_review_panel(panel_update_params.review_pane_context, ctx);
-            }
-        } else {
-            self.focus_active_tab(ctx);
-        }
-
-        ctx.notify();
-    }
-
-    fn toggle_right_panel(
-        &mut self,
-        pane_group_handle: &ViewHandle<PaneGroup>,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        let target_open_state =
-            pane_group_handle.read(ctx, |pane_group, _| !pane_group.right_panel_open);
-
-        // Read repo_path and terminal_view from pane group (immutable context).
-        let read_result = pane_group_handle.read(ctx, |pane_group, ctx| {
-            pane_group.active_session_view(ctx).map(|terminal_view| {
-                let repo_path = terminal_view.as_ref(ctx).current_repo_path().cloned();
-                (repo_path, terminal_view.downgrade())
-            })
-        });
-        // Resolve DiffStateModel outside the read closure (needs mutable context).
-        let context = read_result.and_then(
-            |(repo_path, terminal_view): (Option<PathBuf>, WeakViewHandle<TerminalView>)| {
-                let diff_state_model = repo_path.as_ref().and_then(|rp: &PathBuf| {
-                    self.working_directories_model.update(ctx, |model, ctx| {
-                        model.get_or_create_diff_state_model(rp.clone(), ctx)
-                    })
-                })?;
-                Some(CodeReviewPaneContext {
-                    repo_path,
-                    diff_state_model,
-                    terminal_view,
-                })
-            },
-        );
-
-        self.update_right_panel_open_state(
-            RightPanelUpdateParams {
-                pane_group: pane_group_handle,
-                target_open_state,
-                review_pane_context: context.as_ref(),
-            },
-            ctx,
-        );
-    }
-
-    #[cfg(feature = "local_fs")]
-    fn open_right_panel(
-        &mut self,
-        context: &CodeReviewPaneContext,
-        pane_group_handle: &ViewHandle<PaneGroup>,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        if pane_group_handle.as_ref(ctx).right_panel_open {
-            if let Some(repo_path) = &context.repo_path {
-                self.right_panel_view.update(ctx, |right_panel, ctx| {
-                    right_panel.update_selected_repo(repo_path.clone(), ctx);
-                });
-            }
-            return;
-        }
-
-        self.update_right_panel_open_state(
-            RightPanelUpdateParams {
-                pane_group: pane_group_handle,
-                target_open_state: true,
-                review_pane_context: Some(context),
-            },
-            ctx,
-        );
-        if let Some(repo_path) = &context.repo_path {
-            self.right_panel_view.update(ctx, |right_panel, ctx| {
-                right_panel.update_selected_repo(repo_path.clone(), ctx);
-            });
-        }
-    }
-
-    #[cfg(not(feature = "local_fs"))]
-    fn open_right_panel(
-        &mut self,
-        _context: &CodeReviewPaneContext,
-        _pane_group_handle: &ViewHandle<PaneGroup>,
-        _ctx: &mut ViewContext<Self>,
-    ) {
-    }
-
-    pub fn close_right_panel(
-        &mut self,
-        pane_group_handle: &ViewHandle<PaneGroup>,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        self.update_right_panel_open_state(
-            RightPanelUpdateParams {
-                pane_group: pane_group_handle,
-                target_open_state: false,
-                review_pane_context: None,
-            },
-            ctx,
-        );
-    }
-
-    #[cfg_attr(not(feature = "local_fs"), allow(dead_code))]
-    fn toggle_right_panel_maximized(&mut self, ctx: &mut ViewContext<Self>) {
-        let pane_group = self.active_tab_pane_group().clone();
-        let is_maximized = pane_group.update(ctx, |pane_group, _| {
-            pane_group.is_right_panel_maximized = !pane_group.is_right_panel_maximized;
-            pane_group.is_right_panel_maximized
-        });
-
-        self.right_panel_view.update(ctx, |view, ctx| {
-            view.set_maximized(is_maximized, ctx);
-            if is_maximized {
-                view.focus_active_code_review_view(ctx);
-            }
-        });
-        if !is_maximized {
-            self.focus_active_tab(ctx);
-        }
         ctx.notify();
     }
 
@@ -6046,19 +5599,10 @@ impl Workspace {
                         .size()
                 });
 
-                let right_panel_width = modal_sizes.map(|ms| {
-                    ms.right_panel_width
-                        .lock()
-                        .expect("should be able to lock right panel handle")
-                        .size()
-                });
-
                 let pane_group = pane_group_view.as_ref(app);
                 let root = pane_group.snapshot(app);
                 let left_panel =
                     self.compute_left_panel_snapshot(pane_group_view, left_panel_width, app);
-                let right_panel =
-                    self.compute_right_panel_snapshot(pane_group_view, right_panel_width, app);
                 TabSnapshot {
                     root,
                     custom_title: pane_group.custom_title(app),
@@ -6071,7 +5615,7 @@ impl Workspace {
                         .get(tab_index)
                         .map_or(SelectedTabColor::Unset, |tab| tab.selected_color),
                     left_panel,
-                    right_panel,
+                    right_panel: None,
                 }
             })
             .collect();
@@ -6142,27 +5686,6 @@ impl Workspace {
                 pane_group_id: pane_group_id.to_string(),
                 width: left_panel_width.unwrap_or(DEFAULT_LEFT_PANEL_WIDTH) as usize,
             })
-        })
-    }
-
-    fn compute_right_panel_snapshot(
-        &self,
-        pane_group: &ViewHandle<PaneGroup>,
-        right_panel_width: Option<f32>,
-        app: &AppContext,
-    ) -> Option<RightPanelSnapshot> {
-        let pane_group_ref = pane_group.as_ref(app);
-        if !pane_group_ref.right_panel_open {
-            return None;
-        }
-
-        let pane_group_id = pane_group.id();
-        let is_maximized = pane_group_ref.is_right_panel_maximized;
-
-        Some(RightPanelSnapshot {
-            pane_group_id: pane_group_id.to_string(),
-            width: right_panel_width.unwrap_or(DEFAULT_RIGHT_PANEL_WIDTH) as usize,
-            is_maximized,
         })
     }
 
@@ -7818,12 +7341,6 @@ impl Workspace {
                 self.open_directory_in_new_tab(path.clone(), ctx);
             }
 
-            pane_group::Event::OpenCodeReviewPane(arg) => {
-                self.open_code_review_panel_from_arg(arg, pane_group.clone(), ctx);
-            }
-            pane_group::Event::ToggleCodeReviewPane(_) => {
-                self.toggle_right_panel(&pane_group, ctx);
-            }
             pane_group::Event::RunWorkflow {
                 workflow,
                 workflow_source,
@@ -7884,25 +7401,9 @@ impl Workspace {
 
                 // Re-evaluate which region is focused and update pane dimming accordingly.
                 self.update_pane_dimming_for_current_focus_region(ctx);
-
-                if self
-                    .active_tab_pane_group()
-                    .as_ref(ctx)
-                    .active_session_view(ctx)
-                    .is_some()
-                {
-                    #[cfg(feature = "local_fs")]
-                    if self.active_tab_pane_group().as_ref(ctx).right_panel_open {
-                        self.setup_code_review_panel(None, ctx);
-                    }
-                }
             }
             pane_group::Event::RepoChanged => {
                 self.refresh_working_directories_for_pane_group(&pane_group, ctx);
-                #[cfg(feature = "local_fs")]
-                if self.active_tab_pane_group().as_ref(ctx).right_panel_open {
-                    self.setup_code_review_panel(None, ctx);
-                }
 
                 if FeatureFlag::DirectoryTabColors.is_enabled() {
                     if let Some(tab) = self
@@ -8627,17 +8128,6 @@ impl Workspace {
             self.left_panel_view.update(ctx, |left_panel, ctx| {
                 left_panel.update_coding_panel_enablement(enablement, ctx);
             });
-
-            #[cfg(feature = "local_fs")]
-            {
-                self.right_panel_view.update(ctx, |right_panel, ctx| {
-                    right_panel.update_session_env(is_remote, is_wsl_session, ctx);
-                });
-
-                if self.active_tab_pane_group().as_ref(ctx).right_panel_open {
-                    self.setup_code_review_panel(None, ctx);
-                }
-            }
         } else {
             let enablement = CodingPanelEnablementState::from_session_env(
                 file_tree_and_global_search_are_enabled,
@@ -8648,13 +8138,6 @@ impl Workspace {
             self.left_panel_view.update(ctx, |left_panel, ctx| {
                 left_panel.update_coding_panel_enablement(enablement, ctx);
             });
-
-            #[cfg(feature = "local_fs")]
-            {
-                self.right_panel_view.update(ctx, |right_panel, ctx| {
-                    right_panel.update_session_env(false, false, ctx);
-                });
-            }
         }
     }
 
@@ -9593,141 +9076,6 @@ impl Workspace {
             .any(|id| id.is_terminal_pane() || id.is_file_pane() || id.is_code_pane())
     }
 
-    fn render_right_panel_button(
-        &self,
-        appearance: &Appearance,
-        ctx: &AppContext,
-    ) -> Box<dyn Element> {
-        let is_active = self.active_tab_pane_group().as_ref(ctx).right_panel_open;
-        let is_enabled = Self::should_enable_file_tree_and_global_search_for_pane_group(
-            self.active_tab_pane_group().as_ref(ctx),
-        );
-        let disable = !is_enabled;
-
-        let theme = appearance.theme();
-        let font_color = if disable {
-            theme.disabled_text_color(theme.background())
-        } else if is_active {
-            theme.main_text_color(theme.background())
-        } else {
-            theme.sub_text_color(theme.background())
-        };
-
-        // Build the button content: Diff icon + optional diff stats
-        let icon = ConstrainedBox::new(icons::Icon::Diff.to_warpui_icon(font_color).finish())
-            .with_width(16.)
-            .with_height(16.)
-            .finish();
-
-        let show_diff_stats = *TabSettings::as_ref(ctx).show_code_review_diff_stats;
-
-        let line_changes = if show_diff_stats {
-            self.active_tab_pane_group()
-                .as_ref(ctx)
-                .active_session_view(ctx)
-                .and_then(|tv| tv.as_ref(ctx).current_diff_line_changes(ctx))
-                .filter(|lc| {
-                    // Only show the stat badge when there are actual line-level changes
-                    // (files_changed alone, e.g. mode-only changes, is not surfaced here).
-                    lc.lines_added > 0 || lc.lines_removed > 0
-                })
-        } else {
-            None
-        };
-
-        let has_stats = line_changes.is_some();
-
-        let mut row = Flex::row().with_cross_axis_alignment(CrossAxisAlignment::Center);
-        row.add_child(icon);
-
-        if let Some(lc) = line_changes {
-            let stat = |value: u32, prefix: &str, color: ColorU| -> Box<dyn Element> {
-                Container::new(
-                    Text::new_inline(format!("{prefix}{value}"), appearance.ui_font_family(), 12.)
-                        .with_color(color)
-                        .with_style(Properties::default().weight(Weight::Semibold))
-                        .finish(),
-                )
-                .with_margin_left(4.)
-                .finish()
-            };
-            row.add_child(stat(lc.lines_added, "+", add_color(appearance)));
-            row.add_child(stat(lc.lines_removed, "-", remove_color(appearance)));
-        }
-
-        let label = row.finish();
-
-        // The diff icon SVG has intrinsic horizontal whitespace in its 14px viewBox: its visible
-        // paths start around x=3 and end around x=11. When stats are shown, equal container padding
-        // makes the gap between the button edge and the visible icon look wider than the gap after
-        // the text. Locally compensate for that artwork padding without changing the shared icon.
-        let (header_padding_left, header_padding_right) =
-            if has_stats { (5., 8.) } else { (4., 4.) };
-        let default_styles = UiComponentStyles {
-            font_color: Some(font_color.into()),
-            font_size: Some(12.),
-            font_weight: Some(Weight::Medium),
-            font_family_id: Some(appearance.ui_font_family()),
-            height: Some(24.),
-            border_radius: Some(CornerRadius::with_all(Radius::Pixels(4.))),
-            border_width: Some(0.),
-            padding: Some(Coords {
-                top: 0.,
-                bottom: 0.,
-                left: header_padding_left,
-                right: header_padding_right,
-            }),
-            ..Default::default()
-        };
-
-        let hover_styles = UiComponentStyles {
-            background: Some(theme.surface_2().into()),
-            ..default_styles
-        };
-
-        let clicked_styles = UiComponentStyles {
-            background: Some(theme.background().into()),
-            ..default_styles
-        };
-
-        let mut button = Button::new(
-            self.mouse_states.right_panel_icon.clone(),
-            default_styles,
-            Some(hover_styles),
-            Some(clicked_styles),
-            None,
-        )
-        .with_custom_label(label);
-
-        if is_active {
-            button = button.active().with_active_styles(UiComponentStyles {
-                background: Some(internal_colors::fg_overlay_3(theme).into()),
-                ..UiComponentStyles::default()
-            });
-        }
-
-        let hoverable = if disable {
-            button.build().disable()
-        } else {
-            button
-                .with_tooltip(self.render_tab_bar_icon_button_tooltip(
-                    appearance,
-                    "Code review panel".to_string(),
-                    keybinding_name_to_display_string("workspace:toggle_right_panel", ctx),
-                ))
-                .build()
-                .on_click(move |ctx, _, _| {
-                    ctx.dispatch_typed_action(WorkspaceAction::ToggleRightPanel);
-                })
-        };
-
-        SavePosition::new(
-            Container::new(Align::new(hoverable.finish()).finish()).finish(),
-            "workspace:right_panel_button",
-        )
-        .finish()
-    }
-
     /// Renders an invisible rect for detecting hovers over the tab bar.
     fn render_tab_bar_hover_area(&self) -> Box<dyn Element> {
         self.render_tab_bar_hoverable(
@@ -10001,7 +9349,6 @@ impl Workspace {
                     self.render_left_toggle_button(appearance, ctx)
                 }
             }
-            HeaderToolbarItemKind::CodeReview => self.render_right_panel_button(appearance, ctx),
         };
         Some(
             Container::new(
@@ -10598,8 +9945,6 @@ impl Workspace {
         let vertical_tabs_active =
             FeatureFlag::VerticalTabs.is_enabled() && *TabSettings::as_ref(app).use_vertical_tabs;
         let pane_group = self.active_tab_pane_group().as_ref(app);
-        let is_right_open = pane_group.right_panel_open;
-        let is_right_maximized = is_right_open && pane_group.is_right_panel_maximized;
 
         let mut main_content = Flex::row();
 
@@ -10620,14 +9965,11 @@ impl Workspace {
                 );
             }
 
-            if !is_right_maximized {
-                if prev_panel_added {
-                    main_content.add_child(Self::render_panel_separator(app));
-                }
-                main_content =
-                    main_content.with_child(Shrinkable::new(1.0, terminal_content).finish());
-                prev_panel_added = true;
+            if prev_panel_added {
+                main_content.add_child(Self::render_panel_separator(app));
             }
+            main_content = main_content.with_child(Shrinkable::new(1.0, terminal_content).finish());
+            prev_panel_added = true;
 
             for item in config.right_items() {
                 Self::add_panel_with_separator(
@@ -10637,16 +9979,7 @@ impl Workspace {
                     app,
                 );
             }
-
-            if is_right_maximized {
-                Self::add_panel_with_separator(
-                    &mut main_content,
-                    &mut prev_panel_added,
-                    self.render_config_panel_maximized(pane_group, &config, app),
-                    app,
-                );
-            }
-        } else if !is_right_maximized {
+        } else {
             main_content = main_content.with_child(Shrinkable::new(1.0, terminal_content).finish());
         }
 
@@ -11113,15 +10446,6 @@ impl Workspace {
                     app,
                 );
             }
-
-            if pane_group.right_panel_open && pane_group.is_right_panel_maximized {
-                Self::add_panel_with_separator(
-                    &mut panels_view,
-                    &mut prev_panel_added,
-                    self.render_config_panel_maximized(pane_group, &config, app),
-                    app,
-                );
-            }
         }
 
         // Resource center is a workspace-level panel, not configurable.
@@ -11186,32 +10510,7 @@ impl Workspace {
                 }
                 Some(ChildView::new(&self.left_panel_view).finish())
             }
-            HeaderToolbarItemKind::CodeReview => {
-                if !pane_group.right_panel_open {
-                    return None;
-                }
-                if pane_group.is_right_panel_maximized {
-                    return None;
-                }
-                Some(ChildView::new(&self.right_panel_view).finish())
-            }
         }
-    }
-
-    /// Renders the maximized code review panel if it is configured and maximized.
-    fn render_config_panel_maximized(
-        &self,
-        pane_group: &PaneGroup,
-        _config: &HeaderToolbarChipSelection,
-        app: &AppContext,
-    ) -> Option<Box<dyn Element>> {
-        if !pane_group.right_panel_open || !pane_group.is_right_panel_maximized {
-            return None;
-        }
-        if !HeaderToolbarItemKind::CodeReview.is_available(app) {
-            return None;
-        }
-        Some(Shrinkable::new(1.0, ChildView::new(&self.right_panel_view).finish()).finish())
     }
 
     /// Offset positioning for global toasts.
@@ -11425,9 +10724,6 @@ impl Workspace {
 
         if *tab_settings.show_indicators.value() {
             context.set.insert(flags::TAB_INDICATORS_FLAG);
-        }
-        if *tab_settings.show_code_review_button.value() {
-            context.set.insert(flags::SHOW_CODE_REVIEW_BUTTON_FLAG);
         }
         if *tab_settings.use_vertical_tabs.value() {
             context.set.insert(flags::USE_VERTICAL_TABS_FLAG);
@@ -11928,7 +11224,7 @@ impl TypedActionView for Workspace {
                 source,
             } => self.toggle_palette(*palette_mode, *source, ctx),
             ViewUserDocs => self.view_user_docs(ctx),
-            ViewPrivacyPolicy => self.view_privacy_policy(ctx),
+            ViewLocalData => self.view_local_data(ctx),
             SendFeedback => self.send_feedback(ctx),
             ViewLogs => self.view_logs(ctx),
             ChangeCursor(cursor) => self.change_cursor(*cursor, ctx),
@@ -11948,9 +11244,6 @@ impl TypedActionView for Workspace {
             InstallCLI => self.install_cli(ctx),
             #[cfg(target_os = "macos")]
             UninstallCLI => self.uninstall_cli(ctx),
-            UndoRevertInCodeReviewPane { window_id, view_id } => {
-                self.undo_revert_in_code_review_pane(*window_id, *view_id, ctx)
-            }
             ToggleRecordingMode => self.toggle_recording_mode(ctx),
             ToggleInBandGenerators => self.toggle_in_band_generators(ctx),
             ToggleDebugNetworkStatus => self.toggle_debug_network_status(ctx),
@@ -11998,46 +11291,6 @@ impl TypedActionView for Workspace {
                     if file_tree_active {}
                 }
             }
-            ToggleRightPanel => {
-                let pane_group_handle = self.active_tab_pane_group().clone();
-                self.toggle_right_panel(&pane_group_handle, ctx);
-            }
-            #[cfg(feature = "local_fs")]
-            OpenCodeReviewPanel(locator) => {
-                let pane_group_handle = self
-                    .tabs
-                    .iter()
-                    .find(|tab| tab.pane_group.id() == locator.pane_group_id)
-                    .map(|tab| tab.pane_group.clone());
-                if let Some(pane_group_handle) = pane_group_handle {
-                    let read_result = pane_group_handle.read(ctx, |pane_group, ctx| {
-                        pane_group
-                            .terminal_view_from_pane_id(locator.pane_id, ctx)
-                            .map(|terminal_view| {
-                                let repo_path =
-                                    terminal_view.as_ref(ctx).current_repo_path().cloned();
-                                (repo_path, terminal_view.downgrade())
-                            })
-                    });
-                    if let Some((repo_path, terminal_view)) = read_result {
-                        let diff_state_model = repo_path.as_ref().and_then(|rp| {
-                            self.working_directories_model.update(ctx, |model, ctx| {
-                                model.get_or_create_diff_state_model(rp.clone(), ctx)
-                            })
-                        });
-                        if let Some(diff_state_model) = diff_state_model {
-                            let context = CodeReviewPaneContext {
-                                repo_path,
-                                diff_state_model,
-                                terminal_view,
-                            };
-                            self.open_right_panel(&context, &pane_group_handle, ctx);
-                        }
-                    }
-                }
-            }
-            #[cfg(not(feature = "local_fs"))]
-            OpenCodeReviewPanel(_) => {}
             ToggleVerticalTabsPanel => {
                 self.toggle_vertical_tabs_panel(ctx);
             }
@@ -12122,9 +11375,6 @@ impl TypedActionView for Workspace {
             ClosePanel => {
                 if self.left_panel_view.is_self_or_child_focused(ctx) {
                     self.close_left_panel(ctx);
-                } else if self.right_panel_view.is_self_or_child_focused(ctx) {
-                    let pane_group_handle = self.active_tab_pane_group().clone();
-                    self.close_right_panel(&pane_group_handle, ctx);
                 }
             }
             OpenInExplorer { path } => {
@@ -12280,7 +11530,7 @@ impl TypedActionView for Workspace {
             #[cfg(all(enable_crash_recovery, target_os = "linux"))]
             DismissWaylandCrashRecoveryBannerAndOpenLink => {
                 self.dismiss_workspace_banner(ctx, &WorkspaceBanner::WaylandCrashRecovery);
-                ctx.open_url("https://docs.warp.dev/terminal/more-features/linux#native-wayland");
+                ctx.open_url(links::USER_DOCS_URL);
             }
 
             TabHoverWidthStart { width } => {

@@ -2,7 +2,7 @@
 
 ## Context
 
-WASM here means the Rust application can be compiled to `wasm32-unknown-unknown` and loaded by a web page, so parts of the Warp/Warper UI run inside a browser rather than as the native desktop app. This is not WebAssembly used inside the desktop app for a plugin or sandbox. It is a separate browser build target.
+The WASM target compiles the Rust application to `wasm32-unknown-unknown` and loads parts of the Warp/Warper UI in a web page. This spec removes that browser build target. Desktop plugins or sandboxes that use WebAssembly are outside its scope.
 
 The target is still present:
 
@@ -12,7 +12,7 @@ The target is still present:
 - `app/src/wasm_nux_dialog.rs` implements a browser-only dialog that asks users to use the native app or stay on web.
 - `crates/warpui/src/windowing/winit/wasm.rs:1-80` implements browser clipboard support through `web_sys::Clipboard`.
 
-The target is also intentionally not equivalent to the local desktop app:
+The browser target changes these desktop capabilities:
 
 - `app/build.rs:140-141` runs WASM asset-copy behavior only for the browser target.
 - `app/build.rs:158-164` enables `local_fs` and `local_tty` only when `target_family != "wasm"`.
@@ -20,7 +20,7 @@ The target is also intentionally not equivalent to the local desktop app:
 - `crates/ai/build.rs` enables `ai/local_fs` only outside WASM.
 - `app/src/code_review/code_review_view.rs:1823-1826` contains a WASM branch that says code review is not available on WASM.
 
-The likely original purpose was Warp on Web: a browser-hosted Warp UI that could reuse large parts of the Rust UI stack while substituting browser APIs for clipboard, rendering, networking, asset loading, mobile viewport behavior, and host-page authentication handoff. In Warper's local-first fork, this target appears outside the core desktop goal and keeps compatibility branches alive across many modules.
+The target uses browser APIs for clipboard, rendering, networking, asset loading, mobile viewport behavior, and host-page authentication handoff. Warper targets native desktop and CLI use, so these browser compatibility branches can be removed.
 
 ## Proposed Changes
 
@@ -50,7 +50,7 @@ Use these rules across `app/src` and `crates/**/src`:
 | `target_family == "wasm"` runtime check | Delete the WASM branch. |
 | `target_family != "wasm"` runtime check guarding native work | Remove the WASM comparison and keep the native work. |
 
-Do not add replacement WASM stubs, placeholder modules, no-op implementations, or new "unsupported on wasm" errors. The target state is no browser target, not graceful degradation.
+Remove browser build support completely. Do not add replacement WASM stubs, placeholder modules, no-op implementations, or new "unsupported on wasm" errors.
 
 ### 3. Delete concrete browser modules
 
@@ -109,7 +109,7 @@ Delete these files and directories:
 
 - Delete comments that describe browser/WASM behavior.
 - Delete comments that say a path is "not supported on wasm".
-- Document Warper as native desktop and CLI only.
+- Document Warper's supported targets as native desktop and CLI.
 - Document `local_fs` and `local_tty` as native capability gates, not browser compatibility gates.
 
 ## Testing and Validation
@@ -117,13 +117,13 @@ Delete these files and directories:
 - Run repository searches proving no active scripts, CI workflows, or docs reference the removed target names: `release-wasm`, `dev-wasm`, `wasm32`, `wasm-bindgen`, `wasm-pack`, and `ASSET_TARGET_DIR`.
 - Run repository searches proving no app or crate source still contains `cfg(target_family = "wasm")`, `cfg(target_arch = "wasm32")`, `target_family == "wasm"`, `target_family != "wasm"`, or browser-only WASM modules.
 - Run `cargo check` for the default native app target.
-- Run the existing native verification used for this fork, including local terminal and code review smoke paths.
+- Run the existing native terminal verification and check local file opening, editing, and saving through `app/src/code/local_code_editor.rs`.
 - Run `cargo check --all-targets` after the first cleanup pass.
 - Verify `cargo metadata` no longer contains browser-only packages introduced solely for the app WASM target.
 - Verify `app/build.rs` no longer has target-family WASM behavior.
 
 ## Risks and Mitigations
 
-- The main risk is deleting native code protected by `cfg(not(target_family = "wasm"))`. The rule is fixed: remove the attribute and keep the item.
-- The second risk is conflating `wasm` with `not local_fs`. Some `local_fs` gates may still be useful for headless or test builds. Do not delete `local_fs` wholesale as part of the first pass.
-- The third risk is dependency churn. Browser-only crates may be pulled indirectly by shared crates. Remove direct references first, then let `cargo check` and `cargo metadata` show what remains.
+- Native code protected by `cfg(not(target_family = "wasm"))` must remain. Remove the attribute and keep the item.
+- Some `local_fs` gates may still be useful for headless or test builds. Keep those gates during browser-target removal.
+- Shared crates may depend indirectly on browser-only crates. Remove direct references first, then use `cargo check` and `cargo metadata` to identify remaining dependencies.

@@ -1,11 +1,7 @@
-use crate::code::editor::{
-    line::EditorLineLocation,
-    model::CodeEditorModel,
-    view::{CodeEditorEvent, CodeEditorView, VimMode},
-};
+use crate::code::editor::view::{CodeEditorEvent, CodeEditorView, VimMode};
 use crate::{
-    cmd_or_ctrl_shift, code_review::comments::CommentId, editor::InteractionState,
-    features::FeatureFlag, notebooks::editor::model::word_unit, util::bindings::CustomAction,
+    cmd_or_ctrl_shift, editor::InteractionState, features::FeatureFlag,
+    notebooks::editor::model::word_unit, util::bindings::CustomAction,
 };
 use lazy_static::lazy_static;
 use rangemap::RangeSet;
@@ -629,17 +625,6 @@ pub enum CodeEditorViewAction {
     AddDiffHunkContext {
         line_range: Range<LineCount>,
     },
-    /// Revert diff hunk changes (when clicking revert icon)
-    RevertDiffHunk {
-        line_range: Range<LineCount>,
-    },
-    /// Open comment line (when opening a comment on a specific line)
-    NewCommentOnLine {
-        line: EditorLineLocation,
-    },
-    RequestOpenSavedComment {
-        uuid: CommentId,
-    },
     DeleteLineLeft,
     DeleteLineRight,
     DeleteWordLeft,
@@ -779,9 +764,6 @@ impl CodeEditorViewAction {
             | Self::Escape
             | Self::HiddenSectionExpansion { .. }
             | Self::AddDiffHunkContext { .. }
-            | Self::RevertDiffHunk { .. }
-            | Self::NewCommentOnLine { .. }
-            | Self::RequestOpenSavedComment { .. }
             | Self::MouseHovered { .. }
             | Self::MaybeClickOnHoveredLink(_)
             | Self::RightMouseDown { .. } => true,
@@ -1025,42 +1007,6 @@ impl TypedActionView for CodeEditorView {
 
                 // Notify to re-render and hide the button
                 ctx.notify();
-            }
-            RevertDiffHunk { line_range } => {
-                if FeatureFlag::RevertDiffHunk.is_enabled() {
-                    // Convert line range to diff hunk index and revert it
-                    let hunk_index = self
-                        .model
-                        .as_ref(ctx)
-                        .diff()
-                        .as_ref(ctx)
-                        .diff_hunk_count_before_line(line_range.start.as_usize());
-
-                    self.model.update(ctx, |model, ctx| {
-                        model.reverse_diff_by_index(hunk_index, ctx);
-                    });
-
-                    // Emit event for parent to handle
-                    ctx.emit(CodeEditorEvent::DiffReverted);
-
-                    // Notify to re-render
-                    ctx.notify();
-                }
-            }
-            NewCommentOnLine { line: line_info } => {
-                if FeatureFlag::InlineCodeReview.is_enabled() {
-                    self.model.update(ctx, |model: &mut CodeEditorModel, ctx| {
-                        model.open_comment_line(line_info, ctx);
-                    });
-
-                    ctx.focus(&self.active_comment_editor);
-                    ctx.notify();
-                }
-            }
-            RequestOpenSavedComment { uuid } => {
-                if FeatureFlag::InlineCodeReview.is_enabled() {
-                    ctx.emit(CodeEditorEvent::RequestOpenComment(*uuid))
-                }
             }
             MouseHovered {
                 offset,

@@ -6,7 +6,7 @@ use warpui::{
 };
 
 use crate::{
-    code_review::diff_state::DiffStateModel,
+    git_status::metadata::GitMetadata,
     tab_configs::PickerStyle,
     util::git::detect_current_branch,
     view_components::{DropdownItem, FilterableDropdown},
@@ -137,10 +137,9 @@ impl BranchPicker {
             async move {
                 let branches = match known_main {
                     Some(ref main) => {
-                        DiffStateModel::get_all_branches_with_known_main(&cwd, main, None, false)
-                            .await
+                        GitMetadata::get_all_branches_with_known_main(&cwd, main, None, false).await
                     }
-                    None => DiffStateModel::get_all_branches(&cwd, None, false).await,
+                    None => GitMetadata::get_all_branches(&cwd, None, false).await,
                 };
 
                 // git for-each-ref only lists refs backed by actual commits,
@@ -191,7 +190,7 @@ impl BranchPicker {
 
                 // Main branches first, then the rest in recency order.
                 let mut items: Vec<DropdownItem<String>> =
-                    DiffStateModel::sort_branches_main_first(&branches)
+                    GitMetadata::sort_branches_main_first(&branches)
                         .map(|(name, _)| DropdownItem::new(name.clone(), name.clone()))
                         .collect();
 

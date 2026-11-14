@@ -12,17 +12,14 @@ const DIALOG_PADDING: f32 = 20.;
 /// UiComponent that implements a dialog.
 /// As such by default it's only a box with title and a child (whatever's in the middle of the
 /// dialog) wrapped in a Dismiss, however, it provides couple methods that allow for adding extra
-/// elements to the bottom row (like buttons, or links to documentation), and a close button.
+/// elements to the bottom row (like buttons or links to documentation).
 /// UiComponent::build method returns Dismiss so the user can add their own on_dismiss action.
 pub struct Dialog {
     bottom_row: Vec<Box<dyn Element>>,
-    bottom_row_left: Vec<Box<dyn Element>>,
     title: String,
     body: Option<String>,
     child: Option<Box<dyn Element>>,
     styles: UiComponentStyles,
-    close_button: Option<Box<dyn Element>>,
-    show_separator: bool,
 }
 
 pub fn dialog_styles(appearance: &Appearance) -> UiComponentStyles {
@@ -49,9 +46,6 @@ impl Dialog {
             child: None,
             styles,
             bottom_row: Default::default(),
-            bottom_row_left: Default::default(),
-            close_button: None,
-            show_separator: false,
         }
     }
 
@@ -60,23 +54,8 @@ impl Dialog {
         self
     }
 
-    pub fn with_close_button(mut self, close_button: Box<dyn Element>) -> Self {
-        self.close_button = Some(close_button);
-        self
-    }
-
     pub fn with_bottom_row_child(mut self, child: Box<dyn Element>) -> Self {
         self.bottom_row.push(child);
-        self
-    }
-
-    pub fn with_bottom_row_left_child(mut self, child: Box<dyn Element>) -> Self {
-        self.bottom_row_left.push(child);
-        self
-    }
-
-    pub fn with_separator(mut self) -> Self {
-        self.show_separator = true;
         self
     }
 }
@@ -85,7 +64,7 @@ impl UiComponent for Dialog {
     type ElementType = Dismiss;
 
     fn build(self) -> Dismiss {
-        let mut header = Flex::row()
+        let header = Flex::row()
             .with_main_axis_size(MainAxisSize::Max)
             .with_main_axis_alignment(MainAxisAlignment::SpaceBetween)
             .with_cross_axis_alignment(CrossAxisAlignment::Center)
@@ -104,28 +83,11 @@ impl UiComponent for Dialog {
                 .finish(),
             );
 
-        if let Some(close_button) = self.close_button {
-            header.add_child(close_button);
-        }
-
         let footer = Flex::row()
             .with_main_axis_size(MainAxisSize::Max)
-            .with_main_axis_alignment(MainAxisAlignment::SpaceBetween)
+            .with_main_axis_alignment(MainAxisAlignment::End)
             .with_cross_axis_alignment(CrossAxisAlignment::Center)
-            .with_child(
-                Flex::row()
-                    .with_main_axis_size(MainAxisSize::Min)
-                    .with_cross_axis_alignment(CrossAxisAlignment::Center)
-                    .with_children(self.bottom_row_left)
-                    .finish(),
-            )
-            .with_child(
-                Flex::row()
-                    .with_main_axis_size(MainAxisSize::Min)
-                    .with_cross_axis_alignment(CrossAxisAlignment::Center)
-                    .with_children(self.bottom_row)
-                    .finish(),
-            )
+            .with_children(self.bottom_row)
             .finish();
 
         let (left_padding, top_padding, right_padding, bottom_padding) =
@@ -183,22 +145,11 @@ impl UiComponent for Dialog {
             .with_padding_right(right_padding)
             .finish();
 
-        let footer_container = if self.show_separator {
-            let border_color = self.styles.border_color.unwrap_or_default();
-
-            Container::new(footer)
-                .with_padding_left(left_padding)
-                .with_padding_right(right_padding)
-                .with_padding_top(bottom_padding)
-                .with_border(Border::top(1.).with_border_fill(border_color))
-                .finish()
-        } else {
-            Container::new(footer)
-                .with_padding_left(left_padding)
-                .with_padding_right(right_padding)
-                .with_padding_top(0.)
-                .finish()
-        };
+        let footer_container = Container::new(footer)
+            .with_padding_left(left_padding)
+            .with_padding_right(right_padding)
+            .with_padding_top(0.)
+            .finish();
 
         let flex_column_contents = Flex::column()
             .with_cross_axis_alignment(CrossAxisAlignment::Stretch)

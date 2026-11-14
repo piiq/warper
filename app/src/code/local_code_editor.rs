@@ -22,7 +22,7 @@ use string_offset::CharOffset;
 use vec1::Vec1;
 use warp_core::ui::appearance::Appearance;
 use warp_editor::{
-    content::{buffer::InitialBufferState, text::IndentUnit},
+    content::text::IndentUnit,
     render::model::{Decoration, LineCount},
 };
 use warp_util::{
@@ -35,7 +35,7 @@ use warpui::{
         Border, ChildAnchor, ChildView, ClippedScrollStateHandle, ConstrainedBox, Container,
         CornerRadius, CrossAxisAlignment, DropShadow, Flex, Hoverable, MainAxisAlignment,
         MainAxisSize, MouseStateHandle, OffsetPositioning, ParentAnchor, ParentElement,
-        ParentOffsetBounds, Radius, Rect, Shrinkable, Stack, Text,
+        ParentOffsetBounds, Radius, Shrinkable, Stack, Text,
     },
     keymap::{macros::*, FixedBinding},
     text::point::Point,
@@ -50,6 +50,7 @@ use warpui::{platform::SaveFilePickerConfiguration, ModelHandle};
 
 use crate::menu::{Event, Menu, MenuItem, MenuItemFields};
 
+use crate::code::global_buffer_model::GlobalBufferModelEvent;
 use crate::{
     code::{
         editor::model::HoverableLink,
@@ -60,10 +61,6 @@ use crate::{
     debounce::debounce,
     settings::CodeSettings,
     terminal::TerminalView,
-};
-use crate::{
-    code::{editor::EditorReviewComment, global_buffer_model::GlobalBufferModelEvent},
-    code_review::comments::CommentId,
 };
 use pathfinder_color::ColorU;
 #[cfg(feature = "local_fs")]
@@ -133,15 +130,6 @@ pub enum LocalCodeEditorEvent {
         /// The ID of the LSP server that produced this definition.
         /// Used to register external files with the correct server.
         source_server_id: LanguageServerId,
-    },
-    /// Emitted when a comment is saved. This propagates the comment content
-    /// changes to the CodeReviewView, which will update the comment model.
-    CommentSaved {
-        comment: EditorReviewComment,
-    },
-    RequestOpenComment(CommentId),
-    DeleteComment {
-        id: CommentId,
     },
     /// Emitted when the viewport is updated after layout
     ViewportUpdated,
@@ -560,17 +548,6 @@ impl LocalCodeEditorView {
                         me.lsp_hover_state = LspHoverState::Loading(None);
                     }
                 }
-            }
-            CodeEditorEvent::CommentSaved { comment } => {
-                ctx.emit(LocalCodeEditorEvent::CommentSaved {
-                    comment: comment.clone(),
-                });
-            }
-            CodeEditorEvent::DeleteComment { id } => {
-                ctx.emit(LocalCodeEditorEvent::DeleteComment { id: *id });
-            }
-            CodeEditorEvent::RequestOpenComment(uuid) => {
-                ctx.emit(LocalCodeEditorEvent::RequestOpenComment(*uuid));
             }
             CodeEditorEvent::ViewportUpdated => {
                 ctx.emit(LocalCodeEditorEvent::ViewportUpdated);
@@ -1241,12 +1218,6 @@ impl LocalCodeEditorView {
         self.default_directory = directory;
     }
 
-    pub fn reset_with_state(&mut self, state: InitialBufferState, ctx: &mut ViewContext<Self>) {
-        self.base_content_version = Some(state.version);
-        self.editor
-            .update(ctx, |editor, ctx| editor.reset(state, ctx));
-    }
-
     /// Whether the content of the source file this editor is based on has been loaded into the buffer.
     pub fn file_loaded(&self, ctx: &mut ViewContext<Self>) -> bool {
         // For global buffer, we could have utilized a shared buffer from another open editor. To avoid
@@ -1359,10 +1330,10 @@ impl LocalCodeEditorView {
             let footer =
                 ctx.add_typed_action_view(|ctx| CodeFooterView::new(path.to_path_buf(), ctx));
             ctx.subscribe_to_view(&footer, |_, _, event, ctx| match event {
-                CodeFooterViewEvent::EnableLSP { path, .. } => {
+                CodeFooterViewEvent::EnableLSP { path } => {
                     Self::enable_lsp_for_path(path, ctx);
                 }
-                CodeFooterViewEvent::InstallAndEnableLSP { path, .. } => {
+                CodeFooterViewEvent::InstallAndEnableLSP { path } => {
                     Self::install_and_enable_lsp_for_path(path, ctx);
                 }
                 CodeFooterViewEvent::OpenLogs { path } => {
@@ -1383,10 +1354,6 @@ impl LocalCodeEditorView {
                         let _ = server.manual_start(ctx);
                     });
                 }
-                CodeFooterViewEvent::RestartAllServers { .. }
-                | CodeFooterViewEvent::StopAllServers { .. }
-                | CodeFooterViewEvent::StartAllServers { .. }
-                | CodeFooterViewEvent::ManageServers => {}
             });
 
             // Subscribe to PersistedWorkspace events for LSP installation completion
@@ -1915,7 +1882,6 @@ impl View for LocalCodeEditorView {
             let provider = editor.show_find_references_provider();
 
             // Get the cached gutter position from the last paint (in screen coordinates).
-            // Same pattern as comment editor in CodeEditorView::render.
             let line_location = app.element_position_by_id_at_last_frame(
                 editor.window_id(),
                 editor.find_references_save_position_id(),
@@ -1923,7 +1889,7 @@ impl View for LocalCodeEditorView {
 
             // Determine if we should show the card.
             // When line_location is None (first frame or anchor not rendered), default to true.
-            // This matches the comment editor pattern and avoids a one-frame delay on first click.
+            // Use the editor model immediately to avoid a one-frame delay on first click.
             // The scroll-bounding check only runs when we have a cached position.
             let should_show = match line_location {
                 Some(line_location) => {
@@ -1934,7 +1900,6 @@ impl View for LocalCodeEditorView {
 
             if should_show {
                 // Compute positioning fresh from the stable CharOffset each frame.
-                // Same pattern as comment editor which uses vertical_offset_at_render_location.
                 if let Some(positioning) = self.find_references_card_positioning(app) {
                     stack.add_positioned_overlay_child(
                         ChildView::new(references_view).finish(),
@@ -2134,55 +2099,6 @@ pub fn render_unsaved_changes_banner(
     .finish()
 }
 
-/// Renders a small yellow circle with tooltip indicating unsaved changes
-pub fn render_unsaved_circle_with_tooltip(
-    mouse_state: MouseStateHandle,
-    tooltip_text: String,
-    size: f32,
-    right_margin: f32,
-    appearance: &Appearance,
-) -> Box<dyn Element> {
-    Hoverable::new(mouse_state, |state| {
-        let rect = Container::new(
-            ConstrainedBox::new(
-                Rect::new()
-                    .with_background_color(appearance.theme().active_ui_text_color().into())
-                    .with_corner_radius(CornerRadius::with_all(Radius::Percentage(50.)))
-                    .finish(),
-            )
-            .with_width(size)
-            .with_height(size)
-            .finish(),
-        )
-        .with_margin_right(right_margin)
-        .finish();
-
-        if state.is_hovered() {
-            let mut stack = Stack::new().with_child(rect);
-
-            let tooltip = appearance
-                .ui_builder()
-                .tool_tip(tooltip_text)
-                .build()
-                .finish();
-
-            stack.add_positioned_overlay_child(
-                tooltip,
-                OffsetPositioning::offset_from_parent(
-                    Vector2F::new(0., 4.),
-                    ParentOffsetBounds::Unbounded,
-                    ParentAnchor::BottomMiddle,
-                    ChildAnchor::TopMiddle,
-                ),
-            );
-            stack.finish()
-        } else {
-            rect
-        }
-    })
-    .finish()
-}
-
 /// Provider for determining find references card visibility based on scroll state.
 #[derive(Debug)]
 pub struct ShowFindReferencesCard {
@@ -2213,7 +2129,7 @@ impl ShowFindReferencesCardProvider for ShowFindReferencesCard {
         };
 
         // Check if anchor point is within parent scrollable bounds
-        // Use same logic as ShowCommentEditor: check upper-right and lower-left corners
+        // Check upper-right and lower-left corners.
         let upper_right_in = parent_bounds.contains_point(card_anchor_location.upper_right());
         let lower_left_in = parent_bounds.contains_point(card_anchor_location.lower_left());
         upper_right_in || lower_left_in
