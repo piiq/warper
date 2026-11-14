@@ -29,7 +29,7 @@ jobs:
       CARGO_BUILD_TARGET: aarch64-apple-darwin
       CARGO_BUILD_JOBS: '2'
       # Omit debug symbols from release artifacts.
-      CARGO_PROFILE_RELEASE_LTO_DEBUG: '0'
+      CARGO_PROFILE_RELEASE_DEBUG: '0'
       GH_TOKEN: ${{ github.token }}
     steps:
       - name: Validate tag format
