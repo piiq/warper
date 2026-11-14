@@ -1,0 +1,137 @@
+name: macOS release
+
+on:
+  push:
+    tags: ['warper-v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing release tag, for example warper-v0.6.0'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  macos:
+    name: Build macOS Apple Silicon release
+    runs-on: macos-latest
+    timeout-minutes: 120
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+      CARGO_BUILD_TARGET: aarch64-apple-darwin
+      CARGO_BUILD_JOBS: '2'
+      # Omit debug symbols from release artifacts.
+      CARGO_PROFILE_RELEASE_LTO_DEBUG: '0'
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Validate tag format
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$RELEASE_TAG" =~ ^warper-v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Use a release tag in the form warper-vX.Y.Z."
+            exit 1
+          fi
+
+      - name: Checkout release tag
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Validate package version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(python3 -c 'import pathlib, tomllib; print(tomllib.loads(pathlib.Path("app/Cargo.toml").read_text())["package"]["version"])')"
+          if [[ "$RELEASE_TAG" != "warper-v$version" ]]; then
+            echo "::error::Tag $RELEASE_TAG does not match app/Cargo.toml version $version."
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare build environment
+        uses: ./.github/actions/prepare_environment
+        with:
+          target_os: macos
+          is_self_hosted: false
+          install_release_deps: true
+
+      - name: Install packaging tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./script/install_cargo_bundle
+          brew install create-dmg
+
+      - name: Build app and DMG
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo metadata --locked --format-version 1 --no-deps > /dev/null
+          ./script/bundle --arch aarch64 --channel oss --selfsign \
+            --release-tag "$RELEASE_TAG" --dmg-name-suffix "$VERSION-arm64"
+
+      - name: Verify release bundle
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          app="target/release-lto/bundle/osx/Warper.app"
+          test -s "target/release-lto/bundle/osx/Warper-$VERSION-arm64.dmg"
+          codesign --verify --deep --strict "$app"
+          lipo -verify_arch arm64 "$app/Contents/MacOS/warp-oss"
+          test "$(plutil -extract CFBundleShortVersionString raw -o - "$app/Contents/Info.plist")" = "$VERSION"
+          test -s "$app/Contents/Resources/settings_schema.json"
+          test -s "$app/Contents/Resources/THIRD_PARTY_LICENSES.txt"
+          jq -e --arg tag "$RELEASE_TAG" '.warp_version == $tag' \
+            "$app/Contents/Resources/bundled/metadata/version.json"
+
+      - name: Upload draft release
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          dmg="target/release-lto/bundle/osx/Warper-$VERSION-arm64.dmg"
+          notes="$RUNNER_TEMP/release-notes.md"
+          source_sha="$(git rev-parse HEAD)"
+          cat > "$notes" <<EOF
+          macOS Apple Silicon (arm64) release.
+
+          The app is ad-hoc signed and is not Apple-notarized.
+
+          Source: https://github.com/$GITHUB_REPOSITORY/commit/$source_sha
+          EOF
+          draft="$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            --jq ".[] | select(.tag_name == \"$RELEASE_TAG\") | .draft")"
+          case "$draft" in
+            '')
+              gh release create "$RELEASE_TAG" "$dmg" --repo "$GITHUB_REPOSITORY" \
+                --verify-tag --draft --title "Warper $VERSION" --notes-file "$notes"
+              ;;
+            true)
+              gh release upload "$RELEASE_TAG" "$dmg" --repo "$GITHUB_REPOSITORY" --clobber
+              gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+                --title "Warper $VERSION" --notes-file "$notes"
+              ;;
+            false)
+              echo "::error::Release $RELEASE_TAG is published. Create a new version to replace its assets."
+              exit 1
+              ;;
+            *)
+              echo "::error::Unexpected release state for $RELEASE_TAG: $draft"
+              exit 1
+              ;;
+          esac
