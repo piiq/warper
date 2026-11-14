@@ -19,7 +19,7 @@ concurrency:
 jobs:
   analyze:
     name: Analyze ${{ matrix.language }}
-    timeout-minutes: 45
+    timeout-minutes: ${{ matrix.timeout }}
     permissions:
       actions: read
       contents: read
@@ -29,9 +29,11 @@ jobs:
       matrix:
         include:
           - language: rust
-            runner: macos-latest
+            runner: ubuntu-latest
+            timeout: 120
           - language: actions
             runner: ubuntu-latest
+            timeout: 45
     runs-on: ${{ matrix.runner }}
     env:
       # Analyze the supported desktop configuration, without profiling/experimental Cargo features.
@@ -45,7 +47,7 @@ jobs:
         if: matrix.language == 'rust'
         uses: ./.github/actions/prepare_environment
         with:
-          target_os: macos
+          target_os: linux
           is_self_hosted: false
 
       - name: Initialize CodeQL
