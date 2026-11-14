@@ -40,9 +40,9 @@ use super::{
     ChipValue, ContextChipKind,
 };
 #[cfg(feature = "local_fs")]
-use crate::code_review::git_status_update::{GitRepoStatusEvent, GitRepoStatusModel};
-#[cfg(feature = "local_fs")]
 use crate::context_chips::display_chip::GitLineChanges;
+#[cfg(feature = "local_fs")]
+use crate::git_status::status_update::{GitRepoStatusEvent, GitRepoStatusModel};
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash as _, Hasher as _};
 use std::sync::Arc;

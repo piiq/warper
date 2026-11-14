@@ -1,22 +1,25 @@
 use crate::code::editor::line_iterator::LineIterator;
 use num_traits::SaturatingSub;
 use rangemap::{RangeMap, RangeSet};
-use std::future::Future;
 use std::ops::Range;
 use std::path::Path;
 use std::sync::Arc;
 use std::{cmp, mem};
 use warp_core::platform::SessionPlatform;
 use warp_core::ui::theme::Fill;
+#[cfg(test)]
 use warp_editor::content::anchor::Anchor;
 use warp_editor::content::edit::EditDelta;
-use warp_editor::content::find::{SearchConfig, SearchResults};
 use warp_editor::content::selection_model::BufferSelectionModel;
 use warp_editor::content::version::BufferVersion;
 use warp_editor::multiline::{AnyMultilineString, MultilineString, LF};
 use warp_editor::render::model::{AutoScrollMode, LineCount, StyleUpdateAction};
+#[cfg(test)]
+use warp_editor::render::model::{BlockItem, RenderLineLocation};
 use warp_editor::selection::TextDirection;
-use warpui::units::{IntoPixels, Pixels};
+use warpui::units::IntoPixels;
+#[cfg(test)]
+use warpui::units::Pixels;
 
 use crate::util::link_detection::get_word_range_at_offset;
 use crate::{
@@ -24,6 +27,7 @@ use crate::{
     themes::theme::AnsiColorIdentifier,
 };
 
+#[cfg(test)]
 use crate::code::diff_validation::DiffDelta;
 use itertools::Itertools;
 use languages::{language_by_filename, language_by_name, Language};
@@ -55,8 +59,8 @@ use warp_editor::{
     editor::TextDecoration,
     model::{CoreEditorModel, PlainTextEditorModel},
     render::model::{
-        BlockItem, Decoration, LineDecoration, RenderEvent, RenderLineLocation, RenderState,
-        RichTextStyles, UpdateDecorationAfterLayout, WidthSetting,
+        Decoration, LineDecoration, RenderEvent, RenderState, RichTextStyles,
+        UpdateDecorationAfterLayout, WidthSetting,
     },
     selection::{SelectionMode, SelectionModel, TextUnit},
 };
@@ -67,12 +71,9 @@ use warpui::elements::{
 use warpui::text::{point::Point, TextBuffer};
 use warpui::{AppContext, Entity, ModelContext, ModelHandle, SingletonEntity};
 
-use super::comments::{EditorCommentsModel, PendingComment, PendingCommentEvent};
 use super::diff::{
     add_inline_overlay_color, DiffModel, DiffModelEvent, DiffStatus, RenderableDiffHunk,
 };
-use super::line::EditorLineLocation;
-use crate::code_review::comments::{CommentId, LineDiffContent};
 
 /// An opaque handle to a stable line in the editor content, suitable for scroll
 /// position preservation. Contains an internal anchor that tracks through
@@ -81,9 +82,11 @@ use crate::code_review::comments::{CommentId, LineDiffContent};
 ///
 /// Obtain via [`CodeEditorModel::line_at_vertical_offset`]; resolve back to a
 /// pixel offset via [`CodeEditorModel::line_top`].
+#[cfg(test)]
 #[derive(Debug, Clone)]
 pub struct StableEditorLine(StableEditorLineInner);
 
+#[cfg(test)]
 #[derive(Debug, Clone)]
 enum StableEditorLineInner {
     /// Scroll position is on a line in the current buffer.
@@ -111,6 +114,7 @@ pub enum DiffNavigationState {
     /// Diff hunks are collapsed and not visible
     Collapsed,
     /// All diff hunks are expanded but none is specifically focused
+    #[cfg(test)]
     Expanded,
     /// All diff hunks are expanded and one specific hunk is focused
     Focused(usize),
@@ -267,8 +271,7 @@ impl DelayRendering {
 
     /// Consume the delay rendering state without flushing edits to the render state.
     /// Use when a full layout rebuild will follow that supersedes the pending edits.
-    /// Still emits `DelayedRenderingFlushed` so downstream listeners (e.g. CodeReviewView)
-    /// are notified.
+    /// Still notifies listeners through `DelayedRenderingFlushed`.
     fn skip(self, ctx: &mut ModelContext<CodeEditorModel>) {
         ctx.emit(CodeEditorModelEvent::DelayedRenderingFlushed);
     }
@@ -281,7 +284,6 @@ pub struct CodeEditorModel {
     diff: ModelHandle<DiffModel>,
     selection: ModelHandle<SelectionModel>,
     syntax_tree: ModelHandle<SyntaxTreeState>,
-    comments: ModelHandle<EditorCommentsModel>,
     hidden_lines: ModelHandle<HiddenLinesModel>,
     /// The current state of diff navigation (collapsed, expanded, or focused on a specific hunk)
     diff_navigation_state: DiffNavigationState,
@@ -366,10 +368,6 @@ impl CodeEditorModel {
             .with_disable_hidden_navigation()
         });
 
-        let comments = ctx.add_model(|_| EditorCommentsModel {
-            pending_comment: PendingComment::Closed,
-        });
-
         Self {
             render_state,
             diff,
@@ -377,7 +375,6 @@ impl CodeEditorModel {
             selection_model,
             selection,
             syntax_tree,
-            comments,
             hidden_lines,
             diff_navigation_state: DiffNavigationState::Collapsed,
             interaction_state: InteractionState::Editable,
@@ -441,21 +438,6 @@ impl CodeEditorModel {
             }
             RenderEvent::NeedsResize => {}
         }
-    }
-
-    /// Set hide_lines_outside_of_active_diff. This will automatically set a delay rendering trigger to wait
-    /// for the next diff to be computed.
-    pub fn hide_lines_outside_of_active_diff(
-        &mut self,
-        context_lines: usize,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        let buffer_version = self.buffer_version(ctx);
-
-        self.hide_lines_outside_of_active_diff = Some(context_lines);
-        self.delay_rendering = Some(DelayRendering::new(DelayRenderingTrigger::DiffUpdate(
-            buffer_version,
-        )));
     }
 
     /// We need to set the diff model base to the normalized version of the text. This is because the internal text
@@ -538,10 +520,6 @@ impl CodeEditorModel {
         &self.selection
     }
 
-    pub fn comments(&self) -> &ModelHandle<EditorCommentsModel> {
-        &self.comments
-    }
-
     // Set the following line ranges to be hidden in the editor.
     pub fn set_hidden_lines(
         &mut self,
@@ -551,10 +529,6 @@ impl CodeEditorModel {
         self.hidden_lines.update(ctx, |model, ctx| {
             model.set_hidden_lines(ranges, ctx);
         });
-    }
-
-    pub fn hidden_ranges(&self, ctx: &AppContext) -> RangeSet<CharOffset> {
-        self.hidden_lines.as_ref(ctx).hidden_ranges_at_latest(ctx)
     }
 
     // Set the following hidden line ranges to be visible. This is no-op if the lines are already visible.
@@ -710,76 +684,13 @@ impl CodeEditorModel {
         self.content().as_ref(ctx).text_with_line_ending()
     }
 
-    /// Returns the content of a line given the location of the line,
-    /// along with the number of added and removed lines.
-    /// For Current and Collapsed lines, retrieves from the buffer.
-    /// For Removed lines, retrieves from the diff base content.
-    /// Prepends '+' for added/modified lines and '-' for removed lines.
-    pub fn get_diff_content_for_line(
-        &self,
-        line: &EditorLineLocation,
-        ctx: &AppContext,
-    ) -> LineDiffContent {
-        match line {
-            EditorLineLocation::Collapsed { .. } | EditorLineLocation::Current { .. } => {
-                let buffer = self.buffer().as_ref(ctx);
-
-                let (modified, mut content) = if let Some(line_number) = line.line_number() {
-                    // TODO(CLD-558) Buffer lines are 1-indexed.
-                    let start_offset =
-                        Point::new(line_number.as_u32() + 1, 0).to_buffer_char_offset(buffer);
-                    let end_offset =
-                        Point::new(line_number.as_u32() + 2, 0).to_buffer_char_offset(buffer);
-
-                    let modified = self.diff.as_ref(ctx).is_line_added_or_changed(&line_number);
-                    (
-                        modified,
-                        buffer.text_in_range(start_offset..end_offset).into_string(),
-                    )
-                } else {
-                    (false, String::new())
-                };
-
-                // Prepend '+' for modified lines
-                if modified {
-                    content = format!("+{content}");
-                }
-
-                LineDiffContent {
-                    content,
-                    lines_added: if modified {
-                        LineCount::from(1)
-                    } else {
-                        LineCount::from(0)
-                    },
-                    lines_removed: LineCount::from(0),
-                }
-            }
-            EditorLineLocation::Removed { .. } => {
-                let mut content = self
-                    .diff
-                    .as_ref(ctx)
-                    .deleted_line_content(line)
-                    .unwrap_or_default();
-
-                // Prepend '-' for removed lines
-                content = format!("-{content}");
-
-                LineDiffContent {
-                    content,
-                    lines_added: LineCount::from(0),
-                    lines_removed: LineCount::from(1),
-                }
-            }
-        }
-    }
-
     /// Find the 0-based index of the temporary block containing the given
     /// content-space vertical offset within its diff hunk.
     ///
     /// Uses the render state's sumtree cursor for an O(log n) seek plus
     /// an O(k) backward walk (k = position within hunk). Called only on
     /// scroll-settle (debounced), not per-frame.
+    #[cfg(test)]
     pub fn removed_line_hunk_index(&self, target_offset: Pixels, ctx: &AppContext) -> usize {
         let render_state = self.render_state.as_ref(ctx);
         render_state
@@ -795,6 +706,7 @@ impl CodeEditorModel {
     ///
     /// Returns `None` if the offset is beyond the content height or the block
     /// lookup fails.
+    #[cfg(test)]
     pub fn line_at_vertical_offset(
         &self,
         offset: Pixels,
@@ -863,6 +775,7 @@ impl CodeEditorModel {
     /// so this remains accurate after buffer edits.
     ///
     /// Returns `None` if the line no longer exists in the render model.
+    #[cfg(test)]
     pub fn line_top(&self, line: &StableEditorLine, ctx: &AppContext) -> Option<Pixels> {
         let selection_model = self.selection_model.as_ref(ctx);
         let render_location = match &line.0 {
@@ -901,6 +814,7 @@ impl CodeEditorModel {
     }
 
     /// Apply a vector of diffs on the current buffer without changing the active selection.
+    #[cfg(test)]
     pub fn apply_diffs(&mut self, diffs: Vec<DiffDelta>, ctx: &mut ModelContext<Self>) {
         let insertion = {
             let buffer = self.content().as_ref(ctx);
@@ -973,116 +887,109 @@ impl CodeEditorModel {
         let mut all_diffs_line_decorations = Vec::new();
         let mut all_diffs_text_decorations = Vec::new();
 
-        match self.diff_navigation_state {
-            DiffNavigationState::Collapsed => {
-                // No diff decorations when collapsed
-            }
-            DiffNavigationState::Expanded | DiffNavigationState::Focused(_) => {
-                let focused_diff_index = self.focused_diff_index();
-                // Show all diffs expanded, with the focused one getting special highlighting
-                let Some(base) = self.diff.as_ref(ctx).base() else {
-                    return;
+        if self.diff_nav_is_active() {
+            let focused_diff_index = self.focused_diff_index();
+            // Show all diffs expanded, with the focused one getting special highlighting
+            let Some(base) = self.diff.as_ref(ctx).base() else {
+                return;
+            };
+
+            let mut line_iterator = LineIterator::new(base.lines());
+
+            for diff_index in 0..self.diff().as_ref(ctx).diff_hunk_count() {
+                let appearance = Appearance::as_ref(ctx);
+                let should_highlight = match focused_diff_index {
+                    Some(focused_index) => diff_index == focused_index,
+                    None => true,
+                };
+                let (mut removed_lines, mut line_decoration, mut inline_decorations) = match self
+                    .diff
+                    .as_ref(ctx)
+                    .renderable_diff_hunk_by_index(diff_index, &mut line_iterator, appearance)
+                {
+                    Some(RenderableDiffHunk::Add { line_decoration }) => {
+                        (Vec::new(), Some(line_decoration), None::<Vec<Decoration>>)
+                    }
+                    Some(RenderableDiffHunk::Deletion { removed_lines }) => {
+                        (removed_lines, None, None::<Vec<Decoration>>)
+                    }
+                    Some(RenderableDiffHunk::Replace {
+                        line_decoration,
+                        inline_highlights,
+                        mut removed_lines,
+                    }) => {
+                        // Highlight the focused diff hunk OR only 1-line replacements if no diff is focused.
+                        let should_highlight_changes = match focused_diff_index {
+                            Some(focused_index) => diff_index == focused_index,
+                            None => {
+                                let new_lines =
+                                    (line_decoration.end - line_decoration.start).as_usize();
+                                new_lines == 1 && removed_lines.len() == 1
+                            }
+                        };
+                        let highlight_text = if should_highlight_changes {
+                            let buffer = self.content.as_ref(ctx);
+                            let highlight_text = inline_highlights
+                                .into_iter()
+                                .map(|(row_start, inline)| {
+                                    let start_char = Point::new((row_start + 1) as u32, 0)
+                                        .to_buffer_char_offset(buffer);
+                                    Decoration {
+                                        start: start_char + inline.start - 1,
+                                        end: start_char + inline.end - 1,
+                                        background: Some(Fill::Solid(add_inline_overlay_color(
+                                            appearance,
+                                        ))),
+                                        dashed_underline: None,
+                                    }
+                                })
+                                .collect_vec();
+
+                            Some(highlight_text)
+                        } else {
+                            for removed_line in &mut removed_lines {
+                                removed_line.inline_text_decorations.clear();
+                            }
+                            None
+                        };
+
+                        (removed_lines, Some(line_decoration), highlight_text)
+                    }
+                    None => (Vec::new(), None, None::<Vec<Decoration>>),
                 };
 
-                let mut line_iterator = LineIterator::new(base.lines());
+                // Fade decorations for non-focused diffs
+                if !should_highlight {
+                    let background_color =
+                        Fill::Solid(Appearance::as_ref(ctx).theme().background().into_solid());
 
-                for diff_index in 0..self.diff().as_ref(ctx).diff_hunk_count() {
-                    let appearance = Appearance::as_ref(ctx);
-                    let should_highlight = match focused_diff_index {
-                        Some(focused_index) => diff_index == focused_index,
-                        None => true,
+                    if let Some(line_decoration) = line_decoration.as_mut() {
+                        line_decoration.overlay = line_decoration
+                            .overlay
+                            .fade_into_background(&background_color);
                     };
-                    let (mut removed_lines, mut line_decoration, mut inline_decorations) =
-                        match self.diff.as_ref(ctx).renderable_diff_hunk_by_index(
-                            diff_index,
-                            &mut line_iterator,
-                            appearance,
-                        ) {
-                            Some(RenderableDiffHunk::Add { line_decoration }) => {
-                                (Vec::new(), Some(line_decoration), None::<Vec<Decoration>>)
-                            }
-                            Some(RenderableDiffHunk::Deletion { removed_lines }) => {
-                                (removed_lines, None, None::<Vec<Decoration>>)
-                            }
-                            Some(RenderableDiffHunk::Replace {
-                                line_decoration,
-                                inline_highlights,
-                                mut removed_lines,
-                            }) => {
-                                // Highlight the focused diff hunk OR only 1-line replacements if no diff is focused.
-                                let should_highlight_changes = match focused_diff_index {
-                                    Some(focused_index) => diff_index == focused_index,
-                                    None => {
-                                        let new_lines = (line_decoration.end
-                                            - line_decoration.start)
-                                            .as_usize();
-                                        new_lines == 1 && removed_lines.len() == 1
-                                    }
-                                };
-                                let highlight_text = if should_highlight_changes {
-                                    let buffer = self.content.as_ref(ctx);
-                                    let highlight_text = inline_highlights
-                                        .into_iter()
-                                        .map(|(row_start, inline)| {
-                                            let start_char = Point::new((row_start + 1) as u32, 0)
-                                                .to_buffer_char_offset(buffer);
-                                            Decoration {
-                                                start: start_char + inline.start - 1,
-                                                end: start_char + inline.end - 1,
-                                                background: Some(Fill::Solid(
-                                                    add_inline_overlay_color(appearance),
-                                                )),
-                                                dashed_underline: None,
-                                            }
-                                        })
-                                        .collect_vec();
 
-                                    Some(highlight_text)
-                                } else {
-                                    for removed_line in &mut removed_lines {
-                                        removed_line.inline_text_decorations.clear();
-                                    }
-                                    None
-                                };
-
-                                (removed_lines, Some(line_decoration), highlight_text)
-                            }
-                            None => (Vec::new(), None, None::<Vec<Decoration>>),
-                        };
-
-                    // Fade decorations for non-focused diffs
-                    if !should_highlight {
-                        let background_color =
-                            Fill::Solid(Appearance::as_ref(ctx).theme().background().into_solid());
-
-                        if let Some(line_decoration) = line_decoration.as_mut() {
-                            line_decoration.overlay = line_decoration
-                                .overlay
-                                .fade_into_background(&background_color);
-                        };
-
-                        // Do not render inline decorations when diff is not focused.
-                        if let Some(inline_decorations) = inline_decorations.as_mut() {
-                            inline_decorations.clear();
-                        }
-
-                        for removed_line in &mut removed_lines {
-                            removed_line.line_decoration =
-                                removed_line.line_decoration.map(|line_decoration| {
-                                    line_decoration.fade_into_background(&background_color)
-                                });
-
-                            removed_line.inline_text_decorations.clear();
-                        }
+                    // Do not render inline decorations when diff is not focused.
+                    if let Some(inline_decorations) = inline_decorations.as_mut() {
+                        inline_decorations.clear();
                     }
 
-                    if let Some(line_decoration) = line_decoration {
-                        all_diffs_line_decorations.push(line_decoration);
+                    for removed_line in &mut removed_lines {
+                        removed_line.line_decoration =
+                            removed_line.line_decoration.map(|line_decoration| {
+                                line_decoration.fade_into_background(&background_color)
+                            });
+
+                        removed_line.inline_text_decorations.clear();
                     }
-                    all_diffs_removed_lines.extend(removed_lines);
-                    if let Some(inline_decorations) = inline_decorations {
-                        all_diffs_text_decorations.extend(inline_decorations);
-                    }
+                }
+
+                if let Some(line_decoration) = line_decoration {
+                    all_diffs_line_decorations.push(line_decoration);
+                }
+                all_diffs_removed_lines.extend(removed_lines);
+                if let Some(inline_decorations) = inline_decorations {
+                    all_diffs_text_decorations.extend(inline_decorations);
                 }
             }
         }
@@ -1127,6 +1034,7 @@ impl CodeEditorModel {
 
     /// Expands all diff hunks without focusing any specific diff hunk.
     /// All diff hunks will be shown expanded with normal highlighting.
+    #[cfg(test)]
     pub fn expand_diffs(&mut self, ctx: &mut ModelContext<Self>) {
         self.diff_navigation_state = DiffNavigationState::Expanded;
         self.refresh_diff_state(ctx);
@@ -1686,34 +1594,6 @@ impl CodeEditorModel {
         app: &AppContext,
     ) -> Option<Range<CharOffset>> {
         get_word_range_at_offset(self.content().as_ref(app), offset, None)
-    }
-
-    pub fn run_search(
-        &self,
-        config: &SearchConfig,
-        ctx: &AppContext,
-    ) -> anyhow::Result<impl Future<Output = SearchResults>> {
-        let buffer = self.content().as_ref(ctx);
-        let search_future = buffer.search(buffer.prepare_search(config)?);
-
-        Ok(async move {
-            match search_future.await.1 {
-                Ok(mut search_results) => {
-                    for match_result in &mut search_results.matches {
-                        match_result.start =
-                            match_result.start.saturating_sub(&CharOffset::from(1));
-                        match_result.end = match_result.end.saturating_sub(&CharOffset::from(1));
-                    }
-                    search_results
-                }
-                Err(err) => {
-                    log::warn!("Search failed: {err:?}");
-                    SearchResults {
-                        matches: Vec::new(),
-                    }
-                }
-            }
-        })
     }
 
     /// Copy the current selection.
@@ -3422,6 +3302,7 @@ impl CodeEditorModel {
     }
 
     /// Given a line number, return the text for that line.
+    #[cfg(test)]
     fn text_for_line(&self, line_number: LineCount, ctx: &AppContext) -> String {
         let buffer = self.content().as_ref(ctx);
         let offset_start =
@@ -3433,6 +3314,7 @@ impl CodeEditorModel {
     }
 
     /// Given an original text and its original index, find the closest line in the new version that matches the text.
+    #[cfg(test)]
     fn match_line_to_text(
         &self,
         original_text: &str,
@@ -3464,109 +3346,6 @@ impl CodeEditorModel {
         }
 
         None
-    }
-
-    /// After a modification to the code, update the locations of review comments to match their new positions.
-    pub fn get_new_line_location(
-        &self,
-        location: &EditorLineLocation,
-        line_text: String,
-        ctx: &ModelContext<Self>,
-    ) -> (EditorLineLocation, LineDiffContent, bool) {
-        let mut used_fallback = false;
-        let buffer = self.content.as_ref(ctx);
-        let diff_model = self.diff.as_ref(ctx);
-
-        let max_line = buffer.max_point().row as usize;
-
-        let updated_loc = match location {
-            EditorLineLocation::Current { line_number, .. } => {
-                // For lines in the current version, find the matching comment line
-                // closest to the original line number.
-                let current_idx = line_number.as_usize();
-                let matched_line = self.match_line_to_text(
-                    line_text.as_str(),
-                    current_idx,
-                    max_line,
-                    |me, original_text, line, ctx| {
-                        let line_text = me.text_for_line(LineCount::from(line + 1), ctx);
-                        line_text.trim_end_matches('\n') == original_text
-                    },
-                    ctx,
-                );
-
-                let new_line_number = if let Some(idx) = matched_line {
-                    LineCount::from(idx)
-                } else {
-                    used_fallback = true;
-                    *line_number
-                };
-
-                let line_range = diff_model
-                    .diff_status()
-                    .added_diff_range(new_line_number)
-                    .unwrap_or_else(|| {
-                        new_line_number..LineCount::from(new_line_number.as_usize() + 1)
-                    });
-
-                EditorLineLocation::Current {
-                    line_number: new_line_number,
-                    line_range,
-                }
-            }
-            EditorLineLocation::Removed {
-                line_number, index, ..
-            } => {
-                // For removed lines, we perform the following to find the best match
-                // 1. Approximate the line number of the removed line in the base version (This is best effort since we
-                // don't track the exact line number in editor locations)
-                // 2. Find the matching line closest to (1) in the base version
-                // 3. Convert that matching line into a diff editor location
-                let current_idx = line_number.as_usize() + *index;
-
-                let max_line = diff_model.base_line_count();
-                let matched_line = self.match_line_to_text(
-                    line_text.as_str(),
-                    current_idx,
-                    max_line,
-                    |me, original_text, line, ctx| {
-                        let line_text = me.diff().as_ref(ctx).base_line(line);
-                        line_text.as_ref().map(|s| s.trim_end_matches('\n')) == Some(original_text)
-                    },
-                    ctx,
-                );
-
-                let location =
-                    matched_line.and_then(|line| diff_model.base_line_index_to_line_location(line));
-
-                // If we can't convert the location, attach to the closest existing line.
-                // TODO: We should have a better flow to handle lines we can't match.
-                location.unwrap_or_else(|| {
-                    used_fallback = true;
-                    let new_line_number = *line_number;
-                    let line_range = diff_model
-                        .diff_status()
-                        .removed_diff_range(new_line_number)
-                        .unwrap_or_else(|| {
-                            new_line_number..LineCount::from(new_line_number.as_usize() + 1)
-                        });
-
-                    EditorLineLocation::Current {
-                        line_number: new_line_number,
-                        line_range,
-                    }
-                })
-            }
-            EditorLineLocation::Collapsed { .. } => location.clone(),
-        };
-
-        // Get the new content for the updated location
-        let content = if used_fallback {
-            LineDiffContent::from_content(line_text.as_str())
-        } else {
-            self.get_diff_content_for_line(&updated_loc, ctx)
-        };
-        (updated_loc, content, used_fallback)
     }
 }
 
@@ -3751,35 +3530,7 @@ impl CoreEditorModel for CodeEditorModel {
     }
 }
 
-impl CodeEditorModel {
-    pub fn open_comment_line(&mut self, line: &EditorLineLocation, ctx: &mut ModelContext<Self>) {
-        // Telemetry: comment editor opened for a new inline review comment.
-
-        self.comments.update(ctx, |comments, ctx| {
-            comments.pending_comment = PendingComment::Open { line: line.clone() };
-            ctx.emit(PendingCommentEvent::NewPendingComment(line.clone()));
-        });
-    }
-
-    pub fn reopen_comment_line(
-        &mut self,
-        id: &CommentId,
-        line: &EditorLineLocation,
-        comment_text: &str,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        // Telemetry: comment editor opened for editing an existing inline review comment.
-
-        self.comments.update(ctx, |comments, ctx| {
-            comments.pending_comment = PendingComment::Open { line: line.clone() };
-            ctx.emit(PendingCommentEvent::ReopenPendingComment {
-                id: *id,
-                line: line.to_owned(),
-                comment_text: comment_text.to_owned(),
-            });
-        });
-    }
-}
+impl CodeEditorModel {}
 
 impl PlainTextEditorModel for CodeEditorModel {
     fn enter(&mut self, ctx: &mut ModelContext<Self>) {

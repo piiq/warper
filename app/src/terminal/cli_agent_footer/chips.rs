@@ -67,10 +67,6 @@ impl AgentInputFooter {
                     ctx.emit(AgentInputFooterEvent::TryExecuteChipCommand(cmd.clone()));
                     ctx.notify();
                 }
-                PromptDisplayChipEvent::OpenCodeReview => {
-                    ctx.emit(AgentInputFooterEvent::OpenCodeReview);
-                    ctx.notify();
-                }
                 _ => {
                     ctx.notify();
                 }

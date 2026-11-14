@@ -1,26 +1,18 @@
-use crate::code::diff_validation::DiffDelta;
 use crate::code::editor::{
-    comment_editor::{CommentEditor, CommentEditorEvent},
-    comments::PendingComment,
     diff::DiffStatus,
     element::{
-        AddAsContextButton, CommentButton, EditorWrapper, EditorWrapperStateHandle,
-        GutterHoverTarget, GutterRange, InnerEditor, LineNumberConfig, RevertHunkButton,
+        AddAsContextButton, EditorWrapper, EditorWrapperStateHandle, GutterRange, LineNumberConfig,
     },
     find::view::{CodeEditorFind as Find, Event as FindViewEvent},
     goto_line::view::{Event as GoToLineEvent, GoToLineView},
     line::EditorLineLocation,
-    model::{CodeEditorModel, CodeEditorModelEvent, HoverableLink, LineBound, StableEditorLine},
+    model::{CodeEditorModel, CodeEditorModelEvent, HoverableLink, LineBound},
     nav_bar::{NavBar, NavBarEvent},
     scroll::{ScrollPosition, ScrollTrigger},
 };
-use crate::code::{
-    editor::EditorReviewComment, NoopCommentEditorProvider, NoopFindReferencesCardProvider,
-    ShowCommentEditorProvider, ShowFindReferencesCardProvider,
-};
+use crate::code::{NoopFindReferencesCardProvider, ShowFindReferencesCardProvider};
 use crate::{
     appearance::Appearance,
-    code_review::comments::CommentId,
     editor::InteractionState,
     features::FeatureFlag,
     notebooks::editor::rich_text_styles,
@@ -49,16 +41,13 @@ use warp_editor::{
     model::{CoreEditorModel, PlainTextEditorModel},
     multiline::AnyMultilineString,
     render::{
-        element::{
-            lens_element::RichTextElementLens, DisplayOptions, DisplayStateHandle, RichTextElement,
-            VerticalExpansionBehavior,
-        },
+        element::{DisplayOptions, DisplayStateHandle, RichTextElement, VerticalExpansionBehavior},
         model::{
             AutoScrollMode, BlockSpacing, Decoration, ExpansionType, LineCount, ParagraphStyles,
             RichTextStyles, CODE_EDITOR_HIDDEN_SECTION_EXPANSION_LINES,
         },
     },
-    search::{SearchEvent, Searcher, MATCH_FILL, SELECTED_MATCH_FILL},
+    search::{SearchEvent, Searcher},
 };
 use warp_util::content_version::ContentVersion;
 use warpui::{
@@ -66,16 +55,14 @@ use warpui::{
         new_scrollable::{
             AxisConfiguration, DualAxisConfig, NewScrollableElement, ScrollableAppearance,
         },
-        ChildAnchor, ChildView, Dismiss, Fill, Flex, Margin, MouseStateHandle, NewScrollable,
-        OffsetPositioning, Padding, ParentAnchor, ParentElement, ParentOffsetBounds,
-        ScrollStateHandle, Shrinkable, Stack,
+        ChildView, Dismiss, Fill, Flex, Margin, NewScrollable, OffsetPositioning, Padding,
+        ParentElement, ScrollStateHandle, Shrinkable, Stack,
     },
     event::ModifiersState,
     keymap::Keystroke,
     platform::Cursor,
     prelude::RectF,
     text::point::Point,
-    units::Pixels,
     AppContext, BlurContext, Element, Entity, FocusContext, ModelHandle, SingletonEntity, View,
     ViewContext, ViewHandle, WeakViewHandle, WindowId,
 };
@@ -116,15 +103,7 @@ pub enum CodeEditorEvent {
         #[allow(dead_code)]
         line_range: Range<LineCount>,
     },
-    /// Emitted when a diff hunk is reverted
-    DiffReverted,
     HiddenSectionExpanded,
-    /// Emitted when a comment is saved. This gets propagated up so that it
-    /// can be augmented with the file and repo paths and saved to the comment model.
-    CommentSaved {
-        comment: EditorReviewComment,
-    },
-    RequestOpenComment(CommentId),
     /// Emitted when the viewport is updated after layout
     ViewportUpdated,
     DelayedRenderingFlushed,
@@ -136,9 +115,6 @@ pub enum CodeEditorEvent {
         clamped: bool,
         /// Whether the mouse move event was covered by an element above the editor.
         is_covered: bool,
-    },
-    DeleteComment {
-        id: CommentId,
     },
     VimGotoDefinition,
     VimFindReferences,
@@ -166,36 +142,9 @@ struct CodeEditorViewDisplayOptions {
     show_nav_bar: bool,
     /// The add as context button, or `None` if it is not currently visible.
     diff_hunk_as_context: Option<AddAsContextButton>,
-    /// The revert diff button, or `None` if it is not currently visible.
-    revert_diff_hunk: Option<RevertHunkButton>,
-    /// The add comment button, or `None` if it is not currently visible.
-    comment_button: Option<CommentButton>,
     /// Whether to expand the width of the diff indicator in the gutter on hover.
     expand_diff_indicator_width_on_hover: bool,
-    // Provides a starting line number for markdown code blocks.
-    gutter_hover_target: GutterHoverTarget,
     line_height_override: Option<f32>,
-}
-
-#[derive(Clone, Debug)]
-pub(super) struct SavedComment {
-    uuid: CommentId,
-    location: EditorLineLocation,
-    mouse_state: MouseStateHandle,
-}
-
-impl SavedComment {
-    pub fn location(&self) -> &EditorLineLocation {
-        &self.location
-    }
-
-    pub fn mouse_state(&self) -> &MouseStateHandle {
-        &self.mouse_state
-    }
-
-    pub fn uuid(&self) -> CommentId {
-        self.uuid
-    }
 }
 
 #[derive(Debug)]
@@ -203,7 +152,6 @@ pub struct CodeEditorRenderOptions {
     vertical_expansion_behavior: VerticalExpansionBehavior,
     line_height_override: Option<f32>,
     lazy_layout: bool,
-    show_comment_editor_provider: Box<dyn ShowCommentEditorProvider>,
     show_find_references_provider: Box<dyn ShowFindReferencesCardProvider>,
 }
 
@@ -213,35 +161,8 @@ impl CodeEditorRenderOptions {
             vertical_expansion_behavior,
             line_height_override: None,
             lazy_layout: false,
-            show_comment_editor_provider: Box::new(NoopCommentEditorProvider),
             show_find_references_provider: Box::new(NoopFindReferencesCardProvider),
         }
-    }
-
-    pub fn lazy_layout(mut self) -> Self {
-        self.lazy_layout = true;
-        self
-    }
-
-    pub fn line_height_override(mut self, line_height: f32) -> Self {
-        self.line_height_override = Some(line_height);
-        self
-    }
-
-    pub fn with_show_comment_editor_provider(
-        mut self,
-        comment_editor_provider: impl ShowCommentEditorProvider,
-    ) -> Self {
-        self.show_comment_editor_provider = Box::new(comment_editor_provider);
-        self
-    }
-
-    pub fn with_show_find_references_provider(
-        mut self,
-        find_references_provider: impl ShowFindReferencesCardProvider,
-    ) -> Self {
-        self.show_find_references_provider = Box::new(find_references_provider);
-        self
     }
 }
 
@@ -260,12 +181,7 @@ pub struct CodeEditorView {
     vim_model: ModelHandle<VimModel>,
     // Track the most recent Vim search direction to determine how to cycle (n/N) thereafter.
     last_search_direction: Direction,
-    active_comment_editor: ViewHandle<CommentEditor>,
     /// TODO: maybe turn into a map for fast UUID or range lookup
-    comment_locations: Vec<SavedComment>,
-    /// Save position of the comment button rendered within this code editor view.
-    comment_save_position_id: String,
-    show_comment_editor_provider: Box<dyn ShowCommentEditorProvider>,
     /// Save position of the anchor point for find references card.
     find_references_save_position_id: String,
     show_find_references_provider: Box<dyn ShowFindReferencesCardProvider>,
@@ -357,13 +273,6 @@ impl CodeEditorView {
             ctx.notify();
         });
 
-        let comment_model = model.as_ref(ctx).comments().clone();
-        let comment_editor =
-            ctx.add_typed_action_view(|ctx| CommentEditor::new(ctx, comment_model));
-        ctx.subscribe_to_view(&comment_editor, |me, _, event, ctx| {
-            me.handle_comment_editor_event(event, ctx);
-        });
-
         Self {
             searcher,
             find_bar: Some(find_bar),
@@ -373,7 +282,6 @@ impl CodeEditorView {
             is_selecting: false,
             self_handle: ctx.handle(),
             nav_bar,
-            comment_locations: Vec::new(),
             display_options: CodeEditorViewDisplayOptions {
                 vertical_expansion_behavior: render_options.vertical_expansion_behavior,
                 can_show_diff_ui: true,
@@ -381,8 +289,6 @@ impl CodeEditorView {
                 show_line_numbers: true,
                 show_nav_bar: true,
                 diff_hunk_as_context: Default::default(),
-                revert_diff_hunk: Default::default(),
-                comment_button: Default::default(),
                 // By default expand diff indicators on hover.
                 expand_diff_indicator_width_on_hover: true,
                 // By default, we should render the horizontal scrollbar as overlay to prevent it
@@ -396,16 +302,12 @@ impl CodeEditorView {
                     warpui::elements::ScrollbarWidth::Auto,
                     false,
                 ),
-                gutter_hover_target: GutterHoverTarget::GutterElement,
                 line_height_override: render_options.line_height_override,
             },
             pending_scroll: None,
             supports_vim_mode,
             vim_model,
             last_search_direction: Direction::Forward,
-            active_comment_editor: comment_editor,
-            comment_save_position_id: format!("code_editor_comment_{}", ctx.view_id()),
-            show_comment_editor_provider: render_options.show_comment_editor_provider,
             find_references_save_position_id: format!(
                 "code_editor_find_references_{}",
                 ctx.view_id()
@@ -439,48 +341,6 @@ impl CodeEditorView {
     ) {
         self.display_options.diff_hunk_as_context = Some(AddAsContextButton::new(enabled));
         ctx.notify();
-    }
-
-    /// Enables the add context button (plus icon) in diff hunks. Only enable this for code review views.
-    pub fn with_add_context_button(mut self) -> Self {
-        self.display_options.diff_hunk_as_context =
-            Some(AddAsContextButton::new(true /* enabled */));
-        self
-    }
-
-    /// Enables the "revert" button on diff hunks. Only enable this for code review views.
-    pub fn with_revert_diff_hunk_button(mut self) -> Self {
-        self.display_options.revert_diff_hunk =
-            Some(RevertHunkButton::new(true /* is_enabled */));
-        self
-    }
-
-    /// Enables the "comment" button on diff hunks. Only enable this for code review views.
-    pub fn with_comment_button(mut self) -> Self {
-        self.display_options.comment_button = Some(CommentButton::default());
-        self
-    }
-
-    /// Disables the diff indicator expanding on hover.
-    pub fn disable_diff_indicator_expansion_on_hover(mut self) -> Self {
-        self.display_options.expand_diff_indicator_width_on_hover = false;
-        self
-    }
-
-    pub fn with_gutter_hover_target(mut self, target: GutterHoverTarget) -> Self {
-        self.display_options.gutter_hover_target = target;
-        self
-    }
-
-    /// Enables clicking on diff hunk gutter elements to collapse changed sections.
-    pub fn with_collapsible_diffs(mut self, enabled: bool) -> Self {
-        self.display_options.collapsible_diffs = enabled;
-        self
-    }
-
-    pub(crate) fn disable_find_and_replace(mut self) -> Self {
-        self.find_bar = None;
-        self
     }
 
     fn find_bar_open(&self, ctx: &mut ViewContext<Self>) -> bool {
@@ -545,65 +405,6 @@ impl CodeEditorView {
         }
 
         ctx.notify();
-    }
-
-    pub fn hide_lines_outside_of_active_diff(
-        &self,
-        context_lines: usize,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        self.model.update(ctx, |model, ctx| {
-            model.hide_lines_outside_of_active_diff(context_lines, ctx)
-        });
-    }
-
-    pub fn set_base(&self, base: &str, recompute_diff: bool, ctx: &mut ViewContext<Self>) {
-        self.model
-            .update(ctx, |model, ctx| model.set_base(base, recompute_diff, ctx));
-    }
-
-    pub fn lens_for_line_range(
-        &self,
-        line_range: Range<EditorLineLocation>,
-        ctx: &AppContext,
-    ) -> Box<dyn Element> {
-        let render_state = self.model.as_ref(ctx).render_state();
-        let lens = RichTextElementLens::<Self>::new(
-            line_range.start.into_render_line_location()
-                ..line_range.end.into_render_line_location(),
-            render_state.clone(),
-            self.self_handle.clone(),
-            Default::default(),
-        );
-
-        let line_number_config = self.line_number_config(ctx);
-
-        let diff_status = if self.display_options.can_show_diff_ui {
-            self.model.as_ref(ctx).diff_status(ctx)
-        } else {
-            DiffStatus::default()
-        };
-
-        EditorWrapper::new(
-            InnerEditor::Lens(lens),
-            self.display_options.vertical_expansion_behavior,
-            line_number_config,
-            diff_status,
-            Default::default(), /* Do not reuse the same hover state handle as the editor view */
-            Box::new(|_, _| {}),
-            false,
-            self.model.as_ref(ctx).diff_navigation_state().clone(),
-            None,
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            vec![],
-            false,
-            self.display_options.gutter_hover_target,
-            self.comment_save_position_id.clone(),
-            self.find_references_save_position_id.clone(),
-        )
-        .finish()
     }
 
     fn show_goto_line(&mut self, ctx: &mut ViewContext<Self>) {
@@ -728,10 +529,6 @@ impl CodeEditorView {
         self.pending_scroll = Some(trigger);
     }
 
-    pub fn set_show_nav_bar(&mut self, show_nav_bar: bool) {
-        self.display_options.show_nav_bar = show_nav_bar;
-    }
-
     pub fn set_show_current_line_highlights(
         &self,
         show_current_line_highlights: bool,
@@ -751,32 +548,6 @@ impl CodeEditorView {
         provider: impl ShowFindReferencesCardProvider,
     ) {
         self.show_find_references_provider = Box::new(provider);
-    }
-
-    pub fn set_find_highlights(
-        &self,
-        ranges: Vec<Range<CharOffset>>,
-        selected_range_index: Option<usize>,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        let decorations: Vec<Decoration> = ranges
-            .into_iter()
-            .enumerate()
-            .map(|(index, range)| {
-                let fill = if Some(index) == selected_range_index {
-                    *SELECTED_MATCH_FILL
-                } else {
-                    *MATCH_FILL
-                };
-                Decoration::new(range.start, range.end).with_background(fill)
-            })
-            .collect();
-
-        self.model.update(ctx, |model, ctx| {
-            model.render_state().update(ctx, |render, ctx| {
-                render.set_text_decorations(decorations, ctx);
-            });
-        });
     }
 
     /// Set diagnostic decorations (e.g., error/warning underlines) on the editor.
@@ -1063,98 +834,6 @@ impl CodeEditorView {
         }
     }
 
-    fn handle_comment_editor_event(
-        &mut self,
-        event: &CommentEditorEvent,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        match event {
-            CommentEditorEvent::ContentChanged => {
-                // Handle comment content changes if needed
-                ctx.notify();
-            }
-            CommentEditorEvent::CommentSaved {
-                id,
-                comment_text,
-                line,
-            } => {
-                let Some(line) = line else {
-                    debug_assert!(false, "Comment saved event missing line information");
-                    return;
-                };
-                self.save_comment(*id, comment_text, line, ctx);
-            }
-            CommentEditorEvent::CloseEditor => {
-                // Close the comment editor by updating the pending comment state to Closed
-                self.model.update(ctx, |model, ctx| {
-                    model.comments().update(ctx, |comments, _| {
-                        comments.pending_comment = PendingComment::Closed;
-                    });
-                });
-                ctx.notify();
-            }
-            CommentEditorEvent::DeleteComment { id } => {
-                ctx.emit(CodeEditorEvent::DeleteComment { id: *id });
-            }
-        }
-    }
-
-    fn save_comment(
-        &mut self,
-        id: Option<CommentId>,
-        comment_text: &str,
-        line: &EditorLineLocation,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        let line_content = self.model.as_ref(ctx).get_diff_content_for_line(line, ctx);
-
-        let review_comment = match id {
-            Some(id) => EditorReviewComment::new_with_id(
-                id,
-                line.to_owned(),
-                line_content,
-                comment_text.to_owned(),
-            ),
-            None => {
-                EditorReviewComment::new(line.to_owned(), line_content, comment_text.to_owned())
-            }
-        };
-
-        self.comment_locations.push(SavedComment {
-            uuid: review_comment.id,
-            location: line.to_owned(),
-            mouse_state: MouseStateHandle::default(),
-        });
-
-        ctx.emit(CodeEditorEvent::CommentSaved {
-            comment: review_comment,
-        });
-        ctx.notify();
-    }
-
-    /// Update all comment locations in this editor.
-    pub fn set_comment_locations(
-        &mut self,
-        comments: impl Iterator<Item = EditorReviewComment>,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        self.comment_locations.clear();
-        for comment in comments {
-            self.comment_locations.push(SavedComment {
-                uuid: comment.id,
-                location: comment.line.clone(),
-                mouse_state: MouseStateHandle::default(),
-            });
-        }
-        ctx.notify();
-    }
-
-    /// Clear all comment locations in this editor.
-    pub fn clear_comment_locations(&mut self, ctx: &mut ViewContext<Self>) {
-        self.comment_locations.clear();
-        ctx.notify();
-    }
-
     fn line_number_config(&self, ctx: &AppContext) -> Option<LineNumberConfig> {
         let appearance = Appearance::as_ref(ctx);
         let theme = appearance.theme();
@@ -1245,18 +924,6 @@ impl CodeEditorView {
                 nav_bar.autoscroll(ctx);
             });
         }
-    }
-
-    /// Expands all diff hunks without focusing any specific diff hunk.
-    /// All diff hunks will be shown expanded with normal highlighting.
-    pub fn expand_diffs(&self, ctx: &mut ViewContext<Self>) {
-        if !self.display_options.can_show_diff_ui {
-            return;
-        }
-
-        self.model.update(ctx, |model, ctx| {
-            model.expand_diffs(ctx);
-        });
     }
 
     /// Handles [`Appearance`] changes by updating the render model.
@@ -1384,12 +1051,6 @@ impl CodeEditorView {
         });
     }
 
-    pub fn apply_diffs(&self, diffs: Vec<DiffDelta>, ctx: &mut ViewContext<Self>) {
-        self.model.update(ctx, |model, ctx| {
-            model.apply_diffs(diffs, ctx);
-        });
-    }
-
     fn reset_for_editing_change(&mut self) {
         self.display_states.display_state.reset_cursor_blink_timer();
     }
@@ -1429,29 +1090,6 @@ impl CodeEditorView {
         self.model.as_ref(ctx).buffer_version(ctx)
     }
 
-    /// Identifies which line (current or removed) is at the given content-space
-    /// vertical offset. Delegates to [`CodeEditorModel::line_at_vertical_offset`].
-    #[allow(dead_code)]
-    pub fn line_at_vertical_offset(
-        &self,
-        offset: Pixels,
-        ctx: &mut ViewContext<Self>,
-    ) -> Option<(StableEditorLine, Pixels)> {
-        self.model
-            .update(ctx, |model, ctx| model.line_at_vertical_offset(offset, ctx))
-    }
-
-    /// Returns the content-space vertical offset of the top of the given line.
-    /// Delegates to [`CodeEditorModel::line_top`].
-    pub fn line_top(&self, line: &StableEditorLine, ctx: &AppContext) -> Option<Pixels> {
-        self.model.as_ref(ctx).line_top(line, ctx)
-    }
-
-    /// Returns the total content height of the editor.
-    pub fn content_height(&self, ctx: &AppContext) -> Pixels {
-        self.model.as_ref(ctx).render_state().as_ref(ctx).height()
-    }
-
     pub fn interaction_state(&self, ctx: &AppContext) -> InteractionState {
         self.model.as_ref(ctx).interaction_state()
     }
@@ -1483,26 +1121,6 @@ impl CodeEditorView {
             model.clear_selections(ctx);
         });
         self.selection_end(ctx);
-    }
-
-    pub fn line_location_to_offsets(
-        &self,
-        line: &EditorLineLocation,
-        ctx: &AppContext,
-    ) -> (CharOffset, CharOffset) {
-        let render_state = self.model.as_ref(ctx).render_state();
-        let render_state_ref = render_state.as_ref(ctx);
-
-        let line_number = match line {
-            EditorLineLocation::Current { line_number, .. } => *line_number,
-            EditorLineLocation::Removed { line_number, .. } => {
-                // Scroll to where the removal hunk appears in the diff view
-                *line_number
-            }
-            EditorLineLocation::Collapsed { line_range } => line_range.start,
-        };
-
-        render_state_ref.line_number_to_offset_range(line_number)
     }
 
     pub fn offset_to_lsp_position(
@@ -1915,12 +1533,6 @@ impl CodeEditorView {
         }
     }
 
-    pub fn undo(&mut self, ctx: &mut ViewContext<Self>) {
-        self.model.update(ctx, |model, ctx| {
-            model.undo(ctx);
-        });
-    }
-
     fn delete_line_left(&self, ctx: &mut ViewContext<Self>) {
         self.model.update(ctx, |model, ctx| {
             model.delete_all_left(ctx);
@@ -1948,38 +1560,6 @@ impl CodeEditorView {
         self.vim_model.update(ctx, |vim_model, ctx| {
             vim_model.keypress(keystroke, ctx);
         });
-    }
-
-    pub fn open_existing_comment(
-        &mut self,
-        id: &CommentId,
-        location: &EditorLineLocation,
-        comment_text: &str,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        let comment_exists = self
-            .comment_locations
-            .iter()
-            .any(|saved_comment| saved_comment.uuid == *id);
-
-        if !comment_exists {
-            log::warn!(
-                "open_existing_comment: no saved comment found for id {:?}",
-                id
-            );
-            return;
-        }
-
-        self.active_comment_editor
-            .update(ctx, |comment_editor, ctx| {
-                comment_editor.reopen_saved_comment(id, Some(location.clone()), comment_text, ctx);
-            });
-
-        self.model.update(ctx, |editor_model, ctx| {
-            editor_model.reopen_comment_line(id, location, comment_text, ctx);
-        });
-
-        ctx.notify();
     }
 }
 
@@ -2041,7 +1621,7 @@ impl View for CodeEditorView {
         let collapsible_diffs = self.display_options.collapsible_diffs;
 
         let mut code_editor = EditorWrapper::new(
-            InnerEditor::FullEditor(editor_rich_content),
+            editor_rich_content,
             self.display_options.vertical_expansion_behavior,
             line_number_config,
             diff_status,
@@ -2081,25 +1661,9 @@ impl View for CodeEditorView {
                 None
             },
             self.display_options.diff_hunk_as_context,
-            self.display_options.revert_diff_hunk,
-            self.display_options.comment_button,
-            self.comment_locations.clone(),
             self.display_options.expand_diff_indicator_width_on_hover,
-            self.display_options.gutter_hover_target,
-            self.comment_save_position_id.clone(),
             self.find_references_save_position_id.clone(),
         );
-
-        let pending_comment = &self
-            .model
-            .as_ref(app)
-            .comments()
-            .as_ref(app)
-            .pending_comment;
-        // Check if there's an open comment in the model and set the comment box
-        if let PendingComment::Open { line, .. } = pending_comment {
-            code_editor.set_comment_box(line.clone(), app);
-        }
 
         // Set find references anchor if there's an active request
         if let Some(offset) = &self.find_references_anchor_offset {
@@ -2163,40 +1727,6 @@ impl View for CodeEditorView {
             stack.add_overlay_child(dialog);
         }
 
-        if !FeatureFlag::EmbeddedCodeReviewComments.is_enabled() {
-            // Render the open comment editor.
-            if let PendingComment::Open { line, .. } = pending_comment {
-                let render_state_ref = render_state.as_ref(app);
-                let vertical_offset = render_state_ref
-                    .vertical_offset_at_render_location(line.clone().into_render_line_location())
-                    .unwrap_or_default()
-                    + render_state_ref.styles().base_line_height();
-
-                let line_location = app.element_position_by_id_at_last_frame(
-                    self.window_id,
-                    &self.comment_save_position_id,
-                );
-
-                let should_render_comment_editor = match line_location {
-                    Some(line_location) => self
-                        .show_comment_editor_provider
-                        .should_show_comment_editor(line_location, app),
-                    None => true,
-                };
-
-                if should_render_comment_editor {
-                    stack.add_positioned_child(
-                        ChildView::new(&self.active_comment_editor).finish(),
-                        OffsetPositioning::offset_from_parent(
-                            vec2f(0., vertical_offset.as_f32()),
-                            ParentOffsetBounds::ParentByPosition,
-                            ParentAnchor::TopLeft,
-                            ChildAnchor::TopLeft,
-                        ),
-                    );
-                }
-            }
-        }
         stack.finish()
     }
 

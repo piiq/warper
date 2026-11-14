@@ -14,9 +14,9 @@ use warpui::{App, SingletonEntity};
 use warpui_extras::user_preferences;
 
 #[cfg(feature = "local_fs")]
-use crate::code_review::diff_state::DiffStats;
+use crate::git_status::metadata::DiffStats;
 #[cfg(feature = "local_fs")]
-use crate::code_review::git_status_update::{GitRepoStatusModel, GitStatusMetadata};
+use crate::git_status::status_update::{GitRepoStatusModel, GitStatusMetadata};
 #[cfg(windows)]
 use crate::system::SystemInfo;
 use crate::{
@@ -1208,7 +1208,10 @@ fn test_git_status_change_updates_chip_value() {
     App::test((), |mut app| async move {
         app.add_singleton_model(|_| {
             Prompt::mock_with(
-                [ContextChipKind::ShellGitBranch],
+                [
+                    ContextChipKind::ShellGitBranch,
+                    ContextChipKind::GitDiffStats,
+                ],
                 false,
                 WarpPromptSeparator::None,
             )
@@ -1257,13 +1260,17 @@ fn test_git_status_change_updates_chip_value() {
             cp.update_states_with_new_context(ctx);
         });
 
-        // Simulate a branch change by updating the model's metadata.
+        // Refresh branch and diff chips through repository metadata, without a review view.
         git_status.update(&mut app, |model, ctx| {
             model.set_metadata_for_test(
                 Some(GitStatusMetadata {
                     current_branch_name: "feature-branch".to_string(),
                     main_branch_name: "main".to_string(),
-                    stats_against_head: DiffStats::default(),
+                    stats_against_head: DiffStats {
+                        files_changed: 3,
+                        total_additions: 12,
+                        total_deletions: 4,
+                    },
                 }),
                 ctx,
             );
@@ -1279,6 +1286,18 @@ fn test_git_status_change_updates_chip_value() {
                     "feature-branch".to_string(),
                 )),
                 "Chip value should reflect the new branch name after metadata change"
+            );
+            assert_eq!(
+                current_prompt
+                    .as_ref(ctx)
+                    .latest_chip_value(&ContextChipKind::GitDiffStats),
+                Some(&crate::context_chips::ChipValue::GitDiffStats(
+                    crate::context_chips::display_chip::GitLineChanges {
+                        files_changed: 3,
+                        lines_added: 12,
+                        lines_removed: 4,
+                    }
+                )),
             );
         });
     });

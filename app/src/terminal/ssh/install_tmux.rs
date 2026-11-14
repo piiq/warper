@@ -15,6 +15,7 @@ use crate::terminal::warpify::render;
 use crate::terminal::warpify::settings::WarpifySettings;
 use crate::ui_components::blended_colors;
 use crate::ui_components::icons::Icon as UiIcon;
+use crate::util::links::USER_DOCS_URL;
 use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
 use warp_core::ui::theme::WarpTheme;
 use warpui::elements::{
@@ -29,8 +30,7 @@ use warpui::{
 };
 use warpui::{BlurContext, FocusContext};
 
-pub const WHY_INSTALL_TMUX_URL: &str =
-    "https://docs.warp.dev/terminal/warpify/ssh#why-do-i-need-tmux-on-the-remote-machine";
+pub const WHY_INSTALL_TMUX_URL: &str = USER_DOCS_URL;
 
 #[derive(Debug, Clone)]
 pub struct TmuxInstallMethod {

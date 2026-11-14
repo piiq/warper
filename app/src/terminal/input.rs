@@ -497,7 +497,6 @@ pub enum Event {
         source: CodeSource,
         layout: external_editor::settings::EditorLayout,
     },
-    OpenCodeReviewPane,
     OpenFilesPalette {
         source: PaletteSource,
     },
@@ -1158,9 +1157,6 @@ impl Input {
                         ctx,
                     );
                 }
-                AgentInputFooterEvent::OpenCodeReview => {
-                    ctx.emit(Event::OpenCodeReviewPane);
-                }
                 AgentInputFooterEvent::ShowContextMenu { position } => {
                     let offset = ctx
                         .element_position_by_id(me.prompt_save_position_id())
@@ -1423,9 +1419,6 @@ impl Input {
                 } else {
                     self.focus_input_box(ctx);
                 }
-            }
-            PromptDisplayEvent::OpenCodeReview => {
-                ctx.emit(Event::OpenCodeReviewPane);
             }
 
             PromptDisplayEvent::OpenCommandPaletteFiles => {

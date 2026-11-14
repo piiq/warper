@@ -2,11 +2,12 @@ use std::collections::HashMap;
 
 use super::{
     settings_page::{
-        render_sub_header, LocalOnlyIconState, MatchData, PageType, SettingsPageMeta,
-        SettingsPageViewHandle, SettingsWidget,
+        render_sub_header, MatchData, PageType, SettingsPageMeta, SettingsPageViewHandle,
+        SettingsWidget,
     },
     SettingsSection,
 };
+use crate::search_bar::SearchBar;
 use crate::util::bindings::{
     filter_bindings_including_keystroke, reset_keybinding_to_default, set_custom_keybinding,
 };
@@ -20,7 +21,6 @@ use crate::{
     },
     keyboard::UserDefinedKeybinding,
 };
-use crate::{search_bar::SearchBar, settings::LocalPreferencesSettings};
 use itertools::Itertools;
 
 use warp_core::ui::theme::color::internal_colors;
@@ -947,9 +947,7 @@ fn trigger_keybinding_notifier(
 }
 
 #[derive(Default)]
-struct KeybindingsWidget {
-    local_only_icon_mouse_state: MouseStateHandle,
-}
+struct KeybindingsWidget {}
 
 impl KeybindingsWidget {
     fn render_description(
@@ -1088,23 +1086,9 @@ impl SettingsWidget for KeybindingsWidget {
         &self,
         view: &Self::View,
         appearance: &Appearance,
-        app: &AppContext,
+        _app: &AppContext,
     ) -> Box<dyn Element> {
-        let local_only_icon_state = if *LocalPreferencesSettings::as_ref(app).settings_sync_enabled
-        {
-            Some(LocalOnlyIconState::Visible {
-                mouse_state: self.local_only_icon_mouse_state.clone(),
-                custom_tooltip: Some("Keyboard shortcuts are not synced to the cloud".to_string()),
-            })
-        } else {
-            None
-        };
-
-        let subheader = render_sub_header(
-            appearance,
-            "Configure keyboard shortcuts",
-            local_only_icon_state,
-        );
+        let subheader = render_sub_header(appearance, "Configure keyboard shortcuts");
         let description = self.render_description(view.bindings.as_ref(), appearance);
 
         Flex::column()

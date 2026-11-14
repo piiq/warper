@@ -82,7 +82,7 @@ fn initialize_app(app: &mut App) {
     app.add_singleton_model(|_| GlobalResourceHandlesProvider::new(global_resource_handles));
     app.add_singleton_model(DefaultTerminal::new);
     app.add_singleton_model(|_| IgnoredSuggestionsModel::new(vec![]));
-    app.add_singleton_model(|_| crate::code_review::git_status_update::GitStatusUpdateModel::new());
+    app.add_singleton_model(|_| crate::git_status::status_update::GitStatusUpdateModel::new());
     #[cfg(feature = "local_fs")]
     app.add_singleton_model(RepoMetadataModel::new);
     app.add_singleton_model(search::files::model::FileSearchModel::new);
@@ -156,8 +156,6 @@ fn transferred_tab_workspace(
                 custom_title: None,
                 left_panel_open: false,
                 vertical_tabs_panel_open,
-                right_panel_open: false,
-                is_right_panel_maximized: false,
                 for_drag_preview: false,
             },
             ctx,
@@ -1085,6 +1083,38 @@ fn test_left_panel_window_scoped_disabled_keeps_per_tab_state() {
                     .as_ref(ctx)
                     .left_panel_open
             );
+        });
+    });
+}
+
+#[test]
+fn test_restoring_maximized_review_panel_preserves_terminal_without_panel() {
+    App::test((), |mut app| async move {
+        initialize_app(&mut app);
+        let workspace = mock_workspace(&mut app);
+        let mut snapshot = workspace.update(&mut app, |workspace, ctx| {
+            workspace.snapshot(ctx.window_id(), false, ctx)
+        });
+        snapshot.tabs[0].right_panel = Some(crate::app_state::RightPanelSnapshot {
+            pane_group_id: "old-pane-group".to_string(),
+            width: 600,
+            is_maximized: true,
+        });
+        let tab_count = snapshot.tabs.len();
+
+        let restored = restored_workspace(&mut app, snapshot);
+        restored.update(&mut app, |workspace, ctx| {
+            assert_eq!(workspace.tab_count(), tab_count);
+            assert!(workspace
+                .active_tab_pane_group()
+                .as_ref(ctx)
+                .active_session_view(ctx)
+                .is_some());
+            assert!(workspace
+                .snapshot(ctx.window_id(), false, ctx)
+                .tabs
+                .iter()
+                .all(|tab| tab.right_panel.is_none()));
         });
     });
 }

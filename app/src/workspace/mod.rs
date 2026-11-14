@@ -58,8 +58,8 @@ pub fn panel_header_corner_radius() -> warpui::elements::CornerRadius {
 use crate::workspace::view::{
     LEFT_PANEL_GLOBAL_SEARCH_BINDING_NAME, LEFT_PANEL_PROJECT_EXPLORER_BINDING_NAME,
     NEW_TAB_BINDING_NAME, NEW_TERMINAL_TAB_BINDING_NAME, OPEN_GLOBAL_SEARCH_BINDING_NAME,
-    TOGGLE_PROJECT_EXPLORER_BINDING_NAME, TOGGLE_RIGHT_PANEL_BINDING_NAME,
-    TOGGLE_TAB_CONFIGS_MENU_BINDING_NAME, TOGGLE_VERTICAL_TABS_PANEL_BINDING_NAME,
+    TOGGLE_PROJECT_EXPLORER_BINDING_NAME, TOGGLE_TAB_CONFIGS_MENU_BINDING_NAME,
+    TOGGLE_VERTICAL_TABS_PANEL_BINDING_NAME,
 };
 pub use one_time_modal_model::OneTimeModalModel;
 pub use registry::WorkspaceRegistry;
@@ -76,7 +76,6 @@ pub fn init(app: &mut AppContext) {
     crate::tab_configs::remove_confirmation_dialog::init(app);
     tab_configs::session_config_modal::init(app);
     view::global_search::view::GlobalSearchView::init(app);
-    view::right_panel::RightPanelView::init(app);
     header_toolbar_editor::init(app);
     settings_view::init_actions_from_parent_view(app, &id!("Workspace"), |settings_action| {
         WorkspaceAction::DispatchToSettingsTab(settings_action)
@@ -503,16 +502,6 @@ pub fn init(app: &mut AppContext) {
         .with_custom_action(CustomAction::NewTerminalTab)
         .with_enabled(|| ContextFlag::CreateNewSession.is_enabled()),
         EditableBinding::new(
-            TOGGLE_RIGHT_PANEL_BINDING_NAME,
-            BindingDescription::new("Toggle code review")
-                .with_custom_description(bindings::MAC_MENUS_CONTEXT, "Toggle Code Review"),
-            WorkspaceAction::ToggleRightPanel,
-        )
-        .with_enabled(|| cfg!(feature = "local_fs"))
-        .with_context_predicate(id!("Workspace"))
-        .with_mac_key_binding("cmd-shift-+")
-        .with_linux_or_windows_key_binding("ctrl-shift-+"),
-        EditableBinding::new(
             TOGGLE_VERTICAL_TABS_PANEL_BINDING_NAME,
             BindingDescription::new("Toggle vertical tabs panel")
                 .with_custom_description(bindings::MAC_MENUS_CONTEXT, "Toggle Vertical Tabs Panel"),
@@ -932,9 +921,9 @@ fn add_overflow_menu_items_as_editable_binding(app: &mut AppContext) {
         )
         .with_context_predicate(id!("Workspace")),
         EditableBinding::new(
-            "workspace:link_to_privacy_policy",
-            "View privacy policy (opens external link)",
-            WorkspaceAction::ViewPrivacyPolicy,
+            "workspace:link_to_local_data",
+            "View local data information (opens README)",
+            WorkspaceAction::ViewLocalData,
         )
         .with_context_predicate(id!("Workspace")),
     ]);

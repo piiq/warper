@@ -65,7 +65,7 @@ fn initialize_app(app: &mut App) {
     app.add_singleton_model(RepoMetadataModel::new);
 
     app.add_singleton_model(FileSearchModel::new);
-    app.add_singleton_model(|_| crate::code_review::git_status_update::GitStatusUpdateModel::new());
+    app.add_singleton_model(|_| crate::git_status::status_update::GitStatusUpdateModel::new());
 
     crate::terminal::available_shells::register(app);
     app.update(experiments::init);

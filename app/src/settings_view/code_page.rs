@@ -5,7 +5,7 @@ use super::{
         render_body_item, Category, MatchData, PageType, SettingsPageMeta, SettingsPageViewHandle,
         SettingsWidget,
     },
-    LocalOnlyIconState, SettingsSection, ToggleState,
+    SettingsSection, ToggleState,
 };
 use crate::project_workspaces::metadata::WorkspaceMetadata;
 use crate::{
@@ -23,7 +23,6 @@ use crate::{
         action_button::{ActionButton, SecondaryTheme},
         DismissibleToast,
     },
-    workspace::tab_settings::TabSettings,
     workspace::ToastStack,
 };
 use lsp::supported_servers::LSPServerType;
@@ -61,15 +60,15 @@ const LSP_STATUS_INDICATOR_SIZE: f32 = 8.;
 pub enum CodeSubpage {
     /// Project folders and language servers.
     Projects,
-    /// External editor, code review panel, and project explorer settings.
-    EditorAndCodeReview,
+    /// External editor and project explorer settings.
+    Editor,
 }
 
 impl CodeSubpage {
     pub fn from_section(section: SettingsSection) -> Option<Self> {
         match section {
             SettingsSection::Projects => Some(Self::Projects),
-            SettingsSection::EditorAndCodeReview => Some(Self::EditorAndCodeReview),
+            SettingsSection::Editor => Some(Self::Editor),
             _ => None,
         }
     }
@@ -77,7 +76,7 @@ impl CodeSubpage {
     pub fn title(&self) -> &'static str {
         match self {
             Self::Projects => "Projects and language servers",
-            Self::EditorAndCodeReview => "Editor and Code Review",
+            Self::Editor => "Editor",
         }
     }
 }
@@ -232,15 +231,13 @@ impl CodeSettingsPageView {
                     manual_add_directory_button,
                 })]
             }
-            CodeSubpage::EditorAndCodeReview => {
+            CodeSubpage::Editor => {
                 let mut widgets: Vec<Box<dyn SettingsWidget<View = Self>>> = vec![];
                 #[cfg(feature = "local_fs")]
                 widgets.push(Box::new(ExternalEditorCodeWidget));
                 widgets.extend([
-                    Box::new(CodeReviewPanelToggleWidget::default())
+                    Box::new(FormatOnSaveToggleWidget::default())
                         as Box<dyn SettingsWidget<View = Self>>,
-                    Box::new(CodeReviewDiffStatsToggleWidget::default()),
-                    Box::new(FormatOnSaveToggleWidget::default()),
                     Box::new(ProjectExplorerToggleWidget::default()),
                     Box::new(GlobalSearchToggleWidget::default()),
                 ]);
@@ -257,8 +254,8 @@ impl CodeSettingsPageView {
                     Self::widgets_for_subpage(CodeSubpage::Projects, ctx),
                 ),
                 Category::new(
-                    "Code Editor and Review",
-                    Self::widgets_for_subpage(CodeSubpage::EditorAndCodeReview, ctx),
+                    "Code Editor",
+                    Self::widgets_for_subpage(CodeSubpage::Editor, ctx),
                 ),
             ],
             None,
@@ -331,8 +328,6 @@ pub enum CodeSettingsPageAction {
         log_path: PathBuf,
     },
 
-    ToggleCodeReviewPanel,
-    ToggleShowCodeReviewDiffStats,
     ToggleProjectExplorer,
     ToggleGlobalSearch,
     ToggleFormatOnSave,
@@ -396,20 +391,6 @@ impl TypedActionView for CodeSettingsPageView {
                 });
             }
 
-            CodeSettingsPageAction::ToggleCodeReviewPanel => {
-                TabSettings::handle(ctx).update(ctx, |settings, ctx| {
-                    report_if_error!(settings.show_code_review_button.toggle_and_save_value(ctx));
-                });
-                ctx.notify();
-            }
-            CodeSettingsPageAction::ToggleShowCodeReviewDiffStats => {
-                TabSettings::handle(ctx).update(ctx, |settings, ctx| {
-                    report_if_error!(settings
-                        .show_code_review_diff_stats
-                        .toggle_and_save_value(ctx));
-                });
-                ctx.notify();
-            }
             CodeSettingsPageAction::ToggleProjectExplorer => {
                 CodeSettings::handle(ctx).update(ctx, |settings, ctx| {
                     report_if_error!(settings.show_project_explorer.toggle_and_save_value(ctx));
@@ -1162,91 +1143,6 @@ impl From<ViewHandle<CodeSettingsPageView>> for SettingsPageViewHandle {
 }
 
 #[derive(Default)]
-struct CodeReviewPanelToggleWidget {
-    switch_state: SwitchStateHandle,
-}
-
-impl SettingsWidget for CodeReviewPanelToggleWidget {
-    type View = CodeSettingsPageView;
-
-    fn search_terms(&self) -> &str {
-        "code review panel right side diff git"
-    }
-
-    fn render(
-        &self,
-        _view: &Self::View,
-        appearance: &Appearance,
-        app: &AppContext,
-    ) -> Box<dyn Element> {
-        let tab_settings = TabSettings::as_ref(app);
-
-        render_body_item::<CodeSettingsPageAction>(
-            "Show code review button".into(),
-            None,
-            LocalOnlyIconState::Hidden,
-            ToggleState::Enabled,
-            appearance,
-            appearance
-                .ui_builder()
-                .switch(self.switch_state.clone())
-                .check(*tab_settings.show_code_review_button)
-                .build()
-                .on_click(move |ctx, _, _| {
-                    ctx.dispatch_typed_action(CodeSettingsPageAction::ToggleCodeReviewPanel);
-                })
-                .finish(),
-            Some(
-                "Show a button in the top right of the window to toggle the code review panel."
-                    .into(),
-            ),
-        )
-    }
-}
-
-#[derive(Default)]
-struct CodeReviewDiffStatsToggleWidget {
-    switch_state: SwitchStateHandle,
-}
-
-impl SettingsWidget for CodeReviewDiffStatsToggleWidget {
-    type View = CodeSettingsPageView;
-
-    fn search_terms(&self) -> &str {
-        "code review diff stats lines added removed counts"
-    }
-
-    fn render(
-        &self,
-        _view: &Self::View,
-        appearance: &Appearance,
-        app: &AppContext,
-    ) -> Box<dyn Element> {
-        let tab_settings = TabSettings::as_ref(app);
-
-        render_body_item::<CodeSettingsPageAction>(
-            "Show diff stats on code review button".into(),
-            None,
-            LocalOnlyIconState::Hidden,
-            ToggleState::Enabled,
-            appearance,
-            appearance
-                .ui_builder()
-                .switch(self.switch_state.clone())
-                .check(*tab_settings.show_code_review_diff_stats)
-                .build()
-                .on_click(move |ctx, _, _| {
-                    ctx.dispatch_typed_action(
-                        CodeSettingsPageAction::ToggleShowCodeReviewDiffStats,
-                    );
-                })
-                .finish(),
-            Some("Show lines added and removed counts on the code review button.".into()),
-        )
-    }
-}
-
-#[derive(Default)]
 struct FormatOnSaveToggleWidget {
     switch_state: SwitchStateHandle,
 }
@@ -1269,7 +1165,6 @@ impl SettingsWidget for FormatOnSaveToggleWidget {
         render_body_item::<CodeSettingsPageAction>(
             "Format on save".into(),
             None,
-            LocalOnlyIconState::Hidden,
             ToggleState::Enabled,
             appearance,
             appearance
@@ -1311,7 +1206,6 @@ impl SettingsWidget for ProjectExplorerToggleWidget {
         render_body_item::<CodeSettingsPageAction>(
             "Project explorer".into(),
             None,
-            LocalOnlyIconState::Hidden,
             ToggleState::Enabled,
             appearance,
             appearance
@@ -1354,7 +1248,6 @@ impl SettingsWidget for GlobalSearchToggleWidget {
         render_body_item::<CodeSettingsPageAction>(
             "Global file search".into(),
             None,
-            LocalOnlyIconState::Hidden,
             ToggleState::Enabled,
             appearance,
             appearance

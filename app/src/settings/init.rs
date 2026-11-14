@@ -30,12 +30,12 @@ use warp_core::semantic_selection::SemanticSelection;
 
 use super::{
     app_icon::AppIconSettings, app_installation_detection::UserAppInstallDetectionSettings,
-    cloud_preferences::LocalPreferencesSettings, initializer::SettingsInitializer,
-    native_preference::NativePreferenceSettings, AccessibilitySettings, AliasExpansionSettings,
-    AppEditorSettings, BlockVisibilitySettings, CLIAgentSettings, ChangelogSettings, CodeSettings,
-    DebugSettings, EmacsBindingsSettings, FontSettings, FontSettingsChangedEvent, GPUSettings,
-    InputBoxType, InputModeSettings, InputSettings, PaneSettings, SameLinePromptBlockSettings,
-    ScrollSettings, SelectionSettings, SshSettings, ThemeSettings, VimBannerSettings,
+    initializer::SettingsInitializer, native_preference::NativePreferenceSettings,
+    AccessibilitySettings, AliasExpansionSettings, AppEditorSettings, BlockVisibilitySettings,
+    CLIAgentSettings, ChangelogSettings, CodeSettings, DebugSettings, EmacsBindingsSettings,
+    FontSettings, FontSettingsChangedEvent, GPUSettings, InputBoxType, InputModeSettings,
+    InputSettings, PaneSettings, SameLinePromptBlockSettings, ScrollSettings, SelectionSettings,
+    SshSettings, ThemeSettings, VimBannerSettings,
 };
 
 pub struct UserDefaultsOnStartup {
@@ -76,7 +76,6 @@ pub fn register_all_settings(ctx: &mut AppContext) {
     ThemeSettings::register(ctx);
     AccessibilitySettings::register(ctx);
     NativePreferenceSettings::register(ctx);
-    LocalPreferencesSettings::register(ctx);
     UserAppInstallDetectionSettings::register(ctx);
     AppIconSettings::register(ctx);
     AppEditorSettings::register(ctx);

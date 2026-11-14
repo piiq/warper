@@ -588,5 +588,3 @@ pub fn user_preferences_file_path() -> PathBuf {
 pub fn user_preferences_toml_file_path() -> PathBuf {
     warp_core::paths::config_local_dir().join("settings.toml")
 }
-pub mod cloud_preferences;
-pub use cloud_preferences::*;

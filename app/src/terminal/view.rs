@@ -29,7 +29,6 @@ pub use crate::terminal::view::rich_content::{
 
 use use_agent_footer::UseAgentToolbar;
 
-use super::cli_agent;
 use super::CLIAgent;
 
 #[cfg(feature = "local_fs")]
@@ -38,13 +37,10 @@ use crate::util::file::external_editor::{settings::EditorLayout, EditorSettings}
 pub use self::link_detection::GridHighlightedLink;
 pub use self::link_detection::{RichContentLink, RichContentLinkTooltipInfo};
 
-use crate::code_review::context::ReviewCommentPacket;
-use crate::code_review::diff_state::GitDeltaPreference;
 #[cfg(feature = "local_fs")]
-use crate::code_review::git_status_update::{
+use crate::git_status::status_update::{
     GitRepoStatusModel, GitStatusMetadata, GitStatusUpdateModel,
 };
-use crate::code_review::metadata::CodeReviewPaneEntrypoint;
 use crate::projects::ProjectManagementModel;
 
 use crate::settings::CodeSettings;
@@ -186,7 +182,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::hash::Hash;
 use std::ops::Range;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::str::FromStr;
 use std::sync::mpsc::SyncSender;
@@ -250,9 +246,7 @@ use crate::debounce::debounce;
 use crate::editor::{CrdtOperation, EditorAction};
 use crate::features::FeatureFlag;
 use crate::pane_group::SplitPaneState;
-use crate::pane_group::{
-    CodeReviewPanelArg, PaneConfiguration, PaneEvent, PaneGroupAction, TerminalViewResources,
-};
+use crate::pane_group::{PaneConfiguration, PaneEvent, PaneGroupAction, TerminalViewResources};
 use crate::resource_center::{
     mark_feature_used_and_write_to_user_defaults, Tip, TipHint, TipsCompleted,
 };
@@ -304,6 +298,7 @@ use crate::terminal::{
     terminal_size_element::TerminalSizeElement,
     TerminalModel,
 };
+use crate::util::links;
 use crate::view_components::find::{Event as FindEvent, Find, FindDirection, FindWithinBlockState};
 use crate::workspace::metadata::PaletteSource;
 use settings::{Setting, ToggleableSetting};
@@ -448,16 +443,13 @@ const BOOTSTRAP_FAILED_DURATION: Duration = Duration::from_secs(7);
 /// a user needing to type in one or many secret manager passwords
 /// during the bootstrap period.
 const ENV_VAR_BOOTSTRAP_FAILED_DURATION: Duration = Duration::from_secs(60);
-const KNOWN_ISSUES_URL: &str =
-    "https://docs.warp.dev/support-and-community/troubleshooting-and-support/known-issues";
+const KNOWN_ISSUES_URL: &str = links::USER_DOCS_URL;
 
 /// Link to supported custom prompts.
-const PROMPT_COMPATIBILITY_URL: &str =
-    "https://docs.warp.dev/terminal/appearance/prompt#custom-prompt-compatibility-table";
+const PROMPT_COMPATIBILITY_URL: &str = links::USER_DOCS_URL;
 
 /// Link to troubleshooting steps for ControlMaster errors.
-const CONTROLMASTER_ISSUES_URL: &str =
-    "https://docs.warp.dev/terminal/warpify/ssh-legacy#troubleshooting";
+const CONTROLMASTER_ISSUES_URL: &str = links::USER_DOCS_URL;
 
 /// Link to instructions on how to update p10k.
 const P10K_UPDATE_INSTRUCTIONS_URL: &str =
@@ -470,12 +462,8 @@ const CONTEXT_MENU_WIDTH: f32 = 280.;
 /// Roughly determined by trial-and-error.
 const MIN_DELTA_FOR_TEXT_SELECTION: f32 = 0.5;
 
-/// Notifications-specific info
-/// TODO (suraj): add documentation for notifications in gitbook
-const NOTIFICATIONS_LEARN_MORE_URL: &str =
-    "https://docs.warp.dev/terminal/more-features/notifications";
-pub const NOTIFICATIONS_TROUBLESHOOT_URL: &str =
-    "https://docs.warp.dev/terminal/more-features/notifications#troubleshooting-notifications";
+const NOTIFICATIONS_LEARN_MORE_URL: &str = links::USER_DOCS_URL;
+pub const NOTIFICATIONS_TROUBLESHOOT_URL: &str = links::USER_DOCS_URL;
 
 const DEBOUNCE_PERIOD: Duration = Duration::from_millis(40);
 
@@ -508,9 +496,6 @@ const MOVE_LINE_END_BINDING_NAME: &str = "editor_view:move_to_line_end";
 pub const LONG_RUNNING_AGENT_REQUESTED_COMMAND_CONTEXT_KEY: &str = "LongRunningRequestedCommand";
 pub const LONG_RUNNING_AGENT_REQUESTED_COMMAND_USER_TOOK_OVER_CONTEXT_KEY: &str =
     "LongRunningRequestedUserTookOverCommand";
-
-/// We only auto open the code review pane if the pane it's getting opened from has a certain width
-const MINIMUM_WIDTH_TO_AUTO_OPEN_PANE: f32 = 600.0;
 
 lazy_static! {
     static ref CTRL_SHIFT_A_KEYSTROKE: Keystroke = Keystroke {
@@ -1162,9 +1147,6 @@ pub enum Event {
         source: CodeSource,
     },
 
-    OpenCodeReviewPane(CodeReviewPanelArg),
-    ToggleCodeReviewPane(CodeReviewPanelArg),
-
     CloseRequested,
     /// Used to focus and bring this session to the foreground.
     FocusSession,
@@ -1758,12 +1740,6 @@ pub struct TerminalView {
     #[cfg(feature = "local_fs")]
     git_repo_status: Option<ModelHandle<GitRepoStatusModel>>,
 
-    /// Deferred code review open request, stashed when [`GitDeltaPreference::OnlyDirty`] is
-    /// requested but git status metadata has not loaded yet. Consumed in
-    /// [`Self::handle_git_repo_status_event`].
-    #[cfg(feature = "local_fs")]
-    deferred_code_review_open: Option<DeferredCodeReviewOpen>,
-
     /// A list of callbacks to run on the next
 
     /// Path to the current repository, or None if not currently in a repo.
@@ -1799,15 +1775,6 @@ pub struct TerminalView {
 
     /// Per-session PTY recorder for writing PTY bytes to a file.
     pty_recorder: ModelHandle<PtyRecorder>,
-}
-
-/// Parameters stashed when a code review pane open is requested with
-/// [`GitDeltaPreference::OnlyDirty`] but git status metadata is not yet available.
-/// Consumed once the per-repo [`GitRepoStatusModel`] delivers its first update.
-#[cfg(feature = "local_fs")]
-struct DeferredCodeReviewOpen {
-    git_delta_preference: GitDeltaPreference,
-    focus_new_pane: bool,
 }
 
 #[derive(Copy, Clone, Serialize)]
@@ -2472,7 +2439,6 @@ impl TerminalView {
             #[cfg(feature = "local_fs")]
             git_repo_status: None,
             #[cfg(feature = "local_fs")]
-            deferred_code_review_open: None,
             current_repo_path: None,
             terminal_title: Default::default(),
             ignore_next_set_title_event: false,
@@ -2492,15 +2458,6 @@ impl TerminalView {
 
     #[cfg(feature = "local_fs")]
     fn handle_git_repo_status_event(&mut self, ctx: &mut ViewContext<Self>) {
-        if let Some(deferred) = self.deferred_code_review_open.take() {
-            self.toggle_code_review_pane(
-                deferred.git_delta_preference,
-                CodeReviewPaneEntrypoint::Other,
-                None,
-                deferred.focus_new_pane,
-                ctx,
-            );
-        }
         self.refresh_pane_header(ctx);
         ctx.emit(Event::TerminalViewStateChanged);
         ctx.notify();
@@ -2513,7 +2470,6 @@ impl TerminalView {
     #[cfg(feature = "local_fs")]
     fn clear_git_repo_status_subscription(&mut self, ctx: &mut ViewContext<Self>) {
         self.git_repo_status = None;
-        self.deferred_code_review_open = None;
 
         self.current_prompt.update(ctx, |prompt_type, ctx| {
             if let PromptType::Dynamic { prompt } = prompt_type {
@@ -2597,92 +2553,6 @@ impl TerminalView {
         } else if self.git_repo_status.is_some() {
             self.clear_git_repo_status_subscription(ctx);
         }
-    }
-
-    /// Returns true if the window is wide enough to auto-open side panels.
-    pub fn can_auto_open_panel(&self) -> bool {
-        self.size_info.pane_width_px().as_f32() > MINIMUM_WIDTH_TO_AUTO_OPEN_PANE
-    }
-
-    fn toggle_or_open_code_review_pane(
-        &mut self,
-        delta_pref: GitDeltaPreference,
-        entrypoint: CodeReviewPaneEntrypoint,
-        cli_agent: Option<super::CLIAgent>,
-        focus_new_pane: bool,
-        event_constructor: impl Fn(CodeReviewPanelArg) -> Event,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        let arg = CodeReviewPanelArg {
-            repo_path: self.current_repo_path.clone(),
-            terminal_view: self.view_handle.clone(),
-            entrypoint,
-            focus_new_pane,
-            cli_agent,
-        };
-
-        match delta_pref {
-            GitDeltaPreference::Always => {
-                ctx.emit(event_constructor(arg));
-            }
-            GitDeltaPreference::OnlyDirty => {
-                // Check if repo has uncommitted changes via the per-repo sub-model.
-                #[cfg(feature = "local_fs")]
-                {
-                    let is_dirty = self
-                        .git_status_metadata(ctx)
-                        .map(|m| !m.stats_against_head.has_no_changes());
-                    match is_dirty {
-                        Some(true) => ctx.emit(event_constructor(arg)),
-                        // Metadata not loaded yet — defer until the next
-                        // git repo status update delivers it.
-                        None => {
-                            self.deferred_code_review_open = Some(DeferredCodeReviewOpen {
-                                git_delta_preference: delta_pref,
-                                focus_new_pane,
-                            });
-                        }
-                        Some(false) => {}
-                    }
-                }
-            }
-        }
-    }
-
-    pub fn toggle_code_review_pane(
-        &mut self,
-        delta_pref: GitDeltaPreference,
-        entrypoint: CodeReviewPaneEntrypoint,
-        cli_agent: Option<super::CLIAgent>,
-        focus_new_pane: bool,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        self.toggle_or_open_code_review_pane(
-            delta_pref,
-            entrypoint,
-            cli_agent,
-            focus_new_pane,
-            Event::ToggleCodeReviewPane,
-            ctx,
-        )
-    }
-
-    pub fn open_code_review_pane(
-        &mut self,
-        delta_pref: GitDeltaPreference,
-        entrypoint: CodeReviewPaneEntrypoint,
-        cli_agent: Option<super::CLIAgent>,
-        focus_new_pane: bool,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        self.toggle_or_open_code_review_pane(
-            delta_pref,
-            entrypoint,
-            cli_agent,
-            focus_new_pane,
-            Event::OpenCodeReviewPane,
-            ctx,
-        )
     }
 
     fn handle_windowing_state_update(
@@ -5219,9 +5089,7 @@ impl TerminalView {
                                     // Update the current repo path
                                     me.current_repo_path = repo_path_opt.clone();
 
-                                    // Notify the pane group that the detected repo
-                                    // changed so the code review panel can
-                                    // (re-)initialize with the correct context.
+                                    // Refresh repository-dependent pane group metadata.
                                     if old_repo_path != me.current_repo_path {
                                         ctx.emit(Event::Pane(PaneEvent::RepoChanged));
                                     }
@@ -9466,15 +9334,6 @@ impl TerminalView {
                     layout: *layout,
                 });
             }
-            InputEvent::OpenCodeReviewPane => {
-                ctx.emit(Event::OpenCodeReviewPane(CodeReviewPanelArg {
-                    repo_path: self.current_repo_path.clone(),
-                    terminal_view: self.view_handle.clone(),
-                    entrypoint: CodeReviewPaneEntrypoint::GitDiffChip,
-                    focus_new_pane: true,
-                    cli_agent: None,
-                }));
-            }
 
             InputEvent::OpenFilesPalette { source } => {
                 ctx.emit(Event::OpenFilesPalette { source: *source })
@@ -10205,10 +10064,6 @@ impl TerminalView {
 
     /// Returns the CLI agent currently active in this terminal, if any.
     pub fn active_cli_agent(&self, ctx: &AppContext) -> Option<super::CLIAgent> {
-        if !FeatureFlag::HoaCodeReview.is_enabled() {
-            return None;
-        }
-
         CLIAgentSessionsModel::as_ref(ctx)
             .session(self.view_id)
             .map(|s| s.agent)
@@ -10246,57 +10101,6 @@ impl TerminalView {
             self.focus_terminal(ctx);
             Some(CliAgentRouting::Pty)
         }
-    }
-
-    /// Sends code review comments to a running CLI agent, routing to the
-    /// rich input when it is open or directly to the PTY when closed.
-    pub fn send_review_to_cli_agent_or_rich_input(
-        &mut self,
-        review: &ReviewCommentPacket,
-        ctx: &mut ViewContext<Self>,
-    ) -> anyhow::Result<()> {
-        let text = cli_agent::build_review_prompt(review);
-        self.try_send_text_to_cli_agent_or_rich_input(text, ctx)
-            .ok_or_else(|| {
-                anyhow::anyhow!("Start a third-party CLI agent before sending review comments.")
-            })?;
-        Ok(())
-    }
-
-    /// Sends diff file context hunks to a running CLI agent, routing to the
-    /// rich input when open or the PTY when closed.
-    #[cfg(feature = "local_fs")]
-    pub fn send_diff_context_to_cli_agent_or_rich_input(
-        &mut self,
-        file_diffs: &std::collections::HashMap<
-            String,
-            Vec<crate::code_review::context::DiffSetHunk>,
-        >,
-        ctx: &mut ViewContext<Self>,
-    ) -> Option<CliAgentRouting> {
-        let text = cli_agent::build_diff_context_prompt(file_diffs);
-        self.try_send_text_to_cli_agent_or_rich_input(text, ctx)
-    }
-
-    /// Sends a diff hunk location to a running CLI agent, routing to the
-    /// rich input when open or the PTY when closed.
-    pub fn send_diff_hunk_to_cli_agent_or_rich_input(
-        &mut self,
-        file_path: &Path,
-        start_line: usize,
-        end_line: usize,
-        lines_added: u32,
-        lines_removed: u32,
-        ctx: &mut ViewContext<Self>,
-    ) -> Option<CliAgentRouting> {
-        let text = cli_agent::build_diff_hunk_prompt(
-            file_path,
-            start_line,
-            end_line,
-            lines_added,
-            lines_removed,
-        );
-        self.try_send_text_to_cli_agent_or_rich_input(text, ctx)
     }
 
     fn handle_theme_change(&mut self, ctx: &mut ViewContext<Self>) {
@@ -11751,7 +11555,7 @@ impl TerminalView {
 
         match action {
             LearnMore => {
-                ctx.open_url("https://docs.warp.dev/terminal/warpify/ssh-legacy#implementation");
+                ctx.open_url(links::USER_DOCS_URL);
             }
             Settings => {
                 if FeatureFlag::SSHTmuxWrapper.is_enabled() {
@@ -12689,7 +12493,6 @@ impl TypedActionView for TerminalView {
             | StopFileDropTarget
             | RunNativeShellCompletions { .. }
             | DeleteAttachment { .. }
-            | ToggleCodeReviewPane { .. }
             | AddProjectAtCurrentDirectory
             | DismissCodeToolbeltTooltip
             | OpenCLIAgentRichInput
@@ -13031,16 +12834,6 @@ impl TypedActionView for TerminalView {
 
             ShowWarpifySettings => ctx.emit(Event::OpenSettings(SettingsSection::Warpify)),
             DeleteAttachment { index: _ } => {}
-
-            ToggleCodeReviewPane { entrypoint } => {
-                ctx.emit(Event::ToggleCodeReviewPane(CodeReviewPanelArg {
-                    repo_path: self.current_repo_path.clone(),
-                    terminal_view: self.view_handle.clone(),
-                    entrypoint: *entrypoint,
-                    focus_new_pane: true,
-                    cli_agent: None,
-                }));
-            }
 
             AddProjectAtCurrentDirectory => {
                 // Get the current working directory and add it as a project

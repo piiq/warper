@@ -4,7 +4,6 @@
 
 mod block_filtering;
 mod bootstrapping;
-mod code_review;
 mod ctrl_d;
 mod file_tree;
 mod goto_line;
@@ -31,7 +30,6 @@ mod workspace;
 
 pub use block_filtering::*;
 pub use bootstrapping::*;
-pub use code_review::*;
 pub use ctrl_d::*;
 pub use file_tree::*;
 use float_cmp::assert_approx_eq;

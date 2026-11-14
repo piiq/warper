@@ -20,7 +20,7 @@ use {
 };
 
 #[cfg(feature = "local_fs")]
-use super::diff_state::DiffStats;
+use super::metadata::DiffStats;
 
 /// Public metadata exposed to consumers — the subset of diff metadata
 /// that the git chip (prompt display, agent view footer) needs.
@@ -278,9 +278,7 @@ impl GitRepoStatusModel {
 
     /// Compute metadata for a repo — branch names and diff stats against HEAD.
     ///
-    /// This reuses logic extracted from `DiffStateModel::load_metadata_for_repo`
-    /// but only computes the HEAD (uncommitted) stats since that's all the git
-    /// chip needs.
+    /// Computes HEAD (uncommitted) statistics for the terminal chips.
     async fn load_metadata(repo_path: PathBuf) -> anyhow::Result<GitStatusMetadata> {
         // Detect main branch.
         let main_branch_name = detect_main_branch(&repo_path).await?;
@@ -289,12 +287,12 @@ impl GitRepoStatusModel {
         let current_branch_name = detect_current_branch_display(&repo_path).await?;
         // Diff stats against HEAD.
         let stats_against_head =
-            super::diff_state::DiffStateModel::diff_metadata_against_head(&repo_path).await?;
+            super::metadata::GitMetadata::diff_metadata_against_head(&repo_path).await?;
 
         Ok(GitStatusMetadata {
             current_branch_name,
             main_branch_name,
-            stats_against_head: stats_against_head.aggregate_stats,
+            stats_against_head,
         })
     }
 }

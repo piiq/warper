@@ -113,7 +113,6 @@ pub enum LeafContents {
     EnvVarCollection(EnvVarCollectionPaneSnapshot),
     Workflow(WorkflowPaneSnapshot),
     Settings(SettingsPaneSnapshot),
-    CodeReview(CodeReviewPaneSnapshot),
     /// An entrypoint pane type to launch other pane types from a search palette. The default view
     /// when creating a tab.
     Welcome {
@@ -142,7 +141,6 @@ impl LeafContents {
             | LeafContents::EnvVarCollection(_)
             | LeafContents::Workflow(_)
             | LeafContents::Settings(_)
-            | LeafContents::CodeReview(_)
             | LeafContents::Welcome { .. }
             | LeafContents::GetStarted => true,
         }
@@ -210,14 +208,6 @@ pub enum SettingsPaneSnapshot {
     Local {
         current_page: SettingsSection,
         search_query: Option<String>,
-    },
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub enum CodeReviewPaneSnapshot {
-    Local {
-        terminal_uuid: Vec<u8>,
-        repo_path: PathBuf,
     },
 }
 

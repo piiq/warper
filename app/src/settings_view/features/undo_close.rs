@@ -1,11 +1,8 @@
-use std::{cell::RefCell, collections::HashMap, time::Duration};
+use std::time::Duration;
 
 use settings::{Setting, ToggleableSetting};
 use warpui::{
-    elements::{
-        Container, CrossAxisAlignment, Flex, MainAxisAlignment, MouseStateHandle, ParentElement,
-        Text,
-    },
+    elements::{Container, CrossAxisAlignment, Flex, MainAxisAlignment, ParentElement, Text},
     ui_components::{
         components::{Coords, UiComponent, UiComponentStyles},
         switch::SwitchStateHandle,
@@ -19,9 +16,9 @@ use crate::{
     report_if_error,
     settings_view::{
         features_page::render_group,
-        settings_page::{render_body_item, LocalOnlyIconState, ToggleState},
+        settings_page::{render_body_item, ToggleState},
     },
-    undo_close::{settings::UndoCloseEnabled, UndoCloseSettings},
+    undo_close::UndoCloseSettings,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -38,8 +35,6 @@ pub struct UndoCloseView {
     grace_period_editor: ViewHandle<EditorView>,
     /// Whether or not the grace period value is valid.
     is_grace_period_valid: bool,
-    /// State for the local only icon tooltip.
-    local_only_icon_states: RefCell<HashMap<String, MouseStateHandle>>,
 }
 
 impl UndoCloseView {
@@ -81,7 +76,6 @@ impl UndoCloseView {
         });
         Self {
             switch_state: Default::default(),
-            local_only_icon_states: Default::default(),
             grace_period_editor,
             is_grace_period_valid: true,
         }
@@ -180,12 +174,6 @@ impl View for UndoCloseView {
             .with_child(render_body_item::<Action>(
                 "Enable reopening of closed sessions".into(),
                 None,
-                LocalOnlyIconState::for_setting(
-                    UndoCloseEnabled::storage_key(),
-                    UndoCloseEnabled::sync_to_cloud(),
-                    &mut self.local_only_icon_states.borrow_mut(),
-                    app,
-                ),
                 ToggleState::Enabled,
                 appearance,
                 ui_builder

@@ -472,8 +472,6 @@ pub fn create_transferred_window(
                     custom_title: info.transferred_tab.custom_title.clone(),
                     left_panel_open: info.transferred_tab.left_panel_open,
                     vertical_tabs_panel_open: info.transferred_tab.vertical_tabs_panel_open,
-                    right_panel_open: info.transferred_tab.right_panel_open,
-                    is_right_panel_maximized: info.transferred_tab.is_right_panel_maximized,
                     for_drag_preview: for_drag,
                 },
                 ctx,
@@ -1105,10 +1103,6 @@ pub enum NewWorkspaceSource {
         left_panel_open: bool,
         /// Captured from the source window so detached tabs inherit the panel state.
         vertical_tabs_panel_open: bool,
-        /// Whether the right panel was open in the source tab
-        right_panel_open: bool,
-        /// Whether the right panel was maximized in the source tab
-        is_right_panel_maximized: bool,
         /// Whether this transferred tab window is currently being used as a drag preview.
         for_drag_preview: bool,
     },

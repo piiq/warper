@@ -972,7 +972,6 @@ pub enum AgentInputFooterEvent {
     HideRichInput,
     ToggledChipMenu { open: bool },
     TryExecuteChipCommand(PromptChipShellCommand),
-    OpenCodeReview,
     ShowContextMenu { position: Vector2F },
     PluginInstalled(CLIAgent),
     OpenPluginInstructionsPane(CLIAgent, PluginModalKind),

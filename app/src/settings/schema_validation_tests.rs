@@ -100,3 +100,29 @@ fn agent_settings_schema_exposes_external_cli_integration() {
         );
     }
 }
+
+#[test]
+fn public_schema_excludes_removed_account_sync_and_diff_review_settings() {
+    let obsolete_settings: Vec<_> = entries()
+        .into_iter()
+        .filter(|entry| {
+            !entry.is_private
+                && (entry
+                    .hierarchy
+                    .is_some_and(|path| path == "account" || path.starts_with("account."))
+                    || entry.storage_key.starts_with("show_code_review"))
+        })
+        .map(|entry| {
+            format!(
+                "{}.{}",
+                entry.hierarchy.unwrap_or_default(),
+                entry.storage_key
+            )
+        })
+        .collect();
+
+    assert!(
+        obsolete_settings.is_empty(),
+        "Removed product settings remain in the public schema: {obsolete_settings:?}"
+    );
+}

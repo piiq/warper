@@ -10,9 +10,9 @@ pub fn initialize_settings_for_tests(app: &mut App) {
             manager::SettingsManager, AccessibilitySettings, AliasExpansionSettings,
             AppEditorSettings, BlockVisibilitySettings, CLIAgentSettings, ChangelogSettings,
             CodeSettings, DebugSettings, EmacsBindingsSettings, FontSettings, GPUSettings,
-            InputModeSettings, InputSettings, LocalPreferencesSettings, NativePreferenceSettings,
-            PaneSettings, SameLinePromptBlockSettings, ScrollSettings, SelectionSettings,
-            SshSettings, ThemeSettings, VimBannerSettings,
+            InputModeSettings, InputSettings, NativePreferenceSettings, PaneSettings,
+            SameLinePromptBlockSettings, ScrollSettings, SelectionSettings, SshSettings,
+            ThemeSettings, VimBannerSettings,
         },
         terminal::{
             general_settings::GeneralSettings, keys_settings::KeysSettings,
@@ -38,7 +38,6 @@ pub fn initialize_settings_for_tests(app: &mut App) {
     BlockVisibilitySettings::register(app);
     BlockListSettings::register(app);
     ChangelogSettings::register(app);
-    LocalPreferencesSettings::register(app);
     CommandSearchSettings::register(app);
     DebugSettings::register(app);
     AppIconSettings::register(app);

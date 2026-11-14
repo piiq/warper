@@ -81,7 +81,7 @@ pub use features_page::FeaturesPageAction;
 pub use privacy_page::PrivacyPageAction;
 pub use settings_page::{
     render_body_item_label, render_info_icon, render_input_list, render_separator, AdditionalInfo,
-    InputListItem, LocalOnlyIconState, ToggleState,
+    InputListItem, ToggleState,
 };
 
 /// Original sidebar width used when the settings-file footer is not
@@ -140,7 +140,7 @@ pub enum SettingsSection {
     Code,
     // ── Code umbrella subpages ──
     Projects,
-    EditorAndCodeReview,
+    Editor,
 }
 
 use crate::util::bindings::custom_tag_to_keystroke;
@@ -152,7 +152,7 @@ impl Display for SettingsSection {
             SettingsSection::Keybindings => write!(f, "Keyboard shortcuts"),
             SettingsSection::ThirdPartyCLIAgents => write!(f, "Third party CLI agents"),
             SettingsSection::Projects => write!(f, "Projects and language servers"),
-            SettingsSection::EditorAndCodeReview => write!(f, "Editor and Code Review"),
+            SettingsSection::Editor => write!(f, "Editor"),
             _ => write!(f, "{self:?}"),
         }
     }
@@ -174,7 +174,7 @@ impl SettingsSection {
 
     /// Returns true if this section is a subpage under the "Code" umbrella.
     pub fn is_code_subpage(&self) -> bool {
-        matches!(self, Self::Projects | Self::EditorAndCodeReview)
+        matches!(self, Self::Projects | Self::Editor)
     }
 
     /// Maps subpage sections back to their parent page section for page lookup.
@@ -189,7 +189,7 @@ impl SettingsSection {
 
     /// The ordered list of Code subpage sections shown under the Code umbrella.
     pub fn code_subpages() -> &'static [Self] {
-        &[Self::Projects, Self::EditorAndCodeReview]
+        &[Self::Projects, Self::Editor]
     }
 }
 
@@ -207,7 +207,7 @@ impl FromStr for SettingsSection {
             "Warpify" => Ok(Self::Warpify),
             "Third party CLI agents" | "ThirdPartyCLIAgents" => Ok(Self::ThirdPartyCLIAgents),
             "Projects and language servers" | "Projects" => Ok(Self::Projects),
-            "Editor and Code Review" | "EditorAndCodeReview" => Ok(Self::EditorAndCodeReview),
+            "Editor" => Ok(Self::Editor),
             _ => Err(()),
         }
     }
@@ -265,7 +265,6 @@ pub mod flags {
     pub const ERROR_UNDERLINING_FLAG: &str = "error_underlining";
     pub const SYNTAX_HIGHLIGHTING_FLAG: &str = "syntax_highlighting";
     pub const SAME_LINE_PROMPT: &str = "Same_Line_Prompt_Enabled";
-    pub const SETTINGS_SYNC_FLAG: &str = "settings_sync";
     pub const SAFE_MODE_FLAG: &str = "safe_mode";
     pub const DIM_INACTIVE_PANES_FLAG: &str = "Dim_Inactive_Panes";
     pub const QUIT_WARNING_MODAL: &str = "Quit_Warning_Modal";
@@ -275,7 +274,6 @@ pub mod flags {
     pub const SMART_SELECT_FLAG: &str = "Smart_Select_Enabled";
     pub const ACTIVATION_HOTKEY_FLAG: &str = "Activation_Hotkey_Enabled";
     pub const TAB_INDICATORS_FLAG: &str = "Tab_Indicators_Enabled";
-    pub const SHOW_CODE_REVIEW_BUTTON_FLAG: &str = "Show_Code_Review_Button_Enabled";
     pub const USE_VERTICAL_TABS_FLAG: &str = "Use_Vertical_Tabs";
     pub const SESSION_CONFIG_TAB_CONFIG_CHIP_OPEN: &str = "Session_Config_Tab_Config_Chip_Open";
     pub const FOCUS_PANES_ON_HOVER_CONTEXT_FLAG: &str = "Focus_Panes_On_Hover";
@@ -812,7 +810,7 @@ pub struct SettingsView {
     /// Mirrored from `Workspace` via [`set_settings_error_state`].
     settings_error_banner_dismissed: bool,
     /// Mouse state handles for the nav-rail footer buttons. Constructed once
-    /// per `SettingsView` per `WARP.md`'s guidance that inline
+    /// per `SettingsView` per `AGENTS.md`'s guidance that inline
     /// `MouseStateHandle::default()` breaks hover/click tracking.
     footer_mouse_states: SettingsFooterMouseStates,
 }
@@ -908,10 +906,7 @@ impl SettingsView {
             SettingsNavItem::Page(SettingsSection::ThirdPartyCLIAgents),
             SettingsNavItem::Umbrella(SettingsUmbrella::new(
                 "Code",
-                vec![
-                    SettingsSection::Projects,
-                    SettingsSection::EditorAndCodeReview,
-                ],
+                vec![SettingsSection::Projects, SettingsSection::Editor],
             )),
             SettingsNavItem::Page(SettingsSection::Appearance),
             SettingsNavItem::Page(SettingsSection::Features),

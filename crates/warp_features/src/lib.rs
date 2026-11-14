@@ -168,9 +168,6 @@ pub enum FeatureFlag {
     /// UNIX shells running "natively" on Windows via MSYS2.
     MSYS2Shells,
 
-    /// Enables inline review comments on specific lines of code.
-    ContextLineReviewComments,
-
     /// Enables the find/replace in code editor
     CodeFindReplace,
 
@@ -205,12 +202,6 @@ pub enum FeatureFlag {
     /// Enables the ability to undo closed panes.
     UndoClosedPanes,
 
-    /// Enables revert button for diff hunks in the gutter.
-    RevertDiffHunk,
-
-    /// Enables saving code review pane changes
-    CodeReviewSaveChanges,
-
     /// Enables the file tree (with an entrypoint through code mode).
     FileTree,
 
@@ -220,23 +211,8 @@ pub enum FeatureFlag {
     /// Enables the one-time modal on app startup for existing users for the Code launch.
     CodeLaunchModal,
 
-    /// Enables sending diff sets to an active CLI agent.
-    DiffSetAsContext,
-
-    /// Enables file- and diff set-level comments in the code review header.
-    FileAndDiffSetComments,
-
-    /// Enables discarding per-file and discarding all changes
-    DiscardPerFileAndAllChanges,
-
     /// Enables UI zoom support (scaling the entire UI by a given percentage).
     UIZoom,
-
-    /// Enables find/search in code review pane
-    CodeReviewFind,
-
-    /// Enables inline code review functionality
-    InlineCodeReview,
 
     /// Enables rendering of images in markdown files.
     MarkdownImages,
@@ -250,9 +226,6 @@ pub enum FeatureFlag {
 
     /// Enables global search
     GlobalSearch,
-
-    /// Enables embedded code review comments.
-    EmbeddedCodeReviewComments,
 
     /// Enables editing the third-party CLI agent footer from its context menu.
     AgentToolbarEditor,
@@ -277,10 +250,6 @@ pub enum FeatureFlag {
     /// Enables incremental (diff-based) buffer updates for auto-reload instead of full replace.
     IncrementalAutoReload,
 
-    /// Enables scroll position preservation in the code review pane when file
-    /// content changes via auto-reload.
-    CodeReviewScrollPreservation,
-
     /// Enables Kitty keyboard protocol support (CSI u encoding, progressive enhancement).
     KittyKeyboardProtocol,
 
@@ -288,16 +257,11 @@ pub enum FeatureFlag {
     /// adopt the configured color when their working directory matches.
     DirectoryTabColors,
 
-    /// Enables the new settings to control visibility of Code Review Panel,
-    /// Project Explorer, and Global Search features.
+    /// Enables settings for Project Explorer and Global Search visibility.
     OpenWarpNewSettingsModes,
 
     /// Enables vertical tab layout as an alternative to the horizontal tab bar.
     VerticalTabs,
-
-    /// Enables attaching code review comments, diff hunks, and editor context
-    /// to third-party CLI agents.
-    HoaCodeReview,
 
     /// Enables the upgraded CLI agent session tracking and notifications infrastructure.
     HOANotifications,
@@ -319,9 +283,6 @@ pub enum FeatureFlag {
 
     /// Replaces the in-block warpification banner with a warpify footer.
     WarpifyFooter,
-
-    /// Enables commit, push, and create-PR actions in the code review panel.
-    GitOperationsInCodeReview,
 
     /// Gates the remote control chip and `/remote-control` slash command in the CLI agent footer.
     HOARemoteControl,
@@ -365,14 +326,11 @@ pub const DOGFOOD_FLAGS: &[FeatureFlag] = &[
     FeatureFlag::MultiWorkspace,
     FeatureFlag::ImeMarkedText,
     FeatureFlag::MSYS2Shells,
-    FeatureFlag::ContextLineReviewComments,
     FeatureFlag::RunGeneratorsWithCmdExe,
     FeatureFlag::Projects,
     FeatureFlag::MarkdownImages,
-    FeatureFlag::FileAndDiffSetComments,
     FeatureFlag::DirectoryTabColors,
     FeatureFlag::EditableMarkdownMermaid,
-    FeatureFlag::CodeReviewScrollPreservation,
     FeatureFlag::HOANotifications,
     FeatureFlag::GeminiNotifications,
     FeatureFlag::VerticalTabsSummaryMode,
@@ -380,10 +338,7 @@ pub const DOGFOOD_FLAGS: &[FeatureFlag] = &[
 
 /// Features enabled for feature preview build users (e.g.: Friends of Warp).
 /// All PREVIEW_FLAGS are also automatically added to dogfood builds (WarpDev).
-pub const PREVIEW_FLAGS: &[FeatureFlag] = &[
-    FeatureFlag::MarkdownTables,
-    FeatureFlag::GitOperationsInCodeReview,
-];
+pub const PREVIEW_FLAGS: &[FeatureFlag] = &[FeatureFlag::MarkdownTables];
 
 /// Features enabled for all release builds (i.e.: everything but WarpLocal).
 /// NOTE: if you are promoting a feature from Preview to launch, you'll likely
@@ -456,13 +411,10 @@ impl FeatureFlag {
         // very least, the feature flag should be removed from the Preview changelog by removing it from PREVIEW_FLAGS.
         // ** ONLY Preview-exclusive features should be added to this list! **
         match self {
-            CodeReviewFind => Some("Enables the find bar in the code review pane."),
-
             GlobalSearch => Some("Enables global search in the left panel"),
 
             MarkdownTables => Some("Enables rendering and interaction support for markdown tables in notebooks."),
             SettingsFile => Some("Enables configuring Warp via a user-editable `settings.toml` file, with hot reload and error reporting for invalid values."),
-            GitOperationsInCodeReview => Some("Enables commit, push, and create-PR actions directly from the code review panel."),
             _ => None,
         }
     }

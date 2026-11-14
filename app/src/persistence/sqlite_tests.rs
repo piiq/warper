@@ -1,5 +1,7 @@
 use std::{path::PathBuf, sync::Arc};
 
+use diesel::prelude::*;
+
 use crate::{
     app_state::{
         AppState, CodePaneSnapShot, CodePaneTabSnapshot, LeafContents, LeafSnapshot,
@@ -148,6 +150,75 @@ fn test_sqlite_round_trips_vertical_tabs_panel_open() {
             .collect::<Vec<_>>(),
         vec![false, true]
     );
+}
+
+#[test]
+fn test_sqlite_discards_removed_review_pane_and_preserves_terminal() {
+    use crate::app_state::{BranchSnapshot, PaneFlex, SplitDirection};
+    use crate::persistence::{model, schema};
+
+    let tempdir = tempfile::tempdir().expect("tempdir should be created");
+    let mut conn =
+        setup_database(&tempdir.path().join("warp.sqlite")).expect("database should initialize");
+    let mut window = test_terminal_window_snapshot(false);
+    let terminal = window.tabs[0].root.clone();
+    let mut obsolete_pane = terminal.clone();
+    let PaneNodeSnapshot::Leaf(leaf) = &mut obsolete_pane else {
+        panic!("expected terminal leaf");
+    };
+    let LeafContents::Terminal(snapshot) = &mut leaf.contents else {
+        panic!("expected terminal contents");
+    };
+    snapshot.uuid = vec![2];
+    window.tabs[0].root = PaneNodeSnapshot::Branch(BranchSnapshot {
+        direction: SplitDirection::Horizontal,
+        children: vec![
+            (PaneFlex(1.), terminal.clone()),
+            (PaneFlex(1.), obsolete_pane),
+        ],
+    });
+    save_app_state(
+        &mut conn,
+        &AppState {
+            windows: vec![window],
+            active_window_index: Some(0),
+            block_lists: Default::default(),
+        },
+    )
+    .expect("app state should save");
+
+    // Recreate a review leaf saved by an older version of Warper.
+    let obsolete_id: i32 = schema::terminal_panes::table
+        .filter(schema::terminal_panes::uuid.eq(vec![2u8]))
+        .select(schema::terminal_panes::id)
+        .first(&mut conn)
+        .unwrap();
+    diesel::delete(schema::terminal_panes::table.find(obsolete_id))
+        .execute(&mut conn)
+        .unwrap();
+    diesel::update(
+        schema::pane_leaves::table.filter(schema::pane_leaves::pane_node_id.eq(obsolete_id)),
+    )
+    .set(schema::pane_leaves::kind.eq(model::CODE_REVIEW_PANE_KIND))
+    .execute(&mut conn)
+    .unwrap();
+    diesel::insert_into(schema::code_review_panes::table)
+        .values((
+            schema::code_review_panes::id.eq(obsolete_id),
+            schema::code_review_panes::terminal_uuid.eq(vec![1u8]),
+            schema::code_review_panes::repo_path.eq("/tmp"),
+        ))
+        .execute(&mut conn)
+        .unwrap();
+
+    let restored = read_sqlite_data(&mut conn).unwrap().app_state;
+    assert_eq!(restored.windows.len(), 1);
+    assert_eq!(restored.windows[0].tabs.len(), 1);
+    let PaneNodeSnapshot::Branch(branch) = &restored.windows[0].tabs[0].root else {
+        panic!("expected restored split");
+    };
+    assert_eq!(branch.children.len(), 1);
+    assert_eq!(branch.children[0].1, terminal);
 }
 
 #[test]

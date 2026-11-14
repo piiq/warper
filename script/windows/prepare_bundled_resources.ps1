@@ -77,7 +77,7 @@ $AdditionalLicenses = @(
     @{ Name = 'Roboto Font'; License = 'SIL Open Font License'; Path = 'app\assets\bundled\fonts\roboto\LICENSE.txt' },
     @{ Name = 'bash-preexec'; License = 'MIT'; Path = 'app\assets\bundled\bootstrap\bash-preexec-LICENSE.md' },
     @{ Name = 'Windows Terminal'; License = 'MIT'; Path = 'app\assets\windows\LICENSE-WINDOWS-TERMINAL' },
-    @{ Name = 'GitHub Desktop'; License = 'MIT'; Path = 'app\src\code_review\GITHUB-DESKTOP-LICENSE' }
+    @{ Name = 'GitHub Desktop'; License = 'MIT'; Path = 'app\src\git_status\GITHUB-DESKTOP-LICENSE' }
 )
 # Windows-only components:
 $AdditionalLicenses += @(
