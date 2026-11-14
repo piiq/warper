@@ -123,7 +123,7 @@ trap 'cleanup_dmg_files "$DMG_DIR"; cleanup_codesign_keychain' EXIT
 
 # Define a helper function that uses Python to compute a relative path.
 function relpath() {
-  python -c "import os,sys;print(os.path.relpath(*(sys.argv[1:])))" "$@";
+  python3 -c "import os,sys;print(os.path.relpath(*(sys.argv[1:])))" "$@";
 }
 
 # Defaults for command-line flags.
@@ -781,9 +781,8 @@ if [[ "$ARTIFACT" = app ]]; then
       --filesystem APFS
     )
 
-    # Skip running an AppleScript to format the DMG contents if running in Namespace - this consistently times out.
-    # See https://github.com/create-dmg/create-dmg/issues/72
-    if [[ "${RUNNER_NAME:-}" == nsc-* ]]; then
+    # CI packages do not need Finder window layout customization.
+    if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
       args+=(--skip-jenkins)
     fi
 
