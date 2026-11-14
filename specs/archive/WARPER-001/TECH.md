@@ -1,6 +1,6 @@
 # WARPER-001: hard network amputation - Tech spec
 
-Companion to `PRODUCT.md` in this directory; refer there for user-visible behavior.
+Historical implementation plan. The retained local-terminal requirements are in [WARPER-001](../../WARPER-001/PRODUCT.md); the built-in AI exceptions were superseded by [WARPER-015](../../WARPER-015/PRODUCT.md). Source locations describe the code at the time of writing.
 
 ## Context
 

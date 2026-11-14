@@ -1,5 +1,7 @@
 # WARPER-005: OpenRouter skill and follow-up context fidelity - Tech spec
 
+Historical implementation plan for the removed built-in agent. Superseded by [WARPER-015](../../WARPER-015/PRODUCT.md). Source locations describe the code at the time of writing.
+
 Companion to `PRODUCT.md` in this directory; refer there for user-visible behavior.
 
 ## Context

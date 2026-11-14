@@ -1,35 +1,23 @@
 ---
 name: warp-ui-guidelines
-description: Catalog of guidelines for writing UI code in the Warp client. Read whenever doing any UI work in this repo, up front before writing the change, so the relevant guidelines shape the implementation.
+description: Follow Warper UI conventions when adding or changing client UI code. Read before implementing UI changes.
 ---
 
-# warp-ui-guidelines
+# Warper UI guidelines
 
-This skill is a growing catalog of guidelines for working on Warp's UI code. Each guideline captures a lesson that would otherwise be re-learned through review — typically because an agent or contributor reinvented a component, drifted from the design system, or bypassed a shared abstraction.
+Reuse the app's shared components and theme accessors when implementing UI changes.
 
-**How to use this skill:**
+## Reuse button themes
 
-- Read through the guidelines below once at the start of any UI task, then keep them in mind while implementing. The list is short enough to scan.
-- Each guideline is self-contained. Not every one will apply to every task — use judgment. But if a guideline *does* apply, follow it.
-- When in doubt, prefer reusing an existing abstraction over introducing a new one. The Warp UI has accumulated a well-factored set of shared components and themes; new one-offs almost always drift.
+Button colors come from shared `ActionButtonTheme` implementations in `app/src/view_components/action_button.rs` and parallel `Theme` implementations in `crates/ui_components/src/button/themes.rs`. Themes include `PrimaryTheme`, `SecondaryTheme`, `NakedTheme`, and `DangerPrimaryTheme`.
 
-New guidelines get added here over time. If you discover a recurring UI mistake that would have been caught by a written rule, add it.
+Use an existing theme unchanged when styling a button. Check the available themes before adding overrides.
 
----
+Changing a shared theme affects every button that uses it. Edit a shared theme when the user has explicitly confirmed that the shared component itself needs to change.
 
-## Guideline: Reuse button themes
+Avoid these styling patterns:
 
-Button colors come from a shared set of `ActionButtonTheme` impls in `app/src/view_components/action_button.rs` (and the parallel `Theme` impls in `crates/ui_components/src/button/themes.rs`) — `PrimaryTheme`, `SecondaryTheme`, `NakedTheme`, `DangerPrimaryTheme`, etc. These encode the design system and keep button colors consistent across the app.
-
-When styling a button, **use one of the existing themes unchanged**. The shared themes are well-established and vetted; if one looks "wrong" for your use case, the most likely explanation is that you're reaching for the wrong theme, not that the theme is buggy.
-
-Do **not** modify a shared theme on your own initiative. Changing `PrimaryTheme`, `SecondaryTheme`, etc. affects every button in the app, and a tweak that fixes your screen can silently regress others. Only edit a shared theme when the user has explicitly confirmed that the design-system component itself needs to change.
-
-Red flags that you're about to make buttons inconsistent:
-
-- Writing a new `impl ActionButtonTheme for FooPrimaryTheme` that delegates to `PrimaryTheme` and only tweaks one method (usually `text_color`). Almost always the right move is to use `PrimaryTheme` directly and accept the result.
+- Adding a theme such as `FooPrimaryTheme` that delegates to `PrimaryTheme` and overrides a single method such as `text_color`.
 - Hard-coding `ColorU::new(...)` instead of using `appearance.theme()` accessors (`accent`, `font_color(bg)`, `foreground`, etc.).
 - Setting `should_opt_out_of_contrast_adjustment` to `true` to force a specific label color.
 - Naming a theme after a feature or view (`FooPrimaryTheme`, `BarSubmitTheme`) rather than a design-system role.
-
-If an existing theme genuinely doesn't fit and you think the shared theme should change, surface that to the user before editing it, rather than either editing it unilaterally or papering over it with a one-off.

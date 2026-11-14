@@ -1,5 +1,7 @@
 # WARPER-012: copy code review comments to clipboard
 
+Historical specification for the removed diff review feature. Superseded by [WARPER-016](../../WARPER-016/PRODUCT.md).
+
 ## Summary
 
 Add a Copy to Clipboard action for pending code review comments in the diff review surface. The action gives the user a disposable handoff payload they can paste into an external agent, then clears the copied comments from the review UI.

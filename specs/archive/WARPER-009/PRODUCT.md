@@ -1,5 +1,7 @@
 # WARPER-009: local file-edit corruption port
 
+Historical port plan for the removed OpenRouter file-edit workflow. [WARPER-015](../../WARPER-015/PRODUCT.md) removes that agent and executor. Source references and audit decisions describe the code at the time of writing.
+
 ## Summary
 
 Warper should port upstream repo/file-tool work only when it prevents local file corruption in the OpenRouter editing path. Under the XP bar, the current candidate is the multiline partial-line suffix fix in diff validation. Repo metadata scale, result-size caps, Project Explorer refreshes, watcher load, and Git UI work are deferred until a current Warper workflow fails.

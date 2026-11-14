@@ -1,5 +1,7 @@
 # WARPER-001 OpenRouter Manual Verification
 
+Historical checklist for the removed built-in agent. Its helper and provider integration have been deleted under [WARPER-015](../../WARPER-015/PRODUCT.md); these commands are not part of current verification.
+
 This credentialed check is outside the credential-free offline smoke. It proves
 that the retained OpenRouter-owned AI flow still works and that the Warper
 process does not contact hosted Warp/Oz infrastructure while that flow runs.

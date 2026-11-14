@@ -1,13 +1,13 @@
 ---
 name: warp-integration-test
-description: Writes, runs, and debugs Warp integration tests using the custom Builder/TestStep framework in `crates/integration`. Use when adding a new integration test, fixing a failing integration test, wiring a test into the manual runner or nextest suite, or verifying end-to-end UI and terminal behavior in Warp.
+description: Writes, runs, and debugs Warper integration tests using the custom Builder/TestStep framework in `crates/integration`. Use when adding a new integration test, fixing a failing integration test, wiring a test into the manual runner or nextest suite, or verifying end-to-end UI and terminal behavior in Warper.
 ---
 
 # Warp Integration Tests
 
-Use this skill for Rust integration tests in Warp's custom framework under `crates/integration/`.
+Use this skill for Rust integration tests in Warper's custom framework under `crates/integration/`.
 
-These are not ordinary unit tests. They boot a real Warp app instance, give it an isolated test home directory, drive it with synthetic UI and terminal events, and poll assertions until success or timeout.
+These tests boot a real Warper app instance with an isolated test home directory, drive it with synthetic UI and terminal events, and poll assertions until success or timeout.
 
 ## Framework map
 
@@ -40,7 +40,7 @@ The core pieces are:
   - High-level helpers and assertions for common Warp behaviors.
   - Prefer these helpers over raw low-level event plumbing whenever they fit.
 
-## How the framework actually runs a test
+## How the framework runs a test
 
 1. A Rust test from `crates/integration/tests/integration/*.rs` calls `run_integration_test("test_name")`.
 2. That harness launches the `integration` binary with the test name.
@@ -210,7 +210,7 @@ Prefer `add_named_assertion(...)` over unnamed assertions. Named assertions make
 
 ### Use polling assertions instead of sleeps
 
-Assertions are polled until success or timeout. Lean on that model instead of hardcoding sleeps.
+Assertions are polled until success or timeout. Wait for the expected state with an assertion instead of a sleep.
 
 Good pattern:
 
@@ -230,7 +230,7 @@ This is useful for saving measured positions, counts, IDs, or other values from 
 
 ### Use retries sparingly
 
-`set_retries(...)` can help for a legitimately retryable step, but do not use it to hide deterministic failures. Prefer making the step more robust first.
+Correct event synchronization and state assumptions before adding `set_retries(...)`. Use retries for steps that can succeed on a subsequent attempt, and fix deterministic failures in the step or product code.
 
 ### Use `PreconditionFailed` for known environmental flakes
 
@@ -265,9 +265,9 @@ Prefer helpers like:
 - `execute_echo_str(...)`
 - `execute_long_running_command(...)`
 
-These helpers already handle a lot of correctness and output validation.
+These helpers check command execution and output.
 
-### 4. Assert visible behavior, not just internal mutation
+### 4. Assert visible behavior
 
 A good integration test verifies the user-observable behavior:
 
@@ -343,45 +343,14 @@ WARPUI_PAUSE_INTEGRATION_TEST_AT_EVERY_STEP=1 cargo run -p integration --bin int
 
 ### Video and screenshots
 
-If the task is specifically about recording a test, collecting screenshots, or validating overlay/video artifacts, also use the `integration-test-video` skill (located at `.warp/skills/integration-test-video/SKILL.md`).
+If the task is specifically about recording a test, collecting screenshots, or validating overlay/video artifacts, also use the `integration-test-video` skill (located at `.agents/skills/integration-test-video/SKILL.md`).
 
-### Environment variable gotcha
+### Runtime and compile-time environment variables
 
 `utils.set_env(...)` affects runtime environment lookups such as `std::env::var(...)`.
 
 It does not affect compile-time lookups like `option_env!(...)`. If the product code uses `option_env!`, changing the env var inside the test will not change that behavior without rebuilding.
 
-## Verification checklist
+## Verification
 
-Before considering a new integration test done, verify all of the following:
-
-- The test function lives under `crates/integration/src/test/`.
-- The module is added and re-exported in `crates/integration/src/test.rs`.
-- The test is registered in `crates/integration/src/bin/integration.rs`.
-- The test is listed in the correct nextest macro file and will run in CI by default, unless it was explicitly made manual-only with a documented reason.
-- The test passes when run directly through the integration binary.
-- The test passes through nextest if it is meant to be part of the automated suite.
-- The assertions check the intended user-visible behavior.
-- The test does not depend on the developer's real home directory, shell config, or machine state.
-- If the test uses screenshots/video, the produced artifacts were actually inspected rather than only assuming they exist.
-
-## Anti-patterns to avoid
-
-- Writing a test only in `src/test/*.rs` and forgetting the nextest macro list.
-- Asserting on bootstrap-sensitive block indices without clearing the bootstrapped blocks first.
-- Using raw events everywhere when a helper already exists.
-- Adding sleeps instead of assertion polling.
-- Making the test depend on personal dotfiles, real settings, or non-hermetic filesystem state.
-- Using retries to paper over a deterministic bug.
-- Leaving a real-display/manual test enabled in CI without a stable path.
-
-## Good workflow for agents
-
-When asked to add or fix an integration test:
-
-1. Find the closest existing integration test module for the feature.
-2. Reuse helper assertions and step constructors before inventing new low-level plumbing.
-3. Register the test in all required places, not just the implementation file.
-4. Run the test manually first.
-5. If it belongs in automation, run it with nextest too.
-6. If the test exercises visual behavior, verify the resulting UI behavior or artifacts directly.
+Run the test through the integration binary, then through nextest when it belongs in the automated suite. For screenshot or video tests, inspect the produced files and confirm the intended UI behavior.

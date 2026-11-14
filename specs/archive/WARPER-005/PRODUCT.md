@@ -1,5 +1,7 @@
 # WARPER-005: OpenRouter skill and follow-up context fidelity
 
+Historical specification for the removed built-in agent. Superseded by [WARPER-015](../../WARPER-015/PRODUCT.md).
+
 ## Summary
 
 OpenRouter-backed Warper agent conversations must behave like a useful local-first agent: they preserve the user's actual request, skill instructions, local tool calls, tool results, and assistant responses across every turn. Slash-command skill invocations must behave like real skill invocations, not like plain text prompts that lose their instructions or disappear from follow-up context.
