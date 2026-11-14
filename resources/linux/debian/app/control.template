@@ -6,7 +6,7 @@ Recommends: libgl1-mesa-dri, yaru-icon-theme | adwaita-icon-theme-full
 Priority: optional
 Architecture: @@ARCH@@
 Maintainer: Warper contributors <warper@localhost>
-Homepage: https://github.com/ruslanvakhitov/warper
+Homepage: https://github.com/piiq/warper
 Description: Warper, a local-first terminal
  Warper is a local-first, Rust-based terminal with third-party CLI-agent integration.
  It is a forked desktop app that removes hosted Warp services from the runtime

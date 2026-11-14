@@ -3,7 +3,7 @@
 #include "environment.iss"
 
 #define MyAppPublisher "Warper contributors"
-#define MyAppURL "https://github.com/ruslanvakhitov/warper"
+#define MyAppURL "https://github.com/piiq/warper"
 #ifndef MyAppName
   #define MyAppName "WarperDev"
 #endif

@@ -1,3 +1,4 @@
+<!-- rumdl-disable MD033 MD041 -->
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="public/warper_banner_dark.jpg">
@@ -16,13 +17,15 @@
   <img src="public/warper_screenshot.png" alt="Warper terminal" width="100%" />
 </p>
 
-<p align="center"><sub>Warper is a hard fork of <a href="https://www.warp.dev">Warp</a>. It keeps the terminal and drops the platform that grew around it.</sub></p>
+<p align="center"><sub>Warper is a hard fork of <a href="https://www.warp.dev">Warp</a>.</sub></p>
 
 ---
 
 ## Why this exists
 
-Warp is a good terminal that picked up a lot of other product over time. Warper keeps the terminal and third-party CLI-agent integration, and removes the built-in AI and hosted platform.
+Warper keeps Warp's terminal and third-party CLI-agent integration. Built-in AI and Warp-hosted services have been removed.
+
+[piiq](https://github.com/piiq) maintains Warper as an everyday terminal. [This repository](https://github.com/piiq/warper) is the home for development, documentation, and support.
 
 ---
 
@@ -34,7 +37,7 @@ Native Rust app with blocks, panes, tabs, session restoration, command history, 
 
 ### Third-party CLI agents
 
-Type `codex` and Warper notices you're running Codex; same for `claude`, `gemini`, and others. It adds a status indicator, optional rich input, and a finish notification, but doesn't try to wrap the agent CLI in its own UI. The shell already does that job.
+Run `codex`, `claude`, `gemini`, or another supported CLI agent in the terminal. Warper adds a status indicator, optional rich input, and a finish notification.
 
 ---
 
@@ -43,6 +46,7 @@ Type `codex` and Warper notices you're running Codex; same for `claude`, `gemini
 If a feature needs an account, a server, a billing entitlement, a team object, a shared session, or any Warp.dev infrastructure, it's out of scope. Specifically removed:
 
 - Built-in AI, Agent Mode, model providers, API-key management, MCP servers, skills discovery, AI indexing, and agent orchestration
+- Built-in diff review, its viewer/editor, review comments, and toolbar indicator. Passive Git statistics remain in terminal input.
 - Accounts, sign-up, sign-in, SSO, anonymous cloud users, subscriptions
 - Billing, plans, credits, usage limits, upgrade prompts
 - Warp Drive, team drives, shared-with-me, cloud trash
@@ -50,8 +54,6 @@ If a feature needs an account, a server, a billing entitlement, a team object, a
 - Session sharing, remote control, RTC presence, link collaboration
 - Oz, cloud agents, and hosted task orchestration
 - Telemetry upload, hosted crash reporting, RudderStack, Sentry, Warp-hosted autoupdate
-
-These are deleted from the product surface, not toggled off behind a flag.
 
 ---
 
@@ -82,7 +84,7 @@ Useful checks:
 ./script/check_warper_static_denylist all-runtime
 ```
 
-On macOS, `./script/run` produces `target/debug/bundle/osx/Warper.app`. Engineering notes inherited from upstream live in [WARP.md](WARP.md).
+On macOS, `./script/run` produces `target/debug/bundle/osx/Warper.app`. Development instructions live in [AGENTS.md](AGENTS.md).
 
 ---
 
@@ -97,7 +99,7 @@ The upstream licensing structure is preserved:
 
 Downstream users and contributors should preserve upstream notices and comply with the applicable licenses.
 
-A few of the load-bearing open-source dependencies inherited from Warp:
+Open-source dependencies inherited from Warp include:
 
 - [Tokio](https://github.com/tokio-rs/tokio)
 - [NuShell](https://github.com/nushell/nushell)
