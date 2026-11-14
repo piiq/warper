@@ -123,7 +123,7 @@ cargo test --doc
 
 ## Linting and formatting
 
-Use the formatting and lint commands in `AGENTS.md`. For the complete repository check:
+Use the formatting and lint commands in `AGENTS.md`. The optional full local suite is:
 
 ```bash
 ./script/presubmit

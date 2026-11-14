@@ -42,12 +42,12 @@ Use the pinned toolchain in `rust-toolchain.toml`.
 - `cargo check -p warp --features gui --all-targets`: compile the app and test targets.
 - `cargo fmt --all -- --check`: Rust formatting.
 - `cargo nextest run -p warp -E 'test(<name>)'`: focused app tests.
-- `./script/presubmit`: full formatting, lint, and test checks; use its commands for the broader validation workflow.
+- `./script/presubmit`: optional full local formatting, lint, and test suite.
 - `./script/warper_offline_local_smoke`: local-first smoke checks.
 - `./script/check_warper_static_denylist all-runtime`: checks the removed hosted-product surfaces.
 - `rumdl check <file>`: changed Markdown files.
 
-Choose checks that exercise the changed behavior, and report failures or unavailable tools accurately. Full presubmit is the broader check before merging substantial code changes.
+Run checks that exercise the changed behavior, including compilation, relevant tests, and applicable formatting and lint checks. Use CI for platform-specific validation. Report the checks run and their results.
 
 ## Specs and collaboration
 

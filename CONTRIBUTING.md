@@ -8,7 +8,7 @@ For bugs, include steps to reproduce, expected and actual behavior, your OS, the
 
 Keep changes focused, explain their effect on terminal behavior, and include relevant validation. Agree on a spec with the maintainer when the behavior needs clarification.
 
-Use the default branch as the PR base. Follow [AGENTS.md](AGENTS.md) for repository conventions and build commands. Use `cargo fmt`, run tests for the changed behavior, and use `./script/presubmit` for the full validation workflow before merging substantial code changes. Report failures accurately.
+Use the default branch as the PR base. Follow [AGENTS.md](AGENTS.md) for repository conventions and build commands. Run `cargo fmt` and the build, lint, and test checks relevant to the change. `./script/presubmit` is an optional full local suite. CI provides macOS, Linux, and Windows compilation and lint coverage. Report the checks run and their results.
 
 Write the PR title as the squash commit subject and the description as its body. Include the problem, resulting behavior, and relevant validation. Use that title and description when squash-merging.
 

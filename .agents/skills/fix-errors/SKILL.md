@@ -14,7 +14,7 @@ cargo check -p warp --features gui --all-targets --locked
 cargo nextest run -p warp -E 'test(test_name)'
 ```
 
-Use `./script/presubmit` for the complete repository checks. Its Clippy commands treat the completer separately:
+Run the checks relevant to the failure. `./script/presubmit` is an optional wrapper for the full local suite. The workspace Clippy checks treat the completer separately:
 
 ```bash
 cargo clippy --workspace --exclude warp_completer --all-targets --tests -- -D warnings
