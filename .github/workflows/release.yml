@@ -87,11 +87,11 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         shell: bash
         run: |
-          set -euo pipefail
+          set -euxo pipefail
           app="target/release-lto/bundle/osx/Warper.app"
           test -s "target/release-lto/bundle/osx/Warper-$VERSION-arm64.dmg"
           codesign --verify --deep --strict "$app"
-          lipo -verify_arch arm64 "$app/Contents/MacOS/warp-oss"
+          lipo "$app/Contents/MacOS/warp-oss" -verify_arch arm64
           test "$(plutil -extract CFBundleShortVersionString raw -o - "$app/Contents/Info.plist")" = "$VERSION"
           test -s "$app/Contents/Resources/settings_schema.json"
           test -s "$app/Contents/Resources/THIRD_PARTY_LICENSES.txt"
