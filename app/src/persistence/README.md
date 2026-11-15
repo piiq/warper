@@ -1,59 +1,49 @@
-# How to perform migrations
+# SQLite migrations
 
-## How do migrations work?
+Warper applies pending SQLite migrations in a transaction at startup. Migration SQL lives under `crates/persistence/migrations/`; generated Rust bindings live in `crates/persistence/src/schema.rs`.
 
-A sqlite database is one single file on the user's computer, and instead of being a separate process, it's a set of C functions
-that are bundled in our app. When the warp app starts, we upgrade the schema to the latest version in a transaction.
-Since we don't control the machine, we need to be super careful about the migrations that we ship.
+## Setup
 
-TODO: C.I. and remediation of failed migrations
+`./script/bootstrap` installs Diesel CLI 2.3.8, the version used by CI. To install it directly:
 
-## Step 1: One-time setup
-
-Make sure you have run `/script/bootstrap` at least once before. That installs our fork of
-`diesel_cli`. Our fork is an old version that [bundles](https://github.com/warpdotdev/diesel/blob/b2c58897c39c519a946314bd5b63765d3af56204/diesel_cli/Cargo.toml#L54)
-SQLite in with the `diesel_cli`. We use these version of Diesel and SQLite instead of relying on
-the versions on our machines. So do not follow the official Diesel CLI installation instructions.
-
-Additionally, the `sqlite3` binary is useful in development. The one on your Macbook is ok, but
-likely will be missing some basic language features. You can grab the latest binary from the
-official website <https://www.sqlite.org/download.html>. Note that we use SQL language features that
-are not available on old versions of sqlite. Note that you'll have to approve it to be run in your mac system preferences.
-
-## Step 2: Write the migration
-
-```text
-diesel migration generate <descriptive name of your migration>
+```sh
+cargo binstall --force -y diesel_cli@2.3.8
 ```
 
-This will create a new folder with an up.sql and down.sql.
+Keep the CLI pins in `.github/workflows/ci.yml` and `script/install_cargo_build_deps` in sync. CLI version changes can change generated Rust bindings even when the database schema is unchanged.
 
-## Step 3: Run the migration + generate the schema
+## Add a migration
 
-```text
-cd <warp-internal repo>
-diesel migration run --database-url="/Users/$USER/Library/Application Support/dev.warp.Warp-Local/warp.sqlite"
+Run from the repository root:
+
+```sh
+diesel migration generate migration_name --migration-dir crates/persistence/migrations
 ```
 
-This will run the migration on the same warp that runs when you run the app locally. This automatically generates or updates the `app/src/persistence/schema.rs`. We do not make manual edits to `schema.rs`.
+Edit the generated `up.sql` and `down.sql` files.
 
-You can also print the schema from a database that already has the migration with:
+## Generate and review the schema
 
-```text
-diesel print-schema --database-url="/Users/$USER/Library/Application Support/dev.warp.Warp-Local/warp.sqlite"
+Use a disposable database for development:
+
+```sh
+migration_test_dir="$(mktemp -d)"
+migration_test_db="$migration_test_dir/warper.sqlite"
+diesel migration run --database-url "$migration_test_db" --migration-dir crates/persistence/migrations
+git diff -- crates/persistence/src/schema.rs
 ```
 
-## Reverting/redo-ing migrations
+Running migrations regenerates the bindings using `diesel.toml`. Commit the generated schema with the migration. CI replays every migration into a fresh database and compares the generated bindings with the checked-in file.
 
-As you are writing features and changing branches, you'll want to undo migrations to fix your database and make it compatible with older code. Redo-ing can also be helpful as you are iterating on your schema.
+Test reversion and reapplication against the same disposable database:
 
-```text
-diesel migration revert --database-url="/Users/$USER/Library/Application Support/dev.warp.Warp-Local/warp.sqlite"
-diesel migration redo --database-url="/Users/$USER/Library/Application Support/dev.warp.Warp-Local/warp.sqlite"
+```sh
+diesel migration revert --database-url "$migration_test_db" --migration-dir crates/persistence/migrations
+diesel migration run --database-url "$migration_test_db" --migration-dir crates/persistence/migrations
 ```
 
 ## Schema style
 
-- We use `id` for integer primary keys. If there's something more special about the primary key, consider a more descriptive name.
-- Plural table names, singular for structs in the rust model code.
-- If there's a table `foos` and a table `bars`, and `bars` has a column with a foreign key that references `foos.id`, name it `foo_id`.
+- Use `id` for integer primary keys.
+- Use plural table names and singular Rust model names.
+- Name foreign-key columns after the referenced model, for example `foo_id` for `foos.id`.

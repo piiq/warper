@@ -11,7 +11,7 @@
 # This is only needed for local development, so we skip it when running on GitHub
 # (either for CI or building a release).
 if [ "${GITHUB_ACTIONS}" != "true" ]; then
-    cargo binstall --force -y diesel_cli
+    cargo binstall --force -y diesel_cli@2.3.8
 fi
 
 if [ "$(uname -s)" = "Darwin" ]; then
