@@ -88,6 +88,16 @@ On macOS, `./script/run` produces `target/debug/bundle/osx/Warper.app`. Developm
 
 ---
 
+## Releases
+
+Pushing a `warper-vX.Y.Z` tag runs the macOS release workflow. The tag must match the version in `app/Cargo.toml`, with `Cargo.lock` updated in the same commit.
+
+The workflow builds an optimized Apple Silicon (arm64) app and attaches its DMG to a draft [GitHub Release](https://github.com/piiq/warper/releases). Review the draft's notes and publish it on GitHub. The app uses ad-hoc signing and is not Apple-notarized. Apple credentials are not required. Windows, Linux, and Intel Mac release packages are not built.
+
+The workflow can also be rerun manually with an existing release tag. Reruns update draft assets. Published release assets require a new version.
+
+---
+
 ## Upstream, license, and credits
 
 This project is independent from Warp.dev. The names "Warp" and "Warp.dev", the related marks, and the hosted services belong to their respective owners. Warper exists because the Warp team released enough of their code to make a fork like this possible. Please don't report Warper-specific bugs against upstream Warp unless they also reproduce there.

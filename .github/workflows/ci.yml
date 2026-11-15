@@ -55,6 +55,11 @@ jobs:
         with:
           filters: |
             affects-database-schema:
+              - '.github/workflows/ci.yml'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'diesel.toml'
+              - 'script/install_cargo_build_deps'
               - 'crates/persistence/src/schema.rs'
               - 'crates/persistence/migrations/**'
 
@@ -285,7 +290,7 @@ jobs:
 
       - name: Install diesel_cli
         run: |
-          cargo binstall diesel_cli
+          cargo binstall --no-confirm diesel_cli@2.3.8
 
       - name: Run all migrations on empty file
         run: |
