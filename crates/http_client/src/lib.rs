@@ -132,61 +132,32 @@ impl Client {
         self.after_response_received = Some(hook_fn);
     }
 
-    fn builder(
-        &self,
-        wrapped: reqwest::RequestBuilder,
-        include_warp_headers: bool,
-    ) -> RequestBuilder<'_> {
-        let mut builder = RequestBuilder {
+    fn builder(&self, wrapped: reqwest::RequestBuilder) -> RequestBuilder<'_> {
+        Self::add_warp_http_headers(RequestBuilder {
             wrapped,
             client: self,
             serialized_payload: None,
-        };
-
-        if include_warp_headers {
-            builder = Self::add_warp_http_headers(builder);
-        }
-
-        builder
+        })
     }
 
-    pub fn get<U: IntoUrl + Clone>(&self, url: U) -> RequestBuilder<'_> {
-        self.builder(
-            self.wrapped.get(url.clone()),
-            Self::include_warp_http_headers(url),
-        )
+    pub fn get<U: IntoUrl>(&self, url: U) -> RequestBuilder<'_> {
+        self.builder(self.wrapped.get(url))
     }
 
-    pub fn post<U: IntoUrl + Clone>(&self, url: U) -> RequestBuilder<'_> {
-        self.builder(
-            self.wrapped.post(url.clone()),
-            Self::include_warp_http_headers(url),
-        )
+    pub fn post<U: IntoUrl>(&self, url: U) -> RequestBuilder<'_> {
+        self.builder(self.wrapped.post(url))
     }
 
-    pub fn patch<U: IntoUrl + Clone>(&self, url: U) -> RequestBuilder<'_> {
-        self.builder(
-            self.wrapped.patch(url.clone()),
-            Self::include_warp_http_headers(url),
-        )
+    pub fn patch<U: IntoUrl>(&self, url: U) -> RequestBuilder<'_> {
+        self.builder(self.wrapped.patch(url))
     }
 
-    pub fn put<U: IntoUrl + Clone>(&self, url: U) -> RequestBuilder<'_> {
-        self.builder(
-            self.wrapped.put(url.clone()),
-            Self::include_warp_http_headers(url),
-        )
+    pub fn put<U: IntoUrl>(&self, url: U) -> RequestBuilder<'_> {
+        self.builder(self.wrapped.put(url))
     }
 
-    pub fn delete<U: IntoUrl + Clone>(&self, url: U) -> RequestBuilder<'_> {
-        self.builder(
-            self.wrapped.delete(url.clone()),
-            Self::include_warp_http_headers(url),
-        )
-    }
-
-    fn include_warp_http_headers<U: IntoUrl + Clone>(_url: U) -> bool {
-        true
+    pub fn delete<U: IntoUrl>(&self, url: U) -> RequestBuilder<'_> {
+        self.builder(self.wrapped.delete(url))
     }
 
     fn add_warp_http_headers(mut builder: RequestBuilder) -> RequestBuilder {
