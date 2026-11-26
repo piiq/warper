@@ -1,147 +1,5 @@
 use super::*;
-use crate::launch_configs::launch_config::make_mock_single_window_launch_config;
 use crate::ChannelState;
-
-#[test]
-fn test_find_matching_config() {
-    let mut configs: Vec<LaunchConfig> = vec![];
-    for i in 0..5 {
-        add_mock_config_with_name(
-            (String::from("config") + i.to_string().as_str()).as_str(),
-            &mut configs,
-        );
-    }
-
-    let with_extension = "config1.yaml";
-    assert_eq!(
-        find_matching_config(with_extension, &configs),
-        Some(&configs[1])
-    );
-
-    let no_extension = "config4";
-    assert_eq!(
-        find_matching_config(no_extension, &configs),
-        Some(&configs[4])
-    );
-
-    let caps_insensitive = "ConFig3";
-    assert_eq!(
-        find_matching_config(caps_insensitive, &configs),
-        Some(&configs[3])
-    );
-
-    let missing_config = "missing";
-    assert_eq!(find_matching_config(missing_config, &configs), None);
-}
-
-#[test]
-fn test_find_matching_config_with_spaces() {
-    let mut configs: Vec<LaunchConfig> = vec![];
-    for i in 0..3 {
-        add_mock_config_with_name(
-            (String::from("config") + i.to_string().as_str()).as_str(),
-            &mut configs,
-        );
-    }
-
-    let with_space = "config 3.yaml";
-    add_mock_config_with_name(with_space, &mut configs);
-    assert_eq!(
-        find_matching_config(with_space, &configs),
-        Some(&configs[3])
-    );
-
-    let more_space = " a ";
-    add_mock_config_with_name(more_space, &mut configs);
-    assert_eq!(
-        find_matching_config(more_space, &configs),
-        Some(&configs[4])
-    );
-}
-
-#[test]
-fn test_find_matching_configs_special_chars() {
-    let mut configs: Vec<LaunchConfig> = vec![];
-    for i in 0..3 {
-        add_mock_config_with_name(
-            (String::from("config") + i.to_string().as_str()).as_str(),
-            &mut configs,
-        );
-    }
-
-    // test special characters
-    let special_ascii = "yes! this_works,too-even[braces}and(parens'.";
-    add_mock_config_with_name(special_ascii, &mut configs);
-    assert_eq!(
-        find_matching_config(special_ascii, &configs),
-        Some(&configs[3])
-    );
-
-    // test emojis
-    let bread = "🍞";
-    add_mock_config_with_name(bread, &mut configs);
-    assert_eq!(find_matching_config(bread, &configs), Some(&configs[4]));
-}
-
-fn add_mock_config_with_name(name: &str, configs: &mut Vec<LaunchConfig>) {
-    let mut new_config = make_mock_single_window_launch_config();
-    new_config.name = name.to_string();
-    new_config.windows[0].tabs[0].title = Some(String::from("First tab from config ") + name);
-    configs.push(new_config);
-}
-
-#[test]
-fn test_get_launch_config_path() {
-    assert_eq!(
-        get_launch_config_path("/path/to/a/config"),
-        Some(String::from("path/to/a/config")),
-    );
-    assert_eq!(
-        get_launch_config_path("/hello%20world.yaml"),
-        Some(String::from("hello world.yaml")),
-    );
-    assert_eq!(
-        get_launch_config_path("/%3Bhello%20%23world!"),
-        Some(String::from(";hello #world!")),
-    );
-    assert_eq!(
-        get_launch_config_path("/yes%21%20this_works%2Ctoo-even%5Bbraces%7Dand%28parens%27."),
-        Some(String::from("yes! this_works,too-even[braces}and(parens'."))
-    );
-    assert_eq!(
-        get_launch_config_path("/%F0%9F%8D%9E"),
-        Some(String::from("🍞"))
-    );
-    assert_eq!(
-        get_launch_config_path("/..filename_.with_dots.."),
-        Some(String::from("..filename_.with_dots.."))
-    );
-}
-
-#[test]
-fn test_get_launch_config_path_invalid() {
-    assert_eq!(get_launch_config_path(""), None);
-    assert_eq!(get_launch_config_path("/"), None);
-    assert_eq!(get_launch_config_path("%2F"), None);
-    assert_eq!(get_launch_config_path("/../outside"), None);
-    assert_eq!(get_launch_config_path("/..%2Foutside"), None);
-    assert_eq!(get_launch_config_path("/A/.."), None);
-    assert_eq!(get_launch_config_path("/A/../B"), None);
-    assert_eq!(get_launch_config_path("//absolute"), None);
-    assert_eq!(get_launch_config_path("/%2Fabsolute sneaky"), None);
-    assert_eq!(get_launch_config_path("//../very_bad/.."), None);
-}
-
-#[test]
-fn test_remove_extension() {
-    assert_eq!(remove_extension(""), None);
-    assert_eq!(remove_extension(".yaml"), Some(""));
-    assert_eq!(remove_extension(" .yaml"), Some(" "));
-    assert_eq!(remove_extension("config.yaml"), Some("config"));
-    assert_eq!(remove_extension("..yaml"), Some("."));
-    assert_eq!(remove_extension("config"), None);
-    assert_eq!(remove_extension("🍞.yaml"), Some("🍞"));
-}
 
 #[test]
 fn validate_custom_uri_allows_retained_local_settings_pages() {
@@ -158,7 +16,6 @@ fn validate_custom_uri_allows_local_actions_without_server_config() {
     ChannelState::set(ChannelState::init());
 
     for url in [
-        format!("{}://action/open-repo", ChannelState::url_scheme()),
         format!("{}://action/new_tab?path=/tmp", ChannelState::url_scheme()),
         format!("{}://settings/appearance", ChannelState::url_scheme()),
     ] {
@@ -413,4 +270,15 @@ fn removed_agent_deeplinks_are_rejected() {
         let url = Url::parse(&format!("{}://{host}/", ChannelState::url_scheme())).unwrap();
         assert!(validate_custom_uri(&url).is_err());
     }
+}
+
+#[test]
+fn removed_launch_and_repository_uris_are_rejected() {
+    assert!(UriHost::from_str("launch").is_err());
+    let url = Url::parse(&format!(
+        "{}://action/open-repo",
+        ChannelState::url_scheme()
+    ))
+    .unwrap();
+    assert!(Action::parse(&url).is_err());
 }

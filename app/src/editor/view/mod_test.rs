@@ -2032,7 +2032,7 @@ fn test_autosuggestions() -> Result<()> {
         // have "bazz" within its buffer and "foo\nbar" as an autosuggestion.
         let (_, view) = app.add_window(WindowStyle::NotStealFocus, |ctx| {
             let mut view = EditorView::new_with_base_text("bazz", Default::default(), ctx);
-            view.set_autosuggestion("foo\nbar", AutosuggestionLocation::EndOfBuffer, ctx);
+            view.set_autosuggestion("foo\nbar", ctx);
             view
         });
 
@@ -2122,7 +2122,7 @@ fn test_partial_autosuggestion() -> Result<()> {
         // have "bazz" within its buffer and "foo\nbar" as an autosuggestion.
         let (_, view) = app.add_window(WindowStyle::NotStealFocus, |ctx| {
             let mut view = EditorView::new_with_base_text("bazz", Default::default(), ctx);
-            view.set_autosuggestion("foo\nbar", AutosuggestionLocation::EndOfBuffer, ctx);
+            view.set_autosuggestion("foo\nbar", ctx);
             view
         });
 
@@ -2150,7 +2150,7 @@ fn test_partial_autosuggestion() -> Result<()> {
         view.update(&mut app, |view, ctx| {
             view.select_all(ctx);
             view.user_insert("test", ctx);
-            view.set_autosuggestion(" {восибing}", AutosuggestionLocation::EndOfBuffer, ctx);
+            view.set_autosuggestion(" {восибing}", ctx);
         });
 
         view.update(&mut app, |view, ctx| {
@@ -2174,11 +2174,7 @@ fn test_partial_autosuggestion() -> Result<()> {
         view.update(&mut app, |view, ctx| {
             view.select_all(ctx);
             view.user_insert("grep", ctx);
-            view.set_autosuggestion(
-                " --files-without-match \"git\" ~/.oh-my-zsh/themes/*",
-                AutosuggestionLocation::EndOfBuffer,
-                ctx,
-            );
+            view.set_autosuggestion(" --files-without-match \"git\" ~/.oh-my-zsh/themes/*", ctx);
         });
 
         view.update(&mut app, |view, ctx| {
@@ -2354,7 +2350,7 @@ fn test_placeholder_text() {
 
         // Shows autosuggestion instead if available
         view.update(&mut app, |view, ctx| {
-            view.set_autosuggestion("single line", AutosuggestionLocation::EndOfBuffer, ctx);
+            view.set_autosuggestion("single line", ctx);
         });
 
         view.read(&app, |view, app| {

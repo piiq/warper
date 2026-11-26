@@ -10,9 +10,6 @@ mod app_state;
 mod auth;
 mod banner;
 mod chip_configurator;
-mod code;
-mod coding_entrypoints;
-mod coding_panel_enablement_state;
 mod command_palette;
 mod completer;
 #[allow(dead_code)]
@@ -24,9 +21,7 @@ mod debug_dump;
 mod default_terminal;
 #[cfg(windows)]
 mod dynamic_libraries;
-mod env_vars;
 mod experiments;
-mod external_secrets;
 mod git_status;
 mod global_resource_handles;
 mod gpu_state;
@@ -36,7 +31,6 @@ mod login_item;
 mod menu;
 mod modal;
 mod network;
-mod notebooks;
 mod notification;
 mod palette;
 mod persistence;
@@ -48,7 +42,6 @@ mod prefix;
 mod preview_config_migration;
 mod profiling;
 mod project_workspaces;
-mod projects;
 mod prompt;
 mod quit_warning;
 mod resource_limits;
@@ -72,7 +65,6 @@ mod user_config;
 pub mod util;
 mod view_components;
 mod vim_registers;
-mod voltron;
 mod warp_managed_paths_watcher;
 mod window_settings;
 
@@ -96,7 +88,6 @@ pub mod input_suggestions;
 #[cfg(feature = "integration_tests")]
 pub mod integration_testing;
 pub mod keyboard;
-pub mod launch_configs;
 pub mod pane_group;
 pub mod resource_center;
 pub mod root_view;
@@ -107,16 +98,12 @@ pub mod tab_configs;
 pub mod terminal;
 pub mod themes;
 use auth::{LocalActorIdentity, LocalActorIdentityProvider};
-use code::editor_management::CodeManager;
-use code::opened_files::OpenedFilesModel;
 use quit_warning::UnsavedStateSummary;
 #[cfg(feature = "local_fs")]
 use settings::import::model::ImportedConfigModel;
 
 #[cfg(feature = "local_fs")]
-use repo_metadata::{
-    repositories::DetectedRepositories, watcher::DirectoryWatcher, RepoMetadataModel,
-};
+use repo_metadata::{repositories::DetectedRepositories, watcher::DirectoryWatcher};
 #[cfg(feature = "local_fs")]
 use watcher::HomeDirectoryWatcher;
 
@@ -126,7 +113,6 @@ use terminal::keys_settings::KeysSettings;
 #[cfg(feature = "local_tty")]
 use terminal::local_shell::LocalShellState;
 pub use util::bindings::cmd_or_ctrl_shift;
-pub mod workflows;
 pub mod workspace;
 
 #[cfg(feature = "integration_tests")]
@@ -141,17 +127,12 @@ use warp_core::user_preferences::GetUserPreferences as _;
 use warpui::platform::app::ApproveTerminateResult;
 use window_settings::WindowSettings;
 
-use crate::code::global_buffer_model::GlobalBufferModel;
-#[cfg(feature = "local_fs")]
-use crate::code::language_server_shutdown_manager::LanguageServerShutdownManager;
 use crate::context_chips::prompt::Prompt;
 use crate::default_terminal::DefaultTerminal;
 use crate::gpu_state::GPUState;
 use crate::network::NetworkStatus;
-use crate::notebooks::editor::keys::NotebookKeybindings;
 use crate::palette::PaletteMode;
 use crate::persistence::PersistenceWriter;
-use crate::projects::ProjectManagementModel;
 use crate::session_management::{RunningSessionSummary, SessionNavigationData};
 use crate::settings::manager::SettingsManager;
 use crate::settings::{AccessibilitySettings, ScrollSettings, SelectionSettings};
@@ -166,7 +147,6 @@ use crate::undo_close::UndoCloseStack;
 use crate::user_config::WarpConfig;
 use crate::vim_registers::VimRegisters;
 use crate::warp_managed_paths_watcher::{ensure_warp_watch_roots_exist, WarpManagedPathsWatcher};
-use crate::workflows::local_workflows::LocalWorkflows;
 use crate::workspace::{ActiveSession, ToastStack};
 #[cfg(feature = "local_tty")]
 use anyhow::Context;
@@ -204,8 +184,6 @@ use crate::workspace::{PaneViewLocator, Workspace, WorkspaceAction};
 pub use warp_core::{safe_debug, safe_error, safe_info, safe_warn};
 
 use crate::antivirus::AntivirusInfo;
-#[cfg(feature = "local_fs")]
-use warp_files::FileModel;
 use warpui::platform::TerminationMode;
 use warpui::windowing::state::ApplicationStage;
 use warpui::{AppContext, SingletonEntity, WindowId};
@@ -358,23 +336,6 @@ pub fn run() -> Result<()> {
             warp_cli::Command::Worker(warp_cli::WorkerCommand::MinidumpServer { socket_name }) => {
                 let _ = socket_name;
                 panic!("The minidump server is not supported in Warper");
-            }
-            warp_cli::Command::Worker(warp_cli::WorkerCommand::RipgrepSearch {
-                parent,
-                ignore_case,
-                multiline,
-                pattern,
-                paths,
-            }) => {
-                warp_ripgrep::search::run_search_subprocess(
-                    std::slice::from_ref(pattern),
-                    paths.clone(),
-                    *ignore_case,
-                    *multiline,
-                    parent.pid,
-                )
-                .map_err(|err| anyhow!(err.to_string()))?;
-                return Ok(());
             }
             warp_cli::Command::Completions { shell } => {
                 return warp_cli::completions::generate_to_stdout(*shell);
@@ -697,25 +658,17 @@ fn initialize_app(
         })
     });
 
-    let (
-        app_state,
-        command_history,
-        workspace_metadata,
-        workspace_language_servers,
-        persisted_projects,
-        persisted_ignored_suggestions,
-    ) = sqlite_data
-        .map(|data| {
-            (
-                Some(data.app_state),
-                data.command_history,
-                data.workspace_metadata,
-                data.workspace_language_servers,
-                data.projects,
-                data.ignored_suggestions,
-            )
-        })
-        .unwrap_or_default();
+    let (app_state, command_history, workspace_metadata, persisted_ignored_suggestions) =
+        sqlite_data
+            .map(|data| {
+                (
+                    Some(data.app_state),
+                    data.command_history,
+                    data.workspace_metadata,
+                    data.ignored_suggestions,
+                )
+            })
+            .unwrap_or_default();
 
     ctx.add_singleton_model(AntivirusInfo::new);
 
@@ -817,18 +770,12 @@ fn initialize_app(
                 model.search_for_settings_to_import(ctx);
             });
         }
-
-        ctx.add_singleton_model(RepoMetadataModel::new);
     }
 
     {
         use git_status::status_update::GitStatusUpdateModel;
         ctx.add_singleton_model(|_| GitStatusUpdateModel::new());
     }
-
-    ctx.add_singleton_model(|ctx| {
-        ProjectManagementModel::new(persisted_projects, persistence_writer.sender(), ctx)
-    });
 
     ctx.add_singleton_model(move |_| History::new(command_history));
 
@@ -838,7 +785,6 @@ fn initialize_app(
 
     // Register initial keybindings prior to creating menus
     app_services::init(ctx);
-    code::editor::find::view::init(ctx);
     workspace::init(ctx);
     pane_group::init(ctx);
     terminal::init(ctx);
@@ -847,25 +793,19 @@ fn initialize_app(
     editor::init(ctx);
     menu::init(ctx);
     tips::tip_view::init(ctx);
-    launch_configs::init(ctx);
-    workflows::init(ctx);
     themes::theme_chooser::init(ctx);
     themes::theme_creator_modal::init(ctx);
     themes::theme_deletion_modal::init(ctx);
     root_view::init(ctx);
-    voltron::init(ctx);
     crate::view_components::find::init(ctx);
     prompt::editor_modal::init(ctx);
     undo_close::init(ctx);
-    tab_configs::new_worktree_modal::init(ctx);
     tab_configs::params_modal::init(ctx);
-    env_vars::env_var_collection_block::init(ctx);
     terminal::ssh::install_tmux::init(ctx);
     terminal::ssh::warpify::init(ctx);
     terminal::ssh::error::init(ctx);
     context_chips::display_menu::init(ctx);
     context_chips::node_version_popup::init(ctx);
-    coding_entrypoints::project_buttons::init(ctx);
 
     let display_count = ctx.windows().display_count();
     ctx.add_singleton_model(|_| DisplayCount(display_count));
@@ -874,28 +814,19 @@ fn initialize_app(
     ctx.add_singleton_model(|_| SystemStats::new());
     ctx.add_singleton_model(|_| KeybindingChangedNotifier::new());
     ctx.add_singleton_model(|_| search::command_palette::SelectedItems::new());
-    ctx.add_singleton_model(search::files::model::FileSearchModel::new);
     ctx.add_singleton_model(|_| VimRegisters::new());
     ctx.add_singleton_model(UndoCloseStack::new);
     ctx.add_singleton_model(|_| ToastStack);
-    #[cfg(feature = "local_fs")]
-    ctx.add_singleton_model(FileModel::new);
-    ctx.add_singleton_model(GlobalBufferModel::new);
     #[cfg(windows)]
     ctx.add_singleton_model(util::traffic_lights::windows::RendererState::new);
-    #[cfg(feature = "local_fs")]
-    ctx.add_singleton_model(|_| LanguageServerShutdownManager::new());
 
     ctx.add_singleton_model(|_| CLIAgentSessionsModel::new());
 
     ctx.add_singleton_model(|_| AudibleBell::new());
 
-    // Register logging before language servers create file-based loggers.
+    // Register application logging.
     ctx.add_singleton_model(|_| simple_logger::manager::LogManager::new());
 
-    ctx.add_singleton_model(|_| CodeManager::default());
-    ctx.add_singleton_model(|_| OpenedFilesModel::new());
-    ctx.add_singleton_model(NotebookKeybindings::new);
     ctx.add_singleton_model(|_| ActiveSession::default());
     #[cfg(feature = "local_tty")]
     {
@@ -908,8 +839,6 @@ fn initialize_app(
 
     // Add a singleton model for resizable modals whose size should be persisted through restarts.
     ctx.add_singleton_model(|_| ResizableData::default());
-
-    ctx.add_singleton_model(LocalWorkflows::new);
 
     timer.mark_interval_end("SINGLETON_MODELS_REGISTERED");
 
@@ -931,7 +860,6 @@ fn initialize_app(
     ctx.add_singleton_model(|ctx| {
         project_workspaces::PersistedWorkspace::new(
             workspace_metadata,
-            workspace_language_servers,
             persistence_writer.sender(),
             ctx,
         )
@@ -995,11 +923,6 @@ fn app_callbacks(is_integration_test: bool) -> warpui::platform::AppCallbacks {
         on_will_terminate: Some(Box::new(move |ctx| {
             PersistenceWriter::handle(ctx).update(ctx, |writer, _ctx| {
                 writer.terminate();
-            });
-
-            // Shutdown all LSP servers gracefully before app termination
-            lsp::LspManagerModel::handle(ctx).update(ctx, |manager, ctx| {
-                manager.terminate(ctx);
             });
 
             // We want to tear down the terminal server after terminating the persistence writer,
@@ -1358,8 +1281,6 @@ pub fn enabled_features() -> HashSet<FeatureFlag> {
         FeatureFlag::SelectablePrompt,
         #[cfg(feature = "resize_fix")]
         FeatureFlag::ResizeFix,
-        #[cfg(feature = "richtext_multiselect")]
-        FeatureFlag::RichTextMultiselect,
         #[cfg(feature = "default_waterfall_mode")]
         FeatureFlag::DefaultWaterfallMode,
         #[cfg(feature = "settings_file")]
@@ -1370,16 +1291,12 @@ pub fn enabled_features() -> HashSet<FeatureFlag> {
         FeatureFlag::RectSelection,
         #[cfg(feature = "alacritty_settings_import")]
         FeatureFlag::AlacrittySettingsImport,
-        #[cfg(feature = "dynamic_workflow_enums")]
-        FeatureFlag::DynamicWorkflowEnums,
         #[cfg(feature = "ssh_tmux_wrapper")]
         FeatureFlag::SSHTmuxWrapper,
         #[cfg(feature = "less_horizontal_terminal_padding")]
         FeatureFlag::LessHorizontalTerminalPadding,
         #[cfg(feature = "shell_selector")]
         FeatureFlag::ShellSelector,
-        #[cfg(feature = "block_toolbelt_save_as_workflow")]
-        FeatureFlag::BlockToolbeltSaveAsWorkflow,
         #[cfg(feature = "full_screen_zen_mode")]
         FeatureFlag::FullScreenZenMode,
         #[cfg(feature = "minimalist_ui")]
@@ -1388,8 +1305,6 @@ pub fn enabled_features() -> HashSet<FeatureFlag> {
         FeatureFlag::RemoveAltScreenPadding,
         #[cfg(feature = "avatar_in_tab_bar")]
         FeatureFlag::AvatarInTabBar,
-        #[cfg(feature = "workflow_aliases")]
-        FeatureFlag::WorkflowAliases,
         #[cfg(feature = "ssh_drag_and_drop")]
         FeatureFlag::SshDragAndDrop,
         #[cfg(feature = "drag_tabs_to_windows")]
@@ -1414,46 +1329,18 @@ pub fn enabled_features() -> HashSet<FeatureFlag> {
         FeatureFlag::CommandCorrectionKey,
         #[cfg(feature = "use_tantivy_search")]
         FeatureFlag::UseTantivySearch,
-        #[cfg(feature = "markdown_tables")]
-        FeatureFlag::MarkdownTables,
-        #[cfg(feature = "markdown_mermaid")]
-        FeatureFlag::MarkdownMermaid,
-        #[cfg(feature = "editable_markdown_mermaid")]
-        FeatureFlag::EditableMarkdownMermaid,
         #[cfg(feature = "msys2_shells")]
         FeatureFlag::MSYS2Shells,
-        #[cfg(feature = "code_find_replace")]
-        FeatureFlag::CodeFindReplace,
-        #[cfg(feature = "command_palette_file_search")]
-        FeatureFlag::CommandPaletteFileSearch,
         #[cfg(feature = "tab_close_button_on_left")]
         FeatureFlag::TabCloseButtonOnLeft,
-        #[cfg(feature = "tabbed_editor_view")]
-        FeatureFlag::TabbedEditorView,
         #[cfg(feature = "undo_closed_panes")]
         FeatureFlag::UndoClosedPanes,
-        #[cfg(feature = "get_started_tab")]
-        FeatureFlag::GetStartedTab,
-        #[cfg(feature = "welcome_tab")]
-        FeatureFlag::WelcomeTab,
-        #[cfg(feature = "projects")]
-        FeatureFlag::Projects,
         #[cfg(feature = "github_pr_prompt_chip")]
         FeatureFlag::GithubPrPromptChip,
-        #[cfg(feature = "vim_code_editor")]
-        FeatureFlag::VimCodeEditor,
-        #[cfg(feature = "allow_opening_file_links_using_editor_env")]
-        FeatureFlag::AllowOpeningFileLinksUsingEditorEnv,
-        #[cfg(feature = "file_tree")]
-        FeatureFlag::FileTree,
         #[cfg(feature = "allow_ignoring_input_suggestions")]
         FeatureFlag::AllowIgnoringInputSuggestions,
-        #[cfg(feature = "code_launch_modal")]
-        FeatureFlag::CodeLaunchModal,
         #[cfg(feature = "ui_zoom")]
         FeatureFlag::UIZoom,
-        #[cfg(feature = "global_search")]
-        FeatureFlag::GlobalSearch,
         #[cfg(feature = "agent_toolbar_editor")]
         FeatureFlag::AgentToolbarEditor,
         #[cfg(feature = "configurable_toolbar")]
@@ -1466,14 +1353,10 @@ pub fn enabled_features() -> HashSet<FeatureFlag> {
         FeatureFlag::PluggableNotifications,
         #[cfg(feature = "new_tab_styling")]
         FeatureFlag::NewTabStyling,
-        #[cfg(feature = "incremental_auto_reload")]
-        FeatureFlag::IncrementalAutoReload,
         #[cfg(feature = "kitty_keyboard_protocol")]
         FeatureFlag::KittyKeyboardProtocol,
         #[cfg(feature = "directory_tab_colors")]
         FeatureFlag::DirectoryTabColors,
-        #[cfg(feature = "open_warp_new_settings_modes")]
-        FeatureFlag::OpenWarpNewSettingsModes,
         #[cfg(feature = "vertical_tabs")]
         FeatureFlag::VerticalTabs,
         #[cfg(feature = "vertical_tabs_summary_mode")]

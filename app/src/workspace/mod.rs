@@ -5,11 +5,9 @@ mod cli_install;
 mod global_actions;
 pub mod header_toolbar_editor;
 pub mod header_toolbar_item;
-mod home;
 mod lightbox_view;
 pub mod metadata;
 mod native_modal;
-mod one_time_modal_model;
 mod registry;
 pub mod sync_inputs;
 pub mod tab_settings;
@@ -18,10 +16,8 @@ pub mod util;
 pub mod view;
 
 use crate::channel::{Channel, ChannelState};
-use crate::code;
 use crate::features::FeatureFlag;
 use crate::modal;
-use crate::notebooks;
 use crate::pane_group::TabBarHoverIndex;
 use crate::settings_view::{self, flags, SettingsSection};
 use crate::tab::uses_vertical_tabs;
@@ -56,12 +52,9 @@ pub fn panel_header_corner_radius() -> warpui::elements::CornerRadius {
 }
 
 use crate::workspace::view::{
-    LEFT_PANEL_GLOBAL_SEARCH_BINDING_NAME, LEFT_PANEL_PROJECT_EXPLORER_BINDING_NAME,
-    NEW_TAB_BINDING_NAME, NEW_TERMINAL_TAB_BINDING_NAME, OPEN_GLOBAL_SEARCH_BINDING_NAME,
-    TOGGLE_PROJECT_EXPLORER_BINDING_NAME, TOGGLE_TAB_CONFIGS_MENU_BINDING_NAME,
+    NEW_TAB_BINDING_NAME, NEW_TERMINAL_TAB_BINDING_NAME, TOGGLE_TAB_CONFIGS_MENU_BINDING_NAME,
     TOGGLE_VERTICAL_TABS_PANEL_BINDING_NAME,
 };
-pub use one_time_modal_model::OneTimeModalModel;
 pub use registry::WorkspaceRegistry;
 pub use toast_stack::ToastStack;
 
@@ -75,16 +68,12 @@ pub fn init(app: &mut AppContext) {
     lightbox_view::init(app);
     crate::tab_configs::remove_confirmation_dialog::init(app);
     tab_configs::session_config_modal::init(app);
-    view::global_search::view::GlobalSearchView::init(app);
     header_toolbar_editor::init(app);
     settings_view::init_actions_from_parent_view(app, &id!("Workspace"), |settings_action| {
         WorkspaceAction::DispatchToSettingsTab(settings_action)
     });
     global_actions::init_global_actions(app);
-    notebooks::init(app);
-    code::init(app);
     sync_inputs::init(app);
-    lsp::init(app);
 
     app.register_fixed_bindings([FixedBinding::empty(
         "Dump debug info",
@@ -115,11 +104,6 @@ pub fn init(app: &mut AppContext) {
             )
             .with_context_predicate(id!("Workspace")),
         ]);
-        app.register_fixed_bindings([FixedBinding::empty(
-            "[Debug] View first-time user experience",
-            WorkspaceAction::AddGetStartedTab,
-            id!("Workspace"),
-        )]);
         #[cfg(debug_assertions)]
         {
             app.register_editable_bindings([
@@ -175,12 +159,6 @@ pub fn init(app: &mut AppContext) {
             id!("Workspace"),
         )
         .with_enabled(|| ContextFlag::CreateNewSession.is_enabled()),
-        FixedBinding::custom(
-            CustomAction::NewFile,
-            WorkspaceAction::NewCodeFile,
-            "New File",
-            id!("Workspace"),
-        ),
     ]);
 
     if FeatureFlag::UIZoom.is_enabled() {
@@ -224,15 +202,6 @@ pub fn init(app: &mut AppContext) {
             )
             .with_group(bindings::BindingGroup::Settings.as_str()),
         ]);
-    }
-
-    if ContextFlag::LaunchConfigurations.is_enabled() {
-        app.register_fixed_bindings([FixedBinding::custom(
-            CustomAction::SaveCurrentConfig,
-            WorkspaceAction::OpenLaunchConfigSaveModal,
-            "Save new launch configuration",
-            id!("Workspace"),
-        )]);
     }
 
     if ChannelState::channel() == Channel::Integration {
@@ -339,17 +308,6 @@ pub fn init(app: &mut AppContext) {
             .with_custom_action(CustomAction::ResetFontSize),
         ]);
     }
-
-    app.register_fixed_bindings([
-        // Menu dispatch for the "Open File Picker" custom action.
-        FixedBinding::custom(
-            CustomAction::ToggleProjectExplorer,
-            WorkspaceAction::ToggleProjectExplorer,
-            BindingDescription::new("Toggle project explorer")
-                .with_custom_description(bindings::MAC_MENUS_CONTEXT, "Project Explorer"),
-            id!("Workspace") & id!(flags::SHOW_PROJECT_EXPLORER),
-        ),
-    ]);
 
     app.register_editable_bindings([
         EditableBinding::new(
@@ -494,9 +452,7 @@ pub fn init(app: &mut AppContext) {
         EditableBinding::new(
             NEW_TERMINAL_TAB_BINDING_NAME,
             BindingDescription::new("New Terminal Tab"),
-            WorkspaceAction::AddTerminalTab {
-                hide_homepage: false,
-            },
+            WorkspaceAction::AddTerminalTab,
         )
         .with_context_predicate(id!("Workspace") & !id!("Workspace_PaneDragging"))
         .with_custom_action(CustomAction::NewTerminalTab)
@@ -511,48 +467,6 @@ pub fn init(app: &mut AppContext) {
         .with_group(bindings::BindingGroup::Navigation.as_str())
         .with_enabled(|| FeatureFlag::VerticalTabs.is_enabled())
         .with_key_binding(cmd_or_ctrl_shift("b")),
-        EditableBinding::new(
-            LEFT_PANEL_PROJECT_EXPLORER_BINDING_NAME,
-            BindingDescription::new("Left Panel: Project explorer"),
-            WorkspaceAction::ToggleProjectExplorer,
-        )
-        .with_group(bindings::BindingGroup::Navigation.as_str())
-        .with_context_predicate(id!("Workspace") & id!(flags::SHOW_PROJECT_EXPLORER))
-        .with_custom_action(CustomAction::ToggleProjectExplorer),
-        EditableBinding::new(
-            LEFT_PANEL_GLOBAL_SEARCH_BINDING_NAME,
-            BindingDescription::new("Left Panel: Global search"),
-            WorkspaceAction::ToggleGlobalSearch,
-        )
-        .with_group(bindings::BindingGroup::Navigation.as_str())
-        .with_context_predicate(id!("Workspace") & id!(flags::SHOW_GLOBAL_SEARCH))
-        .with_enabled(|| FeatureFlag::GlobalSearch.is_enabled())
-        .with_custom_action(CustomAction::ToggleGlobalSearch),
-        EditableBinding::new(
-            TOGGLE_PROJECT_EXPLORER_BINDING_NAME,
-            BindingDescription::new("Toggle project explorer")
-                .with_custom_description(bindings::MAC_MENUS_CONTEXT, "Project Explorer"),
-            WorkspaceAction::ToggleProjectExplorer,
-        )
-        .with_context_predicate(id!("Workspace") & id!(flags::SHOW_PROJECT_EXPLORER)),
-        EditableBinding::new(
-            OPEN_GLOBAL_SEARCH_BINDING_NAME,
-            BindingDescription::new("Open global search")
-                .with_custom_description(bindings::MAC_MENUS_CONTEXT, "Global Search"),
-            WorkspaceAction::OpenGlobalSearch,
-        )
-        .with_context_predicate(id!("Workspace") & id!(flags::SHOW_GLOBAL_SEARCH))
-        .with_mac_key_binding("cmd-shift-F")
-        // we use alt because we use ctrl-shift-f for find because ctrl-f needs to be reserved for the shell
-        .with_linux_or_windows_key_binding("alt-shift-F"),
-        EditableBinding::new(
-            "workspace:close_panel",
-            BindingDescription::new("Close focused panel")
-                .with_custom_description(bindings::MAC_MENUS_CONTEXT, "Close focused panel"),
-            WorkspaceAction::ClosePanel,
-        )
-        .with_context_predicate(id!("Workspace"))
-        .with_custom_action(CustomAction::CloseCurrentSession),
         EditableBinding::new(
             "workspace:toggle_command_palette",
             BindingDescription::new("Toggle command palette")
@@ -600,7 +514,7 @@ pub fn init(app: &mut AppContext) {
             WorkspaceAction::ToggleKeybindingsPage,
         )
         .with_group(bindings::BindingGroup::KeyboardShortcuts.as_str())
-        .with_context_predicate(id!("Workspace") & !id!("Workspace_TextOpen"))
+        .with_context_predicate(id!("Workspace"))
         .with_custom_action(CustomAction::ToggleKeybindingsPage),
         EditableBinding::new(
             "workspace:show_keybinding_settings",
@@ -726,35 +640,6 @@ pub fn init(app: &mut AppContext) {
         .with_group(bindings::BindingGroup::Navigation.as_str())
         .with_context_predicate(id!("Workspace"))
         .with_custom_action(CustomAction::NavigationPalette),
-        EditableBinding::new(
-            "workspace:toggle_launch_config_palette",
-            "Launch configuration palette",
-            WorkspaceAction::TogglePalette {
-                mode: PaletteMode::LaunchConfig,
-                source: PaletteSource::Keybinding,
-            },
-        )
-        .with_context_predicate(id!("Workspace"))
-        .with_custom_action(CustomAction::LaunchConfigPalette)
-        .with_enabled(|| ContextFlag::LaunchConfigurations.is_enabled()),
-        EditableBinding::new(
-            "workspace:toggle_files_palette",
-            "Toggle Files Palette",
-            WorkspaceAction::TogglePalette {
-                mode: PaletteMode::Files,
-                source: PaletteSource::Keybinding,
-            },
-        )
-        .with_context_predicate(id!("Workspace"))
-        .with_custom_action(CustomAction::FilesPalette),
-        EditableBinding::new(
-            "workspace:open_launch_config_save_modal",
-            "Save new launch configuration",
-            WorkspaceAction::OpenLaunchConfigSaveModal,
-        )
-        .with_context_predicate(id!("Workspace"))
-        .with_custom_action(CustomAction::SaveCurrentConfig)
-        .with_enabled(|| ContextFlag::LaunchConfigurations.is_enabled()),
     ]);
 
     if !FeatureFlag::AvatarInTabBar.is_enabled() {
@@ -805,16 +690,6 @@ pub fn init(app: &mut AppContext) {
         .with_context_predicate(id!("Workspace"))
         .with_key_binding("cmdorctrl-shift-)"),
     ]);
-
-    app.register_editable_bindings([EditableBinding::new(
-        "workspace:open_repository",
-        BindingDescription::new("Open repository")
-            .with_custom_description(bindings::MAC_MENUS_CONTEXT, "Open Repository"),
-        WorkspaceAction::OpenRepository { path: None },
-    )
-    .with_context_predicate(id!("Workspace"))
-    .with_custom_action(CustomAction::OpenRepository)
-    .with_group(bindings::BindingGroup::Folders.as_str())]);
 
     add_open_setting_pages_as_editable_binding(app);
     add_overflow_menu_items_as_editable_binding(app);
@@ -882,13 +757,6 @@ fn add_open_setting_pages_as_editable_binding(app: &mut AppContext) {
             BindingDescription::new("Open Settings: Warpify")
                 .with_custom_description(bindings::MAC_MENUS_CONTEXT, "Configure Warpify..."),
             WorkspaceAction::ShowSettingsPage(SettingsSection::Warpify),
-        )
-        .with_group(bindings::BindingGroup::Settings.as_str())
-        .with_context_predicate(id!("Workspace")),
-        EditableBinding::new(
-            "workspace:show_settings_code_page",
-            BindingDescription::new("Open Settings: Code"),
-            WorkspaceAction::ShowSettingsPage(SettingsSection::Projects),
         )
         .with_group(bindings::BindingGroup::Settings.as_str())
         .with_context_predicate(id!("Workspace")),

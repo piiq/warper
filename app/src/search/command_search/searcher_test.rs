@@ -178,11 +178,11 @@ fn test_exact_matches_rank_above_prefix_matches() {
 
             assert!(matches!(
             results.first().map(|result| result.accept_result()),
-            Some(CommandSearchItemAction::AcceptHistory(AcceptedHistoryItem { command: long, linked_workflow_data: None })) if long == long_command));
+            Some(CommandSearchItemAction::AcceptHistory(AcceptedHistoryItem { command: long })) if long == long_command));
 
             assert!(matches!(
             results.get(1).map(|result| result.accept_result()),
-            Some(CommandSearchItemAction::AcceptHistory(AcceptedHistoryItem { command: short, linked_workflow_data: None })) if short == short_command));
+            Some(CommandSearchItemAction::AcceptHistory(AcceptedHistoryItem { command: short })) if short == short_command));
         });
     })
 }
@@ -204,7 +204,7 @@ fn test_no_query_filter_runs_all_data_sources() {
             );
             mixer.add_async_source(
                 history_data_source(vec![HistoryEntry::command_only("git checkout".to_owned())]),
-                HashSet::from([QueryFilter::Workflows]),
+                HashSet::from([QueryFilter::Actions]),
                 AddAsyncSourceOptions {
                     debounce_interval: None,
                     run_in_zero_state: false,
@@ -250,7 +250,7 @@ fn test_query_filter_limits_data_sources() {
             );
             mixer.add_async_source(
                 history_data_source(vec![HistoryEntry::command_only("git checkout".to_owned())]),
-                HashSet::from([QueryFilter::Workflows]),
+                HashSet::from([QueryFilter::Actions]),
                 AddAsyncSourceOptions {
                     debounce_interval: None,
                     run_in_zero_state: false,
@@ -286,7 +286,7 @@ fn test_query_filter_limits_data_sources() {
             // Specifying both filters should produce results from both sources.
             mixer.run_query(
                 Query {
-                    filters: HashSet::from([QueryFilter::History, QueryFilter::Workflows]),
+                    filters: HashSet::from([QueryFilter::History, QueryFilter::Actions]),
                     text: "git".into(),
                 },
                 ctx,
@@ -472,7 +472,7 @@ fn test_async_source_with_include_in_unfiltered_runs_on_empty_filters() {
         mixer.update(&mut app, |mixer, ctx| {
             mixer.add_async_source(
                 SlowDataSource {},
-                [QueryFilter::Files],
+                [QueryFilter::Sessions],
                 AddAsyncSourceOptions {
                     debounce_interval: None,
                     run_in_zero_state: false,
@@ -513,7 +513,7 @@ fn test_async_source_without_include_in_unfiltered_skipped_on_empty_filters() {
         mixer.update(&mut app, |mixer, ctx| {
             mixer.add_async_source(
                 SlowDataSource {},
-                [QueryFilter::Files],
+                [QueryFilter::Sessions],
                 AddAsyncSourceOptions {
                     debounce_interval: None,
                     run_in_zero_state: false,

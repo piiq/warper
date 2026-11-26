@@ -1,22 +1,17 @@
 use pathfinder_geometry::rect::RectF;
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::Arc;
 use warpui::platform::FullscreenState;
 
 use warpui::AppContext;
 
-use crate::code::editor_management::CodeSource;
 use crate::persistence::SerializedBlockListItem;
 use crate::root_view::quake_mode_window_id;
 use crate::settings_view::SettingsSection;
 use crate::tab::SelectedTabColor;
 use crate::terminal::ShellLaunchData;
 use crate::themes::theme::AnsiColorIdentifier;
-use crate::workspace::view::left_panel::ToolPanelView;
 use crate::workspace::Workspace;
-use warp_server_client::ids::SyncId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct AppState {
@@ -28,11 +23,6 @@ pub struct AppState {
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct PaneUuid(pub Vec<u8>);
 
-#[derive(Debug, Clone, Eq, PartialEq, Default)]
-pub struct LocalObjectOpenSettings {
-    pub focused_folder_id: Option<String>,
-}
-
 #[derive(Clone, Debug, PartialEq)]
 pub struct WindowSnapshot {
     pub tabs: Vec<TabSnapshot>,
@@ -41,11 +31,7 @@ pub struct WindowSnapshot {
     pub fullscreen_state: FullscreenState,
     pub quake_mode: bool,
     pub universal_search_width: Option<f32>,
-    pub voltron_width: Option<f32>,
-    pub left_panel_open: bool,
     pub vertical_tabs_panel_open: bool,
-    pub left_panel_width: Option<f32>,
-    pub right_panel_width: Option<f32>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -54,14 +40,6 @@ pub struct TabSnapshot {
     pub root: PaneNodeSnapshot,
     pub default_directory_color: Option<AnsiColorIdentifier>,
     pub selected_color: SelectedTabColor,
-    pub left_panel: Option<LeftPanelSnapshot>,
-    pub right_panel: Option<RightPanelSnapshot>,
-}
-
-impl TabSnapshot {
-    pub(crate) fn color(&self) -> Option<AnsiColorIdentifier> {
-        self.selected_color.resolve(self.default_directory_color)
-    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -72,24 +50,6 @@ impl TabSnapshot {
 pub enum PaneNodeSnapshot {
     Branch(BranchSnapshot),
     Leaf(LeafSnapshot),
-}
-
-impl PaneNodeSnapshot {
-    pub fn has_horizontal_split(&self) -> bool {
-        match self {
-            PaneNodeSnapshot::Leaf(_) => false,
-            PaneNodeSnapshot::Branch(BranchSnapshot {
-                direction,
-                children,
-            }) => {
-                let self_has_split = *direction == SplitDirection::Horizontal && children.len() > 1;
-                self_has_split
-                    || children
-                        .iter()
-                        .any(|(_, child)| child.has_horizontal_split())
-            }
-        }
-    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -108,43 +68,7 @@ pub struct LeafSnapshot {
 #[derive(Clone, Debug, PartialEq)]
 pub enum LeafContents {
     Terminal(TerminalPaneSnapshot),
-    Notebook(NotebookPaneSnapshot),
-    Code(CodePaneSnapShot),
-    EnvVarCollection(EnvVarCollectionPaneSnapshot),
-    Workflow(WorkflowPaneSnapshot),
     Settings(SettingsPaneSnapshot),
-    /// An entrypoint pane type to launch other pane types from a search palette. The default view
-    /// when creating a tab.
-    Welcome {
-        startup_directory: Option<PathBuf>,
-    },
-    /// A new first-time user experience which prioritizes choosing a coding repository.
-    GetStarted,
-}
-
-#[cfg(feature = "local_fs")]
-impl LeafContents {
-    /// Whether this pane content should be written to (and later restored
-    /// from) the SQLite app-state database.
-    ///
-    /// Non-persisted pane types are skipped entirely during the pane tree
-    /// traversal in `save_app_state`, so no `pane_nodes` row is inserted for
-    /// them. This is important: inserting a `pane_nodes` row with
-    /// `is_leaf = true` but no matching `pane_leaves` row leaves an orphan
-    /// that `read_node` cannot resolve, which causes the surrounding tab's
-    /// restoration to fail and the whole tab to disappear on restart.
-    pub(crate) fn is_persisted(&self) -> bool {
-        match self {
-            LeafContents::Terminal(_)
-            | LeafContents::Notebook(_)
-            | LeafContents::Code(_)
-            | LeafContents::EnvVarCollection(_)
-            | LeafContents::Workflow(_)
-            | LeafContents::Settings(_)
-            | LeafContents::Welcome { .. }
-            | LeafContents::GetStarted => true,
-        }
-    }
 }
 
 /// Snapshot of the contents of a terminal pane.
@@ -158,86 +82,11 @@ pub struct TerminalPaneSnapshot {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum NotebookPaneSnapshot {
-    LocalNotebook {
-        /// The ID of the notebook that was open in this pane, when the local object store has one.
-        notebook_id: Option<SyncId>,
-        // Settings for the notebook pane when it's opened (such as a folder to focus upon opening)
-        settings: LocalObjectOpenSettings,
-    },
-    LocalFileNotebook {
-        /// The path to the local file that was open in this pane. This may be `None` if
-        /// the pane contained an unreadable file.
-        path: Option<PathBuf>,
-    },
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct CodePaneTabSnapshot {
-    pub path: Option<PathBuf>,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub enum CodePaneSnapShot {
-    Local {
-        tabs: Vec<CodePaneTabSnapshot>,
-        active_tab_index: usize,
-        /// The full `CodeSource` for this pane, serialized as JSON in the DB.
-        source: Option<CodeSource>,
-    },
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub enum WorkflowPaneSnapshot {
-    LocalWorkflow {
-        workflow_id: Option<SyncId>,
-        // Settings for the workflow pane when it's opened (such as a folder to focus upon opening)
-        settings: LocalObjectOpenSettings,
-    },
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub enum EnvVarCollectionPaneSnapshot {
-    LocalEnvVarCollection {
-        env_var_collection_id: Option<SyncId>,
-    },
-}
-
-#[derive(Clone, Debug, PartialEq)]
 pub enum SettingsPaneSnapshot {
     Local {
         current_page: SettingsSection,
         search_query: Option<String>,
     },
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub enum LeftPanelDisplayedTab {
-    FileTree,
-    GlobalSearch,
-}
-
-impl From<ToolPanelView> for LeftPanelDisplayedTab {
-    fn from(view: ToolPanelView) -> Self {
-        match view {
-            ToolPanelView::ProjectExplorer => LeftPanelDisplayedTab::FileTree,
-            ToolPanelView::GlobalSearch { .. } => LeftPanelDisplayedTab::GlobalSearch,
-        }
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct LeftPanelSnapshot {
-    pub left_panel_displayed_tab: LeftPanelDisplayedTab,
-    pub pane_group_id: String,
-    pub width: usize,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct RightPanelSnapshot {
-    pub pane_group_id: String,
-    pub width: usize,
-    pub is_maximized: bool,
 }
 
 /// Copied from pane group model, which should be private to pane group.
@@ -292,7 +141,3 @@ pub fn get_app_state(app: &AppContext) -> AppState {
         block_lists: Default::default(),
     }
 }
-
-#[cfg(test)]
-#[path = "app_state_tests.rs"]
-mod tests;

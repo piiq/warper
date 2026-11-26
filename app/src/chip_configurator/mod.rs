@@ -119,9 +119,7 @@ impl ConfigurableItem {
     }
 }
 
-/// Lightweight renderer for toolbar controls such as Rich Input, file
-/// attachments, and the file explorer.
-/// inside the configurator.
+/// Renders CLI-agent toolbar controls inside the configurator.
 pub struct ControlItemRenderer {
     kind: Option<AgentToolbarItemKind>,
     custom_label: Option<String>,

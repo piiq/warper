@@ -3,16 +3,10 @@ use std::ops::Range;
 use std::sync::Arc;
 use std::{collections::VecDeque, fmt, fmt::Debug};
 
-pub mod html_parser;
 pub mod markdown_parser;
 pub mod weight;
-pub use html_parser::parse_html;
 use itertools::Itertools;
-pub use markdown_parser::{
-    parse_image_prefix, parse_image_run_line, parse_inline_markdown, parse_markdown,
-    parse_markdown_with_gfm_tables,
-};
-use serde_yaml::Mapping;
+pub use markdown_parser::parse_markdown;
 use weight::CustomWeight;
 
 /// Trait for an "action" that can be dispatched via a hyperlink click handler.
@@ -36,74 +30,6 @@ where
 
 pub trait LineCount {
     fn num_lines(&self) -> usize;
-}
-
-/// A simple line-based delta between two [`FormattedText`] values.
-///
-/// `common_prefix_lines` is the number of leading lines that are identical
-/// between the old and new formatted text. `new_suffix`
-/// contains the replacement lines from the new value to replace from after common_prefix_lines
-/// to the end of the buffer.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FormattedTextDelta {
-    /// The number of actual lines in the common prefix (corresponding to a row in Point)
-    /// Note that a FormattedTextLine can have multiple lines - this refers to the actual line count,
-    /// not the FormattedTextLine count.
-    pub common_prefix_lines: usize,
-    /// The number of existing formatted text lines to be replaced
-    pub old_suffix_formatted_text_lines: usize,
-    pub new_suffix: VecDeque<FormattedTextLine>,
-}
-
-impl FormattedTextDelta {
-    pub fn is_noop(&self) -> bool {
-        self.old_suffix_formatted_text_lines == 0 && self.new_suffix.is_empty()
-    }
-}
-
-pub fn compute_formatted_text_delta(old: FormattedText, new: FormattedText) -> FormattedTextDelta {
-    let mut common_prefix_formatted_text_lines = 0usize;
-    let mut common_prefix_lines = 0usize;
-    let old_len = old.lines.len();
-    let new_len = new.lines.len();
-    let shared_len = old_len.min(new_len);
-
-    while common_prefix_formatted_text_lines < shared_len {
-        let old_line = &old.lines[common_prefix_formatted_text_lines];
-        let new_line = &new.lines[common_prefix_formatted_text_lines];
-
-        // Special handling for code blocks: only compare the code, not the language
-        // This is because the lang string in our internal buffer representation may not match
-        // the lang string in the parsed markdown exactly (e.g. "Python" vs "python path=/path/to/file.py start=1")
-        let lines_equal = match (old_line, new_line) {
-            (FormattedTextLine::CodeBlock(old_block), FormattedTextLine::CodeBlock(new_block)) => {
-                old_block.code == new_block.code
-            }
-            _ => old_line == new_line,
-        };
-
-        if !lines_equal {
-            break;
-        }
-
-        common_prefix_formatted_text_lines += 1;
-        common_prefix_lines += old_line.num_lines();
-    }
-
-    let old_suffix_formatted_text_lines =
-        old_len.saturating_sub(common_prefix_formatted_text_lines);
-    let new_suffix = new
-        .lines
-        .iter()
-        .skip(common_prefix_formatted_text_lines)
-        .cloned()
-        .collect();
-
-    FormattedTextDelta {
-        common_prefix_lines,
-        old_suffix_formatted_text_lines,
-        new_suffix,
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -160,9 +86,7 @@ pub enum FormattedTextLine {
     TaskList(FormattedTaskList),
     LineBreak,
     HorizontalRule,
-    Embedded(Mapping),
     Image(FormattedImage),
-    Table(FormattedTable),
 }
 
 impl FormattedTextLine {
@@ -191,9 +115,8 @@ impl FormattedTextLine {
                 .iter()
                 .map(|fragment| fragment.raw_text())
                 .join(""),
-            Self::LineBreak | Self::HorizontalRule | Self::Embedded(_) => "\n".to_string(),
+            Self::LineBreak | Self::HorizontalRule => "\n".to_string(),
             Self::Image(image) => format!("{}\n", image.alt_text),
-            Self::Table(table) => table.to_internal_format(),
         };
         // Each `FormattedTextLine` unit represents a complete line. If it doesn't already end in
         // a newline, add one.
@@ -230,12 +153,7 @@ impl FormattedTextLine {
                     fragment.styles.weight = weight;
                 }
             }
-            Self::Table(_)
-            | Self::CodeBlock(_)
-            | Self::LineBreak
-            | Self::HorizontalRule
-            | Self::Embedded(_)
-            | Self::Image(_) => {}
+            Self::CodeBlock(_) | Self::LineBreak | Self::HorizontalRule | Self::Image(_) => {}
         }
         self
     }
@@ -250,9 +168,7 @@ impl FormattedTextLine {
             FormattedTextLine::CodeBlock(_)
             | FormattedTextLine::LineBreak
             | FormattedTextLine::HorizontalRule
-            | FormattedTextLine::Embedded(_)
-            | FormattedTextLine::Image(_)
-            | FormattedTextLine::Table(_) => None,
+            | FormattedTextLine::Image(_) => None,
         }
     }
 
@@ -290,9 +206,7 @@ impl LineCount for FormattedTextLine {
             Self::TaskList(_) => 1,
             Self::LineBreak => 0,
             Self::HorizontalRule => 0,
-            Self::Embedded(_) => 1,
             Self::Image(_) => 1,
-            Self::Table(table) => 1 + table.rows.len(), // Header + data rows (separator not counted as a line)
         }
     }
 }
@@ -338,163 +252,6 @@ pub struct FormattedImage {
     /// Empty titles are normalized to `None` by the parser.
     pub title: Option<String>,
 }
-
-/// Column alignment for table cells
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Default, Hash)]
-pub enum TableAlignment {
-    #[default]
-    Left,
-    Center,
-    Right,
-}
-
-/// A formatted table with headers, alignments, and rows
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub struct FormattedTable {
-    pub headers: Vec<FormattedTextInline>,
-    pub alignments: Vec<TableAlignment>,
-    pub rows: Vec<Vec<FormattedTextInline>>,
-}
-
-impl FormattedTable {
-    /// Parse from the internal tab-separated format used in `warp-markdown-table` code blocks.
-    pub fn from_internal_format(content: &str) -> Self {
-        let parse_line = |line: &str| -> Vec<FormattedTextInline> {
-            line.split('\t')
-                .map(|cell| vec![FormattedTextFragment::plain_text(cell)])
-                .collect()
-        };
-
-        let mut lines = content.lines().peekable();
-        let headers = lines.next().map(parse_line).unwrap_or_default();
-        let rows: Vec<Vec<FormattedTextInline>> = lines.map(parse_line).collect();
-        let col_count = headers.len();
-
-        Self {
-            headers,
-            alignments: vec![TableAlignment::default(); col_count],
-            rows,
-        }
-    }
-
-    pub fn from_internal_format_with_alignments(
-        content: &str,
-        mut alignments: Vec<TableAlignment>,
-    ) -> Self {
-        let mut table = Self::from_internal_format(content);
-        let col_count = table.headers.len();
-        alignments.resize(col_count, TableAlignment::default());
-        alignments.truncate(col_count);
-        table.alignments = alignments;
-        table
-    }
-
-    /// Serialize to the internal tab-separated format used in `warp-markdown-table` code blocks.
-    /// Inline formatting is preserved as markdown syntax so it survives the buffer round-trip.
-    pub fn to_internal_format(&self) -> String {
-        if self.headers.is_empty() && self.rows.is_empty() {
-            return String::new();
-        }
-
-        let mut result = String::new();
-        let headers: Vec<String> = self.headers.iter().map(inline_to_markdown).collect();
-        result.push_str(&headers.join("\t"));
-        result.push('\n');
-        for row in &self.rows {
-            let cells: Vec<String> = row.iter().map(inline_to_markdown).collect();
-            result.push_str(&cells.join("\t"));
-            result.push('\n');
-        }
-        result
-    }
-
-    /// Pad ragged rows/headers to a uniform column count.
-    pub fn normalize_shape(&mut self) {
-        let mut column_count = self
-            .headers
-            .len()
-            .max(self.rows.iter().map(Vec::len).max().unwrap_or(0));
-        if column_count == 0 {
-            column_count = 1;
-        }
-
-        self.headers.resize_with(column_count, Vec::new);
-        self.alignments
-            .resize(column_count, TableAlignment::default());
-        for row in &mut self.rows {
-            row.resize_with(column_count, Vec::new);
-        }
-    }
-
-    /// Serialize to GFM pipe-table markdown.
-    pub fn to_plain_text(&self) -> String {
-        fn inline_to_text(inline: &FormattedTextInline) -> String {
-            inline.iter().map(|f| f.text.as_str()).collect()
-        }
-
-        let mut lines = Vec::new();
-        let headers: Vec<String> = self.headers.iter().map(inline_to_text).collect();
-        lines.push(format!("| {} |", headers.join(" | ")));
-        let separator: Vec<String> = self
-            .alignments
-            .iter()
-            .map(|alignment| match alignment {
-                TableAlignment::Left => "---".to_string(),
-                TableAlignment::Center => ":---:".to_string(),
-                TableAlignment::Right => "---:".to_string(),
-            })
-            .collect();
-        lines.push(format!("| {} |", separator.join(" | ")));
-        for row in &self.rows {
-            let cells: Vec<String> = row.iter().map(inline_to_text).collect();
-            lines.push(format!("| {} |", cells.join(" | ")));
-        }
-        lines.join("\n")
-    }
-}
-
-/// Convert a `FormattedTextInline` back to markdown syntax.
-fn inline_to_markdown(inline: &FormattedTextInline) -> String {
-    let mut result = String::new();
-    for fragment in inline {
-        let mut text = fragment.text.clone();
-        if text.is_empty() {
-            continue;
-        }
-
-        if fragment.styles.inline_code {
-            result.push('`');
-            result.push_str(&text);
-            result.push('`');
-            continue;
-        }
-
-        if let Some(Hyperlink::Url(url)) = &fragment.styles.hyperlink {
-            text = format!("[{text}]({url})");
-        }
-        if fragment.styles.strikethrough {
-            text = format!("~~{text}~~");
-        }
-        if fragment.styles.underline {
-            text = format!("<u>{text}</u>");
-        }
-        let is_bold = fragment
-            .styles
-            .weight
-            .is_some_and(|w| matches!(w, CustomWeight::Bold));
-        if is_bold && fragment.styles.italic {
-            text = format!("***{text}***");
-        } else if is_bold {
-            text = format!("**{text}**");
-        } else if fragment.styles.italic {
-            text = format!("*{text}*");
-        }
-
-        result.push_str(&text);
-    }
-    result
-}
-pub type FormattedTableAlignment = TableAlignment;
 
 pub type FormattedTextInline = Vec<FormattedTextFragment>;
 

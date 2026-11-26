@@ -1,6 +1,6 @@
+use crate::editor::NavigationKey;
 use pathfinder_color::ColorU;
 use settings::Setting as _;
-use warp_editor::editor::NavigationKey;
 use warpui::{
     accessibility::{AccessibilityContent, WarpA11yRole},
     elements::{

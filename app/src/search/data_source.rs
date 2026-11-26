@@ -19,24 +19,12 @@ lazy_static! {
         primary_text: "history:",
         aliases: vec!["h:"]
     };
-    static ref WORKFLOWS_FILTER_ATOM: FilterAtom = FilterAtom {
-        primary_text: "workflows:",
-        aliases: vec!["w:"]
-    };
     static ref ACTIONS_FILTER_ATOM: FilterAtom = FilterAtom {
         primary_text: "actions:",
         aliases: vec![]
     };
     static ref SESSIONS_FILTER_ATOM: FilterAtom = FilterAtom {
         primary_text: "sessions:",
-        aliases: vec![]
-    };
-    static ref LAUNCH_CONFIG_FILTER_ATOM: FilterAtom = FilterAtom {
-        primary_text: "launch_configs:",
-        aliases: vec![]
-    };
-    static ref FILES_FILTER_ATOM: FilterAtom = FilterAtom {
-        primary_text: "files:",
         aliases: vec![]
     };
     static ref COMMANDS_FILTER_ATOM: FilterAtom = FilterAtom {
@@ -46,14 +34,6 @@ lazy_static! {
     static ref BLOCKS_FILTER_ATOM: FilterAtom = FilterAtom {
         primary_text: "blocks:",
         aliases: vec!["b:"]
-    };
-    static ref CODE_FILTER_ATOM: FilterAtom = FilterAtom {
-        primary_text: "code:",
-        aliases: vec![]
-    };
-    static ref REPOS_FILTER_ATOM: FilterAtom = FilterAtom {
-        primary_text: "repos:",
-        aliases: vec![]
     };
 }
 
@@ -94,32 +74,17 @@ pub enum QueryFilter {
     /// Only include results from HistoryDataSource.
     History,
 
-    /// Only include command workflows from WorkflowsDataSource.
-    Workflows,
-
     /// Filter results for command palette actions.
     Actions,
 
     /// Filter results for open sessions.
     Sessions,
 
-    /// Filter results for launch configurations.
-    LaunchConfigurations,
-
-    /// Filter results for files.
-    Files,
-
     /// Filter results for commands.
     Commands,
 
     /// Filter results for terminal blocks.
     Blocks,
-
-    /// Filter results for code symbols.
-    Code,
-
-    /// Filter results for known project repositories.
-    Repos,
 }
 
 impl QueryFilter {
@@ -133,19 +98,12 @@ impl QueryFilter {
     pub fn placeholder_text(&self) -> &'static str {
         match self {
             QueryFilter::History => "Search history",
-            QueryFilter::Workflows => "Search workflows",
 
             QueryFilter::Actions => "Search actions",
             QueryFilter::Sessions => "Search sessions",
 
-            QueryFilter::LaunchConfigurations => "Search launch configurations",
-
-            QueryFilter::Files => "Search files",
             QueryFilter::Commands => "Search commands",
             QueryFilter::Blocks => "Search blocks",
-            QueryFilter::Code => "Search code symbols",
-
-            QueryFilter::Repos => "Search code repos",
         }
     }
 
@@ -153,19 +111,12 @@ impl QueryFilter {
     pub fn filter_atom(&self) -> &'static FilterAtom {
         match self {
             QueryFilter::History => &HISTORY_FILTER_ATOM,
-            QueryFilter::Workflows => &WORKFLOWS_FILTER_ATOM,
 
             QueryFilter::Actions => &ACTIONS_FILTER_ATOM,
             QueryFilter::Sessions => &SESSIONS_FILTER_ATOM,
 
-            QueryFilter::LaunchConfigurations => &LAUNCH_CONFIG_FILTER_ATOM,
-
-            QueryFilter::Files => &FILES_FILTER_ATOM,
             QueryFilter::Commands => &COMMANDS_FILTER_ATOM,
             QueryFilter::Blocks => &BLOCKS_FILTER_ATOM,
-            QueryFilter::Code => &CODE_FILTER_ATOM,
-
-            QueryFilter::Repos => &REPOS_FILTER_ATOM,
         }
     }
 
@@ -173,19 +124,12 @@ impl QueryFilter {
     pub fn display_name(&self) -> &'static str {
         match self {
             QueryFilter::History => "history",
-            QueryFilter::Workflows => "workflows",
 
             QueryFilter::Actions => "actions",
             QueryFilter::Sessions => "sessions",
 
-            QueryFilter::LaunchConfigurations => "launch configurations",
-
-            QueryFilter::Files => "files",
             QueryFilter::Commands => "commands",
             QueryFilter::Blocks => "blocks",
-            QueryFilter::Code => "code",
-
-            QueryFilter::Repos => "repos",
         }
     }
 
@@ -193,19 +137,12 @@ impl QueryFilter {
     pub fn icon_svg_path(&self) -> Option<&'static str> {
         match self {
             QueryFilter::History => Some("bundled/svg/history.svg"),
-            QueryFilter::Workflows => Some("bundled/svg/workflow.svg"),
 
             QueryFilter::Actions => None,
             QueryFilter::Sessions => Some("bundled/svg/terminal-input.svg"),
 
-            QueryFilter::LaunchConfigurations => Some("bundled/svg/navigation.svg"),
-
-            QueryFilter::Files => Some("bundled/svg/completion-file.svg"),
             QueryFilter::Commands => Some("bundled/svg/terminal.svg"),
             QueryFilter::Blocks => Some("bundled/svg/block.svg"),
-            QueryFilter::Code => Some("bundled/svg/code-02.svg"),
-
-            QueryFilter::Repos => Some("bundled/svg/folder.svg"),
         }
     }
 }

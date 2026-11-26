@@ -1,5 +1,4 @@
-use crate::code::editor::{add_color, remove_color};
-use crate::code::icon_from_file_path;
+use crate::context_chips::display_chip::{add_color, remove_color};
 use crate::safe_triangle::SafeTriangle;
 use crate::terminal::cli_agent_sessions::listener::agent_supports_rich_status;
 use crate::terminal::cli_agent_sessions::CLIAgentSessionStatus;
@@ -20,7 +19,7 @@ use crate::context_chips::github_pr_display_text_from_url;
 use crate::editor::EditorView;
 use crate::pane_group::pane::IPaneType;
 use crate::pane_group::TerminalPane;
-use crate::pane_group::{CodePane, PaneGroup, PaneId, TabBarHoverIndex};
+use crate::pane_group::{PaneGroup, PaneId, TabBarHoverIndex};
 use crate::tab::{tab_position_id, SelectedTabColor, TabData};
 use crate::terminal::session_settings::SessionSettings;
 use crate::terminal::TerminalView;
@@ -38,7 +37,6 @@ use crate::workspace::{
     PaneViewLocator, TabBarLocation, TabContextMenuAnchor, VerticalTabsPaneContextMenuTarget,
     VerticalTabsPaneDropTargetData, Workspace,
 };
-use languages::language_by_filename;
 
 use pathfinder_color::ColorU;
 use pathfinder_geometry::rect::RectF;
@@ -732,12 +730,8 @@ enum SummaryPaneKind {
     Terminal,
 
     CLIAgent { agent: CLIAgent },
-    Code { title: String },
 
-    File,
     Settings,
-
-    Other,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -930,14 +924,9 @@ fn resolve_summary_pane_kind_icons(
     app: &AppContext,
 ) -> Option<SummaryPaneKindIcons> {
     select_summary_pane_kind_icons(visible_pane_ids.iter().filter_map(|pane_id| {
-        pane_group.pane_by_id(*pane_id).map(|pane| {
-            let pane_configuration = pane.pane_configuration();
-            let pane_configuration = pane_configuration.as_ref(app);
+        pane_group.pane_by_id(*pane_id).map(|_| {
             let typed = pane_group.resolve_pane_type(*pane_id, app);
-            (
-                pane_id.creation_order_id(),
-                typed.summary_pane_kind(pane_configuration.title().trim(), app),
-            )
+            (pane_id.creation_order_id(), typed.summary_pane_kind(app))
         })
     }))
 }
@@ -1209,8 +1198,6 @@ fn render_detail_kind_badge_icon(
 
             WarpIcon::Terminal.to_warpui_icon(disabled_text).finish()
         }
-        TypedPane::Code(_) => icon_from_file_path(&props.title, appearance)
-            .unwrap_or_else(|| WarpIcon::Code2.to_warpui_icon(sub_text).finish()),
         typed => typed.icon().to_warpui_icon(sub_text).finish(),
     }
 }
@@ -2169,13 +2156,11 @@ fn render_passive_terminal_diff_stats_badge(
 
 fn resolve_icon_with_status_variant(
     typed: &TypedPane<'_>,
-    title: &str,
     appearance: &Appearance,
     app: &AppContext,
 ) -> IconWithStatusVariant {
     let theme = appearance.theme();
     let main_text = theme.main_text_color(theme.background());
-    let sub_text = theme.sub_text_color(theme.background());
 
     match typed {
         TypedPane::Terminal(terminal_pane) => {
@@ -2211,25 +2196,9 @@ fn resolve_icon_with_status_variant(
                 }
             }
         }
-        TypedPane::Code(_) => {
-            if let Some(icon_element) = icon_from_file_path(title, appearance) {
-                IconWithStatusVariant::NeutralElement { icon_element }
-            } else {
-                IconWithStatusVariant::Neutral {
-                    icon: WarpIcon::Code2,
-                    icon_color: sub_text,
-                }
-            }
-        }
         TypedPane::Settings => IconWithStatusVariant::Neutral {
             icon: typed.icon(),
             icon_color: main_text,
-        },
-
-        // Other pane types use sub-text color
-        other => IconWithStatusVariant::Neutral {
-            icon: other.icon(),
-            icon_color: sub_text,
         },
     }
 }
@@ -2259,12 +2228,12 @@ fn render_pane_row(props: PaneProps<'_>, app: &AppContext) -> Box<dyn Element> {
     let font_family = appearance.ui_font_family();
 
     let icon = render_pane_icon_with_status(
-        resolve_icon_with_status_variant(&props.typed, &props.title, appearance, app),
+        resolve_icon_with_status_variant(&props.typed, appearance, app),
         theme,
     );
 
     // Top-align the icon when there are multiple lines of content so it sits next to
-    // the first line; center it for single-line rows (Settings, Notebook with no subtitle, etc.).
+    // the first line; center it for single-line settings rows.
     let icon_alignment =
         if matches!(props.typed, TypedPane::Terminal(_)) || !effective_subtitle.is_empty() {
             CrossAxisAlignment::Start
@@ -2280,8 +2249,7 @@ fn render_pane_row(props: PaneProps<'_>, app: &AppContext) -> Box<dyn Element> {
             app,
         )
     } else {
-        let has_indicator =
-            props.typed.badge(app).is_some() || has_unread_activity(&props.typed, app);
+        let has_indicator = has_unread_activity(&props.typed, app);
         let mut title_row = Flex::row()
             .with_main_axis_size(MainAxisSize::Max)
             .with_main_axis_alignment(MainAxisAlignment::SpaceBetween)
@@ -2321,11 +2289,7 @@ fn render_pane_row(props: PaneProps<'_>, app: &AppContext) -> Box<dyn Element> {
             .with_child(title_row.finish());
 
         if !effective_subtitle.is_empty() {
-            let subtitle_clip = if matches!(props.typed, TypedPane::Code(_)) {
-                ClipConfig::start()
-            } else {
-                ClipConfig::ellipsis()
-            };
+            let subtitle_clip = ClipConfig::ellipsis();
             content_col.add_child(
                 Text::new_inline(effective_subtitle, font_family, 12.)
                     .with_clip(subtitle_clip)
@@ -2350,16 +2314,12 @@ fn render_pane_row(props: PaneProps<'_>, app: &AppContext) -> Box<dyn Element> {
 
 enum TypedPane<'a> {
     Terminal(&'a TerminalPane),
-    Code(&'a CodePane),
 
-    File,
     Settings,
-
-    Other,
 }
 
 impl TypedPane<'_> {
-    fn summary_pane_kind(&self, title: &str, app: &AppContext) -> SummaryPaneKind {
+    fn summary_pane_kind(&self, app: &AppContext) -> SummaryPaneKind {
         match self {
             TypedPane::Terminal(terminal_pane) => {
                 let terminal_view = terminal_pane.terminal_view(app);
@@ -2373,54 +2333,27 @@ impl TypedPane<'_> {
                 }
                 SummaryPaneKind::Terminal
             }
-            TypedPane::Code(_) => SummaryPaneKind::Code {
-                title: title.to_string(),
-            },
 
-            TypedPane::File => SummaryPaneKind::File,
             TypedPane::Settings => SummaryPaneKind::Settings,
-
-            TypedPane::Other => SummaryPaneKind::Other,
         }
     }
 
     fn supports_vertical_tabs_detail_sidecar(&self) -> bool {
-        matches!(self, TypedPane::Terminal(_) | TypedPane::Code(_))
+        matches!(self, TypedPane::Terminal(_))
     }
     fn kind_label(&self) -> &'static str {
         match self {
             TypedPane::Terminal(_) => "Terminal",
-            TypedPane::Code(_) => "Code",
 
-            TypedPane::File => "File",
             TypedPane::Settings => "Settings",
-
-            TypedPane::Other => "Other",
-        }
-    }
-
-    fn badge(&self, app: &AppContext) -> Option<String> {
-        match self {
-            TypedPane::Code(code_pane) => code_pane
-                .file_view(app)
-                .as_ref(app)
-                .contains_unsaved_changes(app)
-                .then(|| "Unsaved".to_string()),
-            TypedPane::Terminal(_) | TypedPane::File | TypedPane::Settings | TypedPane::Other => {
-                None
-            }
         }
     }
 
     fn icon(&self) -> WarpIcon {
         match self {
             TypedPane::Terminal(_) => WarpIcon::Terminal,
-            TypedPane::Code(_) => WarpIcon::Code2,
 
-            TypedPane::File => WarpIcon::File,
             TypedPane::Settings => WarpIcon::Gear,
-
-            TypedPane::Other => WarpIcon::File,
         }
     }
 }
@@ -2430,30 +2363,14 @@ fn pane_display_title_and_subtitle(
     title: &str,
     secondary_title: &str,
 ) -> (String, String) {
-    if matches!(typed, TypedPane::Code(_)) && !title.is_empty() {
-        let path = Path::new(title);
-        let filename = path
-            .file_name()
-            .map(|file_name| file_name.to_string_lossy().to_string())
-            .unwrap_or_else(|| title.to_string());
-        let parent_raw = path
-            .parent()
-            .map(|parent| parent.to_string_lossy().to_string())
-            .unwrap_or_default();
-        let home_dir = dirs::home_dir();
-        let home_str = home_dir.as_ref().and_then(|path| path.to_str());
-        let parent = warp_util::path::user_friendly_path(&parent_raw, home_str).to_string();
-        (filename, parent)
-    } else {
-        (
-            if title.is_empty() {
-                typed.kind_label().to_string()
-            } else {
-                title.to_string()
-            },
-            secondary_title.to_string(),
-        )
-    }
+    (
+        if title.is_empty() {
+            typed.kind_label().to_string()
+        } else {
+            title.to_string()
+        },
+        secondary_title.to_string(),
+    )
 }
 
 fn build_vertical_tabs_summary_data(
@@ -2474,7 +2391,7 @@ fn build_vertical_tabs_summary_data(
         let pane_configuration = pane.pane_configuration();
         let pane_configuration = pane_configuration.as_ref(app);
         let typed = pane_group.resolve_pane_type(*pane_id, app);
-        let (pane_title, pane_subtitle) = pane_display_title_and_subtitle(
+        let (pane_title, _) = pane_display_title_and_subtitle(
             &typed,
             pane_configuration.title().trim(),
             pane_configuration.title_secondary().trim(),
@@ -2534,19 +2451,7 @@ fn build_vertical_tabs_summary_data(
                     });
                 }
             }
-            TypedPane::Code(_) => {
-                push_normalized_unique_summary_text(
-                    &mut primary_labels,
-                    &mut primary_seen,
-                    &pane_title,
-                );
-                push_normalized_unique_summary_text(
-                    &mut working_directories,
-                    &mut working_directory_seen,
-                    &pane_subtitle,
-                );
-            }
-            TypedPane::File | TypedPane::Settings | TypedPane::Other => {
+            TypedPane::Settings => {
                 push_normalized_unique_summary_text(
                     &mut primary_labels,
                     &mut primary_seen,
@@ -2585,7 +2490,7 @@ impl<'a> PaneProps<'a> {
     ) -> Option<Self> {
         let pane = pane_group.pane_by_id(pane_id)?;
 
-        // When a pane is a temporary replacement (e.g. an expanded code diff),
+        // When a pane is a temporary replacement,
         // resolve display properties from the original hidden pane so the
         // sidebar row keeps showing the original icon, title, and metadata.
         let display_pane_id = pane_group
@@ -2658,7 +2563,7 @@ impl<'a> PaneProps<'a> {
                 self.display_title_override.as_deref(),
                 app,
             ),
-            TypedPane::Code(_) | TypedPane::File | TypedPane::Settings | TypedPane::Other => {
+            TypedPane::Settings => {
                 non_terminal_search_text_fragments(self.generated_or_tab_title(), &self.subtitle)
             }
         };
@@ -2908,17 +2813,10 @@ impl PaneGroup {
                 self.downcast_pane_by_id::<TerminalPane>(pane_id)
                     .expect("IPaneType::Terminal must correspond to a TerminalPane"),
             ),
-            IPaneType::Code => TypedPane::Code(
-                self.downcast_pane_by_id::<CodePane>(pane_id)
-                    .expect("IPaneType::Code must correspond to a CodePane"),
-            ),
-
-            IPaneType::File => TypedPane::File,
             IPaneType::Settings => TypedPane::Settings,
 
-            IPaneType::GetStarted | IPaneType::Welcome => TypedPane::Other,
             #[cfg(test)]
-            IPaneType::Dummy => TypedPane::Other,
+            IPaneType::Dummy => TypedPane::Settings,
         }
     }
 }
@@ -3237,7 +3135,7 @@ fn render_summary_tab_item(
         .map(|icons| render_summary_pane_kind_icons(icons, appearance))
         .unwrap_or_else(|| {
             render_pane_icon_with_status(
-                resolve_icon_with_status_variant(&props.typed, &props.title, appearance, app),
+                resolve_icon_with_status_variant(&props.typed, appearance, app),
                 theme,
             )
         });
@@ -3406,18 +3304,7 @@ fn render_summary_pane_kind_icon_circle(
                 .into(),
             )
         }
-        SummaryPaneKind::Code { title } => (
-            icon_from_file_path(&title, appearance).unwrap_or_else(|| {
-                WarpIcon::Code2
-                    .to_warpui_icon(theme.sub_text_color(theme.background()))
-                    .finish()
-            }),
-            internal_colors::fg_overlay_2(theme).into(),
-        ),
-        SummaryPaneKind::Terminal
-        | SummaryPaneKind::File
-        | SummaryPaneKind::Settings
-        | SummaryPaneKind::Other => {
+        SummaryPaneKind::Terminal | SummaryPaneKind::Settings => {
             let (icon, icon_color) = summary_pane_kind_icon(kind, appearance);
             (
                 icon.to_warpui_icon(icon_color).finish(),
@@ -3445,7 +3332,6 @@ fn summary_pane_kind_icon(
 ) -> (WarpIcon, WarpThemeFill) {
     let theme = appearance.theme();
     let main_text = theme.main_text_color(theme.background());
-    let sub_text = theme.sub_text_color(theme.background());
     match kind {
         SummaryPaneKind::Terminal => (WarpIcon::Terminal, main_text),
 
@@ -3453,12 +3339,8 @@ fn summary_pane_kind_icon(
             agent.icon().unwrap_or(WarpIcon::Terminal),
             WarpThemeFill::Solid(agent.brand_icon_color()),
         ),
-        SummaryPaneKind::Code { .. } => (WarpIcon::Code2, sub_text),
 
-        SummaryPaneKind::File => (WarpIcon::File, sub_text),
         SummaryPaneKind::Settings => (WarpIcon::Gear, main_text),
-
-        SummaryPaneKind::Other => (WarpIcon::File, sub_text),
     }
 }
 
@@ -3723,17 +3605,9 @@ fn render_passive_terminal_pull_request_badge(
     )
 }
 
-fn render_compact_non_terminal_title(
-    title: &str,
-    typed: &TypedPane<'_>,
-    appearance: &Appearance,
-) -> Box<dyn Element> {
+fn render_compact_non_terminal_title(title: &str, appearance: &Appearance) -> Box<dyn Element> {
     let theme = appearance.theme();
-    let clip_config = if matches!(typed, TypedPane::Code(_)) {
-        ClipConfig::start()
-    } else {
-        ClipConfig::ellipsis()
-    };
+    let clip_config = ClipConfig::ellipsis();
     Text::new_inline(title.to_string(), appearance.ui_font_family(), 12.)
         .with_clip(clip_config)
         .with_color(theme.main_text_color(theme.background()).into())
@@ -3832,22 +3706,8 @@ fn compute_tab_group_color_mode(
                         .color_for_directory(Path::new(&cwd))
                         .and_then(|c| c.ansi_color())
                 })
-            } else if let Some(code_view) = pane_group.code_view_from_pane_id(pane_id, app) {
-                // Code pane: determine color from the open file path using longest-prefix
-                // matching against configured directories, so e.g. warp-internal/code.rs
-                // inherits the color assigned to warp-internal.
-                code_view
-                    .as_ref(app)
-                    .local_path(app)
-                    .as_deref()
-                    .and_then(|file_path| {
-                        dir_colors
-                            .color_for_directory(file_path)
-                            .and_then(|c| c.ansi_color())
-                    })
             } else {
-                // Other non-terminal panes (notebook, workflow, etc.): fall back to the
-                // cached directory color from the tab's last active terminal.
+                // Settings panes use the tab's cached terminal directory color.
                 tab.default_directory_color
             };
             (pane_id, color)
@@ -5074,84 +4934,6 @@ fn render_terminal_detail_section(
         .finish()
 }
 
-fn render_code_detail_section(
-    props: &PaneProps<'_>,
-    appearance: &Appearance,
-    app: &AppContext,
-) -> Box<dyn Element> {
-    let theme = appearance.theme();
-    let text_colors = detail_sidecar_text_colors(theme);
-    let TypedPane::Code(code_pane) = &props.typed else {
-        return Empty::new().finish();
-    };
-    let code_view = code_pane.file_view(app);
-    let code_view = code_view.as_ref(app);
-    let extra_open_tabs = code_view.tab_count().saturating_sub(1);
-
-    let mut section = Flex::column()
-        .with_cross_axis_alignment(CrossAxisAlignment::Start)
-        .with_spacing(DETAIL_SIDECAR_SECTION_GAP);
-    section.add_child(render_detail_wrapping_text(
-        props.title.clone(),
-        12.,
-        text_colors.main,
-        None,
-        appearance,
-    ));
-
-    if !props.subtitle.trim().is_empty() {
-        section.add_child(render_detail_wrapping_text(
-            props.subtitle.clone(),
-            12.,
-            text_colors.sub,
-            None,
-            appearance,
-        ));
-    }
-
-    if extra_open_tabs > 0 {
-        section.add_child(render_detail_wrapping_text(
-            format!("and {extra_open_tabs} more"),
-            12.,
-            text_colors.sub,
-            None,
-            appearance,
-        ));
-    }
-
-    if let Some(language_name) = code_detail_kind_label(&props.title) {
-        let mut metadata_row = Flex::row()
-            .with_main_axis_size(MainAxisSize::Max)
-            .with_main_axis_alignment(MainAxisAlignment::SpaceBetween)
-            .with_cross_axis_alignment(CrossAxisAlignment::Center);
-        metadata_row.add_child(render_detail_badge(
-            language_name,
-            Some(render_detail_kind_badge_icon(props, appearance, app)),
-            None,
-            text_colors.disabled,
-            appearance,
-        ));
-        if let Some(badge) = props.typed.badge(app) {
-            metadata_row.add_child(render_detail_badge(
-                badge,
-                None,
-                Some(internal_colors::fg_overlay_1(theme)),
-                text_colors.sub,
-                appearance,
-            ));
-        }
-        section.add_child(metadata_row.finish());
-    }
-
-    Container::new(section.finish())
-        .with_padding(Padding::uniform(DETAIL_SIDECAR_SECTION_PADDING))
-        .finish()
-}
-
-fn code_detail_kind_label(file_name: &str) -> Option<String> {
-    language_by_filename(Path::new(file_name)).map(|language| language.display_name().to_string())
-}
-
 fn render_detail_section(
     props: &PaneProps<'_>,
     appearance: &Appearance,
@@ -5164,9 +4946,8 @@ fn render_detail_section(
             appearance,
             app,
         ),
-        TypedPane::Code(_) => render_code_detail_section(props, appearance, app),
 
-        TypedPane::File | TypedPane::Settings | TypedPane::Other => Empty::new().finish(),
+        TypedPane::Settings => Empty::new().finish(),
     }
 }
 pub(super) struct DetailSidecarOverlay {
@@ -5346,10 +5127,10 @@ fn render_compact_pane_row(props: PaneProps<'_>, app: &AppContext) -> Box<dyn El
     let main_text_color = theme.main_text_color(theme.background());
     let sub_text_color = theme.sub_text_color(theme.background());
     let font_family = appearance.ui_font_family();
-    let has_indicator = props.typed.badge(app).is_some() || has_unread_activity(&props.typed, app);
+    let has_indicator = has_unread_activity(&props.typed, app);
 
     let icon = render_pane_icon_with_status(
-        resolve_icon_with_status_variant(&props.typed, &props.title, appearance, app),
+        resolve_icon_with_status_variant(&props.typed, appearance, app),
         theme,
     );
 
@@ -5457,31 +5238,17 @@ fn render_compact_pane_row(props: PaneProps<'_>, app: &AppContext) -> Box<dyn El
         } else {
             let title = render_pane_title_slot(
                 &props,
-                || {
-                    render_compact_non_terminal_title(
-                        props.displayed_title(),
-                        &props.typed,
-                        appearance,
-                    )
-                },
+                || render_compact_non_terminal_title(props.displayed_title(), appearance),
                 12.,
                 main_text_color,
-                if matches!(props.typed, TypedPane::Code(_)) {
-                    ClipConfig::start()
-                } else {
-                    ClipConfig::ellipsis()
-                },
+                ClipConfig::ellipsis(),
                 appearance,
                 app,
             );
             let subtitle = if effective_subtitle.is_empty() {
                 None
             } else {
-                let subtitle_clip = if matches!(props.typed, TypedPane::Code(_)) {
-                    ClipConfig::start()
-                } else {
-                    ClipConfig::ellipsis()
-                };
+                let subtitle_clip = ClipConfig::ellipsis();
                 Some(
                     Text::new_inline(effective_subtitle, font_family, 10.)
                         .with_clip(subtitle_clip)

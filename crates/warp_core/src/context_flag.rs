@@ -23,8 +23,6 @@ pub enum ContextFlag {
     HideOpenOnDesktopButton,
     PromptForVersionUpdates,
     NetworkLogConsole,
-    RunWorkflow,
-    LaunchConfigurations,
     WarpEssentials,
     AllowSettingsModalToClose,
     ShowSlowShellStartupBanner,
@@ -60,7 +58,6 @@ impl ContextFlag {
         disable_flag(Self::ForceSidePanelOpen);
         disable_flag(Self::ShowRewardModal);
         disable_flag(Self::HideOpenOnDesktopButton);
-        disable_flag(Self::RunWorkflow);
         disable_flag(Self::CreateNewSession);
         disable_flag(Self::CloseWindow);
         disable_flag(Self::PromptForVersionUpdates);
@@ -72,7 +69,6 @@ impl ContextFlag {
         disable_flag(Self::ForceSidePanelOpen);
         disable_flag(Self::ShowRewardModal);
         disable_flag(Self::HideOpenOnDesktopButton);
-        disable_flag(Self::RunWorkflow);
         disable_flag(Self::CreateNewSession);
         disable_flag(Self::CloseWindow);
         disable_flag(Self::PromptForVersionUpdates);
@@ -92,7 +88,6 @@ impl ContextFlag {
         disable_flag(Self::HideOpenOnDesktopButton);
         disable_flag(Self::PromptForVersionUpdates);
         disable_flag(Self::NetworkLogConsole);
-        disable_flag(Self::LaunchConfigurations);
         disable_flag(Self::WarpEssentials);
     }
 
@@ -104,9 +99,7 @@ impl ContextFlag {
         disable_flag(Self::HideOpenOnDesktopButton);
         disable_flag(Self::PromptForVersionUpdates);
         disable_flag(Self::NetworkLogConsole);
-        disable_flag(Self::LaunchConfigurations);
         disable_flag(Self::WarpEssentials);
-        disable_flag(Self::RunWorkflow);
     }
 }
 
@@ -122,8 +115,6 @@ impl FromStr for ContextFlag {
             "HideOpenOnDesktopButton" => Ok(Self::HideOpenOnDesktopButton),
             "PromptForVersionUpdates" => Ok(Self::PromptForVersionUpdates),
             "NetworkLogConsole" => Ok(Self::NetworkLogConsole),
-            "RunWorkflow" => Ok(Self::RunWorkflow),
-            "LaunchConfigurations" => Ok(Self::LaunchConfigurations),
             "WarpEssentials" => Ok(Self::WarpEssentials),
             _ => Err(()),
         }

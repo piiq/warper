@@ -375,7 +375,7 @@ async fn wait_for_queue_complete(queue: ModelHandle<TaskQueue>, app: &mut App) {
 
 #[test]
 fn test_is_git_internal_path() {
-    use crate::entry::is_git_internal_path;
+    use crate::git_paths::is_git_internal_path;
     use std::path::Path;
 
     // .git/ internal paths should be detected

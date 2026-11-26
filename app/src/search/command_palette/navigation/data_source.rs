@@ -57,7 +57,7 @@ impl SyncDataSource for DataSource {
 }
 
 impl DataSource {
-    /// Returns a [`QueryResult`] for a workflow identified by `sync_id`. `None` if no result was
+    /// Returns a [`QueryResult`] for the identified session. `None` if no result was
     /// found with the given ID.
     pub fn query_result(
         &self,

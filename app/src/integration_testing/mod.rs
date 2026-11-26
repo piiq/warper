@@ -10,10 +10,8 @@ pub mod command_palette;
 pub mod command_search;
 pub mod context_chips;
 pub mod find;
-pub mod goto_line;
 pub mod input;
 pub mod keybindings;
-pub mod launch_configs;
 pub mod navigation_palette;
 pub mod pane_group;
 pub mod persistence;
@@ -26,10 +24,8 @@ pub mod subshell;
 pub mod tab;
 pub mod terminal;
 pub mod themes;
-pub mod type_getters;
 pub mod view_getters;
 pub mod window;
-pub mod workflow;
 pub mod workspace;
 
 pub fn view_of_type<T: View>(app: &App, window_id: WindowId, tab_index: usize) -> ViewHandle<T> {

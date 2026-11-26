@@ -88,20 +88,6 @@ define_settings_group!(GeneralSettings, settings: [
         sync_to_cloud: SyncToCloud::Never,
         private: true,
     },
-    open_in_warp_banner_dismissed_for_markdown: OpenInWarpBannerDismissedMarkdown {
-        type: bool,
-        default: false,
-        supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Never,
-        private: true,
-    },
-    open_in_warp_banner_dismissed_for_code_and_text: OpenInWarpBannerDismissedCode {
-        type: bool,
-        default: false,
-        supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Never,
-        private: true,
-    },
     did_non_anonymous_user_log_in: DidNonAnonymousUserLogIn {
         type: bool,
         default: false,

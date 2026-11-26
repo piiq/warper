@@ -150,7 +150,6 @@ fn register_tests() -> HashMap<&'static str, BoxedBuilderFn> {
     register_test!(test_long_running_block_height_updated);
     register_test!(test_unnecessary_resizes);
     register_test!(test_open_and_close_settings);
-    register_test!(test_suggestions_menu_positioning);
     register_test!(test_open_and_close_theme_creator_modal);
     register_test!(test_removing_tabs_out_of_order);
     register_test!(test_ctrl_c);
@@ -172,8 +171,6 @@ fn register_tests() -> HashMap<&'static str, BoxedBuilderFn> {
     register_test!(test_restore_snapshot_with_deleted_cwd);
     register_test!(test_session_restoration_with_multiple_shells);
     register_test!(test_restore_snapshot_with_background_output);
-    register_test!(test_restore_snapshot_with_markdown_file);
-    register_test!(test_restore_snapshot_with_code_file);
     register_test!(test_restore_snapshot_with_settings_page);
     register_test!(test_multi_block_selections);
     register_test!(test_alias_guards_on_ps1_set);
@@ -190,7 +187,6 @@ fn register_tests() -> HashMap<&'static str, BoxedBuilderFn> {
     register_test!(test_function_completions);
     register_test!(test_builtin_completions);
     register_test!(test_keyword_completions);
-    register_test!(test_with_launch_config);
     register_test!(test_command_xray_hover);
     register_test!(test_command_xray_for_partial_command);
     register_test!(test_ctrl_r_multi_cursor);
@@ -210,9 +206,6 @@ fn register_tests() -> HashMap<&'static str, BoxedBuilderFn> {
     #[cfg(target_os = "macos")]
     register_test!(test_preview_config_dir_migration);
     register_test!(test_launch_warp_with_theme_in_warp_config);
-    register_test!(test_add_launch_config_to_warp_config);
-    register_test!(test_add_workflows_to_warp_config);
-    register_test!(test_loading_project_workflows);
     register_test!(test_cmd_enter);
     register_test!(test_alias_expansion_has_limit);
     register_test!(test_command_corrections);
@@ -222,13 +215,6 @@ fn register_tests() -> HashMap<&'static str, BoxedBuilderFn> {
     register_test!(test_git_prompt);
     register_test!(test_terminal_announces_capabilities_to_shell);
     register_test!(test_open_new_tab_with_specific_shell_from_new_session_menu);
-    register_test!(test_open_launch_config_from_add_tab_menu_legacy);
-    register_test!(test_open_launch_config_with_custom_size);
-    register_test!(test_launch_config_single_child_branch);
-    register_test!(test_open_launch_config_in_active_window);
-    register_test!(test_with_launch_config_with_active_tab_index);
-    register_test!(test_with_launch_config_with_active_pane);
-    register_test!(test_with_launch_config_with_no_active_pane);
     register_test!(test_find_query_not_evaluated_on_terminal_mode_change);
     register_test!(test_bash_bootstraps_with_prompt_command_array);
     register_test!(test_bash_bootstraps_with_prompt_command_array_that_sets_ps1);
@@ -276,8 +262,6 @@ fn register_tests() -> HashMap<&'static str, BoxedBuilderFn> {
 
     register_test!(test_command_search_loads_history);
     register_test!(test_histfile_left_joined_with_persisted_history);
-    register_test!(test_history_command_is_linked_to_local_workflow);
-    register_test!(test_up_arrow_history_enters_shift_tab_for_workflow);
 
     register_test!(test_secret_is_obfuscated_on_copy);
     register_test!(test_secret_tooltip_shows_on_click);
@@ -299,8 +283,6 @@ fn register_tests() -> HashMap<&'static str, BoxedBuilderFn> {
     register_test!(test_undo_close_grace_period_cleanup);
     register_test!(test_closed_panes_cleared_on_rearrangement);
     register_test!(test_tab_closes_when_last_visible_pane_closed);
-
-    register_test!(test_open_in_warp_banner);
 
     register_test!(test_block_filtering_keybinding);
     register_test!(test_block_filtering_keybinding_with_long_running_command);
@@ -336,20 +318,6 @@ fn register_tests() -> HashMap<&'static str, BoxedBuilderFn> {
     register_test!(make_1000_blocks_memory_benchmark);
 
     register_test!(test_undo_close_stack_timeout_cleanup);
-
-    // File tree tests
-    register_test!(test_file_tree_opens_files_in_warp);
-    register_test!(test_file_tree_open_in_new_pane);
-    register_test!(test_file_tree_open_in_new_tab);
-    register_test!(test_file_tree_keyboard_navigation);
-    register_test!(test_file_tree_non_openable_files);
-    register_test!(test_file_tree_nested_file_opening);
-
-    // Go to Line tests
-    register_test!(test_goto_line_dialog_open_close);
-    register_test!(test_goto_line_jumps_to_line);
-    register_test!(test_goto_line_with_column);
-    register_test!(test_goto_line_clamps_out_of_range);
 
     // Keyboard protocol tests
     register_test!(test_keyboard_protocol_disabled_shift_enter);

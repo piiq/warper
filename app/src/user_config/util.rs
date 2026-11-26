@@ -7,10 +7,8 @@ use itertools::Itertools;
 use serde::de::DeserializeOwned;
 use walkdir::{DirEntry, WalkDir};
 
-use crate::launch_configs::launch_config::LaunchConfig;
 use crate::tab_configs::{TabConfig, TabConfigError};
 use crate::themes::theme::{ThemeKind, WarpTheme, WarpThemeConfig};
-use crate::workflows::workflow::Workflow;
 
 const CONFIG_FILE_SUFFIXES: &[&str] = &[".yaml", ".yml"];
 const TOML_CONFIG_FILE_SUFFIX: &str = ".toml";
@@ -57,46 +55,6 @@ where
             let parsed = from_yaml::<T>(item.path().into());
             match parsed {
                 Ok(parsed) => return Some(post_deserialize_fn(file_name, parsed)),
-                Err(e) => {
-                    log::warn!("Failed to parse config file at {file_name:?} with error: {e:?}")
-                }
-            }
-        }
-    }
-    None
-}
-
-fn from_multi_doc_yaml<R>(path: PathBuf) -> anyhow::Result<Vec<R>>
-where
-    R: DeserializeOwned,
-{
-    let file = fs::File::open(path.as_path())?;
-    let reader = std::io::BufReader::new(file);
-
-    serde_yaml::Deserializer::from_reader(reader)
-        .map(|document| R::deserialize(document).map_err(Into::into))
-        .collect()
-}
-
-/// Deserializes a `DirEntry` into an object of type `Vec<G>` if the file is a
-/// valid config file containing one or more items.
-fn parse_multi_item_file<T, F, G>(item: &DirEntry, post_deserialize_fn: F) -> Option<Vec<G>>
-where
-    F: Fn(String, T) -> G,
-    T: DeserializeOwned,
-{
-    if let Some(file_name) = get_file_name(item) {
-        if is_config_file(&file_name) {
-            let parsed = from_multi_doc_yaml::<T>(item.path().into());
-            match parsed {
-                Ok(parsed) => {
-                    return Some(
-                        parsed
-                            .into_iter()
-                            .map(|val| post_deserialize_fn(file_name.clone(), val))
-                            .collect_vec(),
-                    );
-                }
                 Err(e) => {
                     log::warn!("Failed to parse config file at {file_name:?} with error: {e:?}")
                 }
@@ -154,14 +112,6 @@ pub(super) fn parse_single_theme_dir_entry(item: &DirEntry) -> Option<(ThemeKind
     })
 }
 
-pub(super) fn parse_multi_workflow_dir_entry(item: &DirEntry) -> Option<Vec<Workflow>> {
-    parse_multi_item_file(item, |_, workflow| workflow)
-}
-
-pub(super) fn parse_multi_launch_config_dir_entry(item: &DirEntry) -> Option<Vec<LaunchConfig>> {
-    parse_multi_item_file(item, |_file_name, config| config)
-}
-
 pub(super) fn parse_tab_config_dir_entry(
     item: &DirEntry,
 ) -> Option<Result<TabConfig, TabConfigError>> {
@@ -212,13 +162,6 @@ pub(super) fn is_config_file(file_name: &str) -> bool {
 /// Must end with `.toml`
 pub(super) fn is_toml_file(file_name: &str) -> bool {
     file_name.ends_with(TOML_CONFIG_FILE_SUFFIX)
-}
-
-/// Must have a name beyond the suffix
-pub(super) fn has_name(file_name: &str) -> bool {
-    CONFIG_FILE_SUFFIXES
-        .iter()
-        .all(|&suffix| file_name != suffix && !file_name.is_empty())
 }
 
 #[cfg(test)]

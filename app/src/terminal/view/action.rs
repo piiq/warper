@@ -28,10 +28,8 @@ use crate::terminal::{
         SecretHandle,
     },
 };
-use crate::workspace::metadata::PaletteSource;
-use warp_server_client::ids::SyncId;
 
-use super::inline_banner::{OpenInWarpBannerAction, VimModeBannerAction};
+use super::inline_banner::VimModeBannerAction;
 use super::{
     AliasExpansionBannerAction, ContextMenuAction, GridHighlightedLink, InputContextMenuAction,
     NotificationsDiscoveryBannerAction, NotificationsErrorBannerAction, RichContentLink,
@@ -199,17 +197,7 @@ pub enum TerminalAction {
     CopyGridSecret(WithinModel<SecretHandle>),
 
     ShowInFileExplorer(PathBuf),
-    OpenFileInWarp(PathBuf),
     #[cfg(feature = "local_fs")]
-    OpenCodeInWarp {
-        path: PathBuf,
-        layout: crate::util::file::external_editor::settings::EditorLayout,
-        line_col: Option<warp_util::path::LineAndColumnArg>,
-    },
-    OpenWorkflowModal,
-
-    OpenWorkflowModalForBlock(BlockIndex),
-    OpenWorkflowModalWithLocalWorkflow(SyncId),
 
     /// Starts a subshell in the active session.
     TriggerSubshellBootstrap,
@@ -223,7 +211,6 @@ pub enum TerminalAction {
     ShowWarpifySshBanner(String, Option<String>),
     InsertMostRecentCommandCorrection,
     AliasExpansionBanner(AliasExpansionBannerAction),
-    OpenInWarpBanner(OpenInWarpBannerAction),
     OpenBlockFilterEditor(BlockIndex),
     ImportSettings,
     ToggleBlockFilterOnSelectedOrLastBlock(ToggleBlockFilterSource),
@@ -250,14 +237,6 @@ pub enum TerminalAction {
     DeleteAttachment {
         index: usize,
     },
-
-    AddProjectAtCurrentDirectory,
-
-    PickRepoToOpen,
-    OpenFilesPalette {
-        source: PaletteSource,
-    },
-    DismissCodeToolbeltTooltip,
 
     /// Toggle PTY recording for this session.
     ToggleSessionRecording,
@@ -350,9 +329,7 @@ impl fmt::Debug for TerminalAction {
             ContextMenu(action) => write!(f, "ContextMenu({action:?})"),
             CtrlD => f.write_str("CtrlD"),
             CtrlC => f.write_str("CtrlC"),
-            ClearSelections => {
-                f.write_str("ClearSelections(TerminalAction)")
-            }
+            ClearSelections => f.write_str("ClearSelections(TerminalAction)"),
             Close => f.write_str("Close"),
             SplitRight(_) => f.write_str("SplitRight"),
             SplitLeft(_) => f.write_str("SplitLeft"),
@@ -395,17 +372,7 @@ impl fmt::Debug for TerminalAction {
             CopyGridSecret(_) => f.write_str("CopyGridSecret"),
 
             ShowInFileExplorer(_) => f.write_str("ShowInFileExplorer"),
-            OpenFileInWarp(_) => f.write_str("OpenFileInWarp"),
-            #[cfg(feature = "local_fs")]
-            OpenCodeInWarp { .. } => f.write_str("OpenCodeInWarp"),
-            OpenWorkflowModal => f.write_str("OpenWorkflowModal"),
 
-            OpenWorkflowModalForBlock(block_index) => {
-                write!(f, "OpenWorkflowModalForBlock({block_index:?})")
-            }
-            OpenWorkflowModalWithLocalWorkflow(_) => {
-                f.write_str("OpenWorkflowModalWithLocalWorkflow")
-            }
             OpenBlockListContextMenu => f.write_str("OpenBlockListContextMenu"),
 
             TriggerSubshellBootstrap => f.write_str("TriggerSubshellBootstrap"),
@@ -414,7 +381,6 @@ impl fmt::Debug for TerminalAction {
             ShowWarpifySshBanner(_, _) => f.write_str("ShowWarpifySshBanner"),
             InsertMostRecentCommandCorrection => f.write_str("InsertMostRecentCommandCorrection"),
             AliasExpansionBanner(action) => write!(f, "AliasExpansionBanner({action:?}"),
-            OpenInWarpBanner(action) => write!(f, "OpenInWarpBanner({action:?})"),
             OpenBlockFilterEditor(block_index) => {
                 write!(f, "OpenBlockFilterEditor({block_index:?})")
             }
@@ -429,16 +395,9 @@ impl fmt::Debug for TerminalAction {
             }
             MiddleClickOnInput => write!(f, "MiddleClickOnInput"),
 
-
-
-
-
-
             DragAndDropFiles(_) => write!(f, "DragAndDropFiles"),
             WarpifySSHSession => write!(f, "WarpifySSHSession"),
             NotifySshErrorBlock(action) => write!(f, "NotifySshErrorBlock({action:?})"),
-
-
 
             HyperlinkClick(hyperlink_url) => write!(f, "HyperlinkClick({hyperlink_url:?})"),
             StartFileDropTarget => write!(f, "StartFileDropTarget"),
@@ -455,38 +414,6 @@ impl fmt::Debug for TerminalAction {
 
             ShowWarpifySettings => write!(f, "ShowWarpifySettings"),
             DeleteAttachment { index } => write!(f, "DeleteAttachment({index:?})"),
-
-
-
-
-
-
-
-
-
-
-
-
-
-            AddProjectAtCurrentDirectory => write!(f, "AddProjectAtCurrentDirectory"),
-
-
-
-
-
-
-
-
-
-            PickRepoToOpen => write!(f, "PickRepoToOpen"),
-            OpenFilesPalette { .. } => write!(f, "OpenFilesPalette"),
-            DismissCodeToolbeltTooltip => write!(f, "DismissCodeToolbeltTooltip"),
-
-
-
-
-
-
 
             ToggleSessionRecording => write!(f, "ToggleSessionRecording"),
             OpenCLIAgentRichInput => write!(f, "OpenCLIAgentRichInput"),

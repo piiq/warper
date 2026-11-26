@@ -5,13 +5,9 @@
 mod block_filtering;
 mod bootstrapping;
 mod ctrl_d;
-mod file_tree;
-mod goto_line;
 mod history;
 mod input;
 mod keyboard_protocol;
-mod launch_configs;
-mod markdown;
 mod pane_restoration;
 #[cfg(target_os = "macos")]
 mod preview_config_migration;
@@ -25,20 +21,14 @@ mod subshell;
 mod sync_inputs;
 mod typeahead;
 mod video_recording;
-mod workflows;
 mod workspace;
 
 pub use block_filtering::*;
 pub use bootstrapping::*;
 pub use ctrl_d::*;
-pub use file_tree::*;
-use float_cmp::assert_approx_eq;
-pub use goto_line::*;
 pub use history::*;
 pub use input::*;
 pub use keyboard_protocol::*;
-pub use launch_configs::*;
-pub use markdown::*;
 pub use pane_restoration::*;
 #[cfg(target_os = "macos")]
 pub use preview_config_migration::*;
@@ -52,7 +42,6 @@ pub use subshell::*;
 pub use sync_inputs::*;
 pub use typeahead::*;
 pub use video_recording::*;
-pub use workflows::*;
 pub use workspace::*;
 
 use std::{borrow::Cow, collections::HashMap, path::PathBuf, rc::Rc, time::Duration};
@@ -95,7 +84,6 @@ use warp::terminal::{
     model::{blocks::BlockHeightSummary, terminal_model::BlockIndex},
     view::TerminalViewState,
 };
-use warp::workflows::categories::CategoriesView;
 use warp::{
     appearance::Appearance,
     cmd_or_ctrl_shift,
@@ -141,7 +129,6 @@ use warp::{
             single_input_suggestions_view_for_tab, single_input_view_for_tab,
             single_terminal_view_for_tab,
         },
-        view_of_type,
         window::{add_window, add_window_and_check_bounds, close_window, save_active_window_id},
     },
     settings::{TabBehavior, INPUT_MODE},
@@ -156,20 +143,17 @@ use warp::{
     },
 };
 
+use warp::integration_testing::terminal::{
+    assert_active_block_output, assert_alt_grid_active, assert_alt_screen_output,
+    assert_long_running_block_executing, assert_terminal_bootstrapped,
+    execute_long_running_command_for_pane,
+};
 use warp::integration_testing::{
     command_palette::{
         close_command_palette, open_command_palette, open_command_palette_and_run_action,
         TestStepsExt,
     },
     view_getters::single_terminal_pane_view_for_tab,
-};
-use warp::integration_testing::{
-    terminal::{
-        assert_active_block_output, assert_alt_grid_active, assert_alt_screen_output,
-        assert_long_running_block_executing, assert_terminal_bootstrapped,
-        execute_long_running_command_for_pane,
-    },
-    view_getters::workspace_view,
 };
 use warp::settings::CompletionsOpenWhileTyping;
 use warp::terminal::view::ALIAS_EXPANSION_BANNER_SEEN_KEY;
@@ -237,62 +221,6 @@ use super::util::{self, write_all_rc_files_for_test, write_rc_files_for_test};
 
 fn new_builder() -> Builder {
     Builder::new()
-}
-
-/// Adds a workflow file, containing two workflows, to the mocked out warp
-/// config directory and verifies that the workflows appear in the workflow menu.
-pub fn test_add_workflows_to_warp_config() -> Builder {
-    new_builder()
-        .with_setup(move |utils| {
-            utils.set_env("WARP_CONFIG_WATCHER_DELAY_MS", Some((10).to_string()));
-
-            std::fs::create_dir_all(integration_testing::workflow::workflows_dir())
-                .expect("Should be able to create workflows dir");
-        })
-        .with_step(wait_until_bootstrapped_single_pane_for_tab(0))
-        .with_step(
-            TestStep::new("Should have no local workflows").add_named_assertion(
-                "Should have no local workflows",
-                |app, window_id| {
-                    let workflows: ViewHandle<CategoriesView> = view_of_type(app, window_id, 0);
-
-                    workflows.read(app, |workflows, _| {
-                        // Note that this can be a synchronous assertion because unlike the next test step,
-                        // we don't have concurrency with a WarpConfig watcher thread
-                        assert_eq!(
-                            workflows.local_workflows().count(),
-                            0,
-                            "There should not be any local workflows"
-                        );
-                    });
-                    AssertionOutcome::Success
-                },
-            ),
-        )
-        .with_step(
-            TestStep::new("Write a new file containing two workflows")
-                .with_setup(|_utils| {
-                    integration_testing::create_file_from_assets(
-                        TEST_ONLY_ASSETS,
-                        "test_workflow.yaml",
-                        &integration_testing::workflow::workflows_dir().join("test_workflow.yaml"),
-                    );
-                })
-                .add_named_assertion(
-                    "The two added workflows should be in the view",
-                    |app, window_id| {
-                        let workflows: ViewHandle<CategoriesView> = view_of_type(app, window_id, 0);
-
-                        let num_workflows =
-                            workflows.read(app, |workflows, _| workflows.local_workflows().count());
-                        async_assert!(
-                            num_workflows == 2,
-                            "Expected to find two workflows, instead found {}",
-                            num_workflows
-                        )
-                    },
-                ),
-        )
 }
 
 pub fn test_launch_warp_with_theme_in_warp_config() -> Builder {
@@ -552,88 +480,6 @@ pub fn test_open_and_close_theme_creator_modal() -> Builder {
                         )
                     })
                 }),
-        )
-}
-
-pub fn test_suggestions_menu_positioning() -> Builder {
-    new_builder()
-        .with_step(wait_until_bootstrapped_single_pane_for_tab(0))
-        // Make sure there are multiple items in the working directory,
-        // otherwise the tab completion menu will not appear (as there is
-        // nothing for the user to choose between).
-        .with_step(execute_command_for_single_terminal_in_tab(
-            0,
-            "mkdir some_dir && touch some_file".to_owned(),
-            ExpectedExitStatus::Success,
-            (),
-        ))
-        .with_step(
-            new_step_with_default_assertions("Open suggestions")
-                .with_typed_characters(&["ls", " "])
-                .with_keystrokes(&["tab"])
-                .add_named_assertion_with_data_from_prior_step(
-                    "Assert buffer text and save suggestion position",
-                    |app, window_id, step_data| {
-                        let input_view = single_input_view_for_tab(app, window_id, 0);
-                        let outcome = input_view.read(app, |view, ctx| {
-                            view.buffer_text(ctx);
-                            async_assert!(
-                                view.buffer_text(ctx) == *"ls ",
-                                "Input box should contain 'ls '"
-                            )
-                        });
-
-                        app.update(|ctx| {
-                            let presenter = ctx.presenter(window_id).expect("window should exist");
-                            let suggestions_menu_x = presenter
-                                .borrow()
-                                .position_cache()
-                                .get_position("input_suggestions:index_0")
-                                .unwrap()
-                                .origin_x();
-                            step_data.insert("suggestions_menu_x", suggestions_menu_x);
-                        });
-                        outcome
-                    },
-                ),
-        )
-        .with_step(
-            new_step_with_default_assertions("Open left panel")
-                .with_click_on_saved_position("workspace:toggle_left_panel")
-                .add_assertion(Box::new(|app: &mut warpui::App, window_id| {
-                    let workspace = workspace_view(app, window_id);
-                    workspace.read(app, |workspace, ctx| {
-                        async_assert!(
-                            workspace.is_left_panel_open(ctx),
-                            "Expected left panel to be open, but it was closed"
-                        )
-                    })
-                })),
-        )
-        .with_step(
-            new_step_with_default_assertions("Assert that suggestions menu updated")
-                .add_named_assertion_with_data_from_prior_step(
-                    "Assert suggestions menu shifted to the right",
-                    |app, window_id, step_data| {
-                        app.update(|ctx| {
-                            let presenter = ctx.presenter(window_id).expect("window should exist");
-                            let suggestions_menu_x = presenter
-                                .borrow()
-                                .position_cache()
-                                .get_position("input_suggestions:index_0")
-                                .unwrap()
-                                .origin_x();
-                            assert!(
-                                suggestions_menu_x
-                                    > *step_data
-                                        .get("suggestions_menu_x")
-                                        .expect("data should have been set in earlier step"),
-                                "Suggestions menu should have adjusted rightward"
-                            );
-                        });
-                        AssertionOutcome::Success
-                    },
-                ),
         )
 }
 

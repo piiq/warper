@@ -5,8 +5,6 @@ use crate::terminal::cli_agent_toolbar::editor::{
 };
 #[cfg(enable_crash_recovery)]
 mod crash_recovery;
-pub mod global_search;
-pub(crate) mod left_panel;
 mod startup_directory;
 #[cfg(test)]
 #[path = "view_test.rs"]
@@ -18,31 +16,21 @@ use self::vertical_tabs::{
     VERTICAL_TABS_SETTINGS_BUTTON_POSITION_ID,
 };
 use crate::app_state::{
-    LeafContents, LeafSnapshot, LeftPanelDisplayedTab, LeftPanelSnapshot, NotebookPaneSnapshot,
-    PaneNodeSnapshot, PaneUuid, SettingsPaneSnapshot, TabSnapshot, WindowSnapshot,
+    LeafContents, LeafSnapshot, PaneNodeSnapshot, PaneUuid, SettingsPaneSnapshot, TabSnapshot,
+    WindowSnapshot,
 };
-#[cfg(feature = "local_fs")]
-use crate::coding_panel_enablement_state::CodingPanelEnablementState;
 use crate::default_terminal::DefaultTerminal;
 use crate::notification::NotificationContext;
-use crate::pane_group::pane::ActionOrigin;
-use crate::projects::ProjectManagementModel;
 use crate::terminal::session_settings::SessionSettings;
-#[cfg(feature = "local_fs")]
-use crate::workspace::toast_stack::ToastStack;
-use crate::workspace::view::global_search::view::GlobalSearchEntryFocus;
-use crate::workspace::view::left_panel::{
-    LeftPanelAction, LeftPanelEvent, LeftPanelView, ToolPanelView,
-};
 
 use crate::ui_components::window_focus_dimming::WindowFocusDimming;
 #[cfg(feature = "local_fs")]
 use crate::util::file::external_editor::Editor;
 #[cfg(feature = "local_fs")]
 use crate::util::file::external_editor::EditorSettings;
-use crate::util::openable_file_type::FileTarget;
 #[cfg(feature = "local_fs")]
-use crate::util::openable_file_type::{resolve_file_target_with_editor_choice, EditorLayout};
+use crate::util::openable_file_type::resolve_file_target;
+use crate::util::openable_file_type::FileTarget;
 
 use crate::terminal::cli_agent_sessions::plugin_manager::{plugin_manager_for, PluginModalKind};
 use crate::terminal::cli_agent_sessions::{CLIAgentSessionsModel, CLIAgentSessionsModelEvent};
@@ -55,17 +43,10 @@ use warpui::notification::NotificationSendError;
 use super::lightbox_view::{LightboxParams, LightboxView, LightboxViewEvent};
 use super::util;
 use super::WorkspaceRegistry;
-#[cfg(feature = "local_fs")]
-use crate::code::editor_management::CodeManager;
-use crate::code::editor_management::CodeSource;
-use crate::launch_configs::launch_config::WindowTemplate;
-use crate::pane_group::{Direction as PaneGroupDirection, PaneGroup, PaneId, TerminalPaneId};
+use crate::pane_group::{PaneGroup, PaneId, TerminalPaneId};
 use crate::quit_warning::UnsavedStateSummary;
 use crate::search::command_palette::view::NavigationMode;
-use crate::settings::{
-    CLIAgentSettings, CodeSettings, CodeSettingsChangedEvent, CtrlTabBehavior, DefaultSessionMode,
-    InputModeSettings,
-};
+use crate::settings::{CLIAgentSettings, CtrlTabBehavior, DefaultSessionMode, InputModeSettings};
 use crate::settings_view::pane_manager::SettingsPaneManager;
 use crate::settings_view::{SettingsSection, SettingsView, SettingsViewEvent};
 #[cfg(all(target_os = "windows", feature = "local_tty"))]
@@ -87,15 +68,10 @@ use crate::menu::{
 };
 use crate::modal::{Modal, ModalEvent, ModalViewState};
 use crate::network::{NetworkStatus, NetworkStatusEvent};
-#[cfg(feature = "local_fs")]
-use crate::pane_group::FilePane;
 use crate::pane_group::{
-    self, AnyPaneContent, CodePane, Direction, NewTerminalOptions, PanesLayout, TabBarHoverIndex,
+    self, AnyPaneContent, Direction, NewTerminalOptions, PanesLayout, TabBarHoverIndex,
 };
 use crate::terminal::keys_settings::KeysSettings;
-
-#[cfg(feature = "local_fs")]
-use repo_metadata::RemoteRepositoryIdentifier;
 
 use crate::prompt::editor_modal::{
     EditorModal as PromptEditorModal, EditorModalEvent as PromptEditorModalEvent,
@@ -105,10 +81,8 @@ use crate::resource_center::{
     mark_feature_used_and_write_to_user_defaults, skip_tips_and_write_to_user_defaults,
     ResourceCenterEvent, ResourceCenterPage, ResourceCenterView, Tip, TipAction, TipsCompleted,
 };
-use crate::root_view::{NewWorkspaceSource, OpenLaunchConfigArg};
-use crate::search::command_search::searcher::{
-    AcceptedHistoryItem, AcceptedWorkflow, CommandSearchItemAction,
-};
+use crate::root_view::NewWorkspaceSource;
+use crate::search::command_search::searcher::{AcceptedHistoryItem, CommandSearchItemAction};
 use crate::search::command_search::view::{CommandSearchEvent, CommandSearchView};
 use crate::session_management::{SessionNavigationData, SessionSource};
 use crate::settings::{
@@ -127,9 +101,7 @@ use crate::terminal::model::blockgrid::BlockGrid;
 #[cfg(feature = "local_fs")]
 use crate::terminal::model::session::Session;
 use crate::terminal::model::session::SessionId;
-use crate::terminal::resizable_data::{
-    ModalSizes, ModalType, ResizableData, DEFAULT_LEFT_PANEL_WIDTH, DEFAULT_RIGHT_PANEL_WIDTH,
-};
+use crate::terminal::resizable_data::{ModalSizes, ResizableData};
 use crate::terminal::safe_mode_settings::SafeModeSettings;
 use crate::terminal::session_settings::{
     NewSessionSource, NotificationsMode, NotificationsSettings, SessionSettingsChangedEvent,
@@ -143,7 +115,6 @@ use crate::terminal::{self, SizeInfo, TerminalView};
 use crate::workspace::cli_install;
 #[cfg(all(target_os = "windows", feature = "local_tty"))]
 use crate::workspace::metadata::AddTabWithShellSource;
-use crate::workspace::metadata::LaunchConfigUiLocation;
 use ::settings::{Setting, ToggleableSetting};
 use warp_core::features::FeatureFlag;
 
@@ -160,8 +131,7 @@ use crate::undo_close::UndoCloseStack;
 #[cfg(feature = "local_fs")]
 use crate::user_config::{
     ensure_default_worktree_config, find_unused_tab_config_path, find_unused_toml_path,
-    find_unused_worktree_config_path, materialize_default_worktree_config, sanitize_toml_base_name,
-    tab_configs_dir,
+    materialize_default_worktree_config, sanitize_toml_base_name, tab_configs_dir,
 };
 use crate::user_config::{WarpConfig, WarpConfigUpdateEvent};
 use crate::util::bindings::{keybinding_name_to_display_string, keybinding_name_to_keystroke};
@@ -173,7 +143,6 @@ use crate::view_components::callout_bubble::{
 };
 use crate::view_components::{DismissibleToast, DismissibleToastStack, ToastLink};
 use crate::window_settings::{WindowSettings, WindowSettingsChangedEvent, ZoomLevel};
-use crate::workflows::{WorkflowSelectionSource, WorkflowSource, WorkflowType};
 use crate::workspace::action::CommandSearchOptions;
 use crate::workspace::sync_inputs::SyncedInputState;
 use crate::workspace::toast_stack::{
@@ -221,19 +190,16 @@ use super::tab_settings::{
     VerticalTabsDisplayGranularity, WorkspaceDecorationVisibility,
 };
 use super::util::{
-    PaneViewLocator, TabMovement, TerminalSessionFallbackBehavior, WelcomeTipsViewState,
-    WorkspaceMouseStates, WorkspaceState,
+    PaneViewLocator, TabMovement, WelcomeTipsViewState, WorkspaceMouseStates, WorkspaceState,
 };
-use crate::launch_configs::save_modal::{LaunchConfigModalEvent, LaunchConfigSaveModal};
 use crate::tab_configs::action_sidecar::SidecarItemKind;
 use crate::tab_configs::remove_confirmation_dialog::{
     RemoveTabConfigConfirmationDialog, RemoveTabConfigConfirmationEvent,
 };
 use crate::tab_configs::session_config_modal::{SessionConfigModal, SessionConfigModalEvent};
-use crate::tab_configs::{
-    NewWorktreeModal, NewWorktreeModalEvent, TabConfigParamsModal, TabConfigParamsModalEvent,
-};
+use crate::tab_configs::{TabConfigParamsModal, TabConfigParamsModalEvent};
 
+use crate::editor::NavigationKey;
 use crate::palette::PaletteMode;
 use crate::search::command_palette::view::{Event as CommandPaletteEvent, View as CommandPalette};
 use crate::tab::{
@@ -252,12 +218,9 @@ use std::sync::mpsc;
 use std::{cmp::Ordering, sync::Arc};
 use warp_core::ui::theme::{color::internal_colors, phenomenon::PhenomenonStyle, Fill};
 use warp_core::ui::{color::coloru_with_opacity, Icon};
-use warp_editor::editor::NavigationKey;
 use warpui::keymap::Context;
 use warpui::notification::{RequestPermissionsOutcome, UserNotification};
-use warpui::platform::{
-    Cursor, FilePickerConfiguration, FullscreenState, SystemTheme, TerminationMode,
-};
+use warpui::platform::{Cursor, FullscreenState, SystemTheme, TerminationMode};
 use warpui::text_layout::ClipConfig;
 use warpui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
 use warpui::{
@@ -275,9 +238,7 @@ use warpui::{
     geometry::vector::{vec2f, Vector2F},
     AppContext, Entity, TypedActionView, UpdateView, View, ViewContext, ViewHandle,
 };
-use warpui::{
-    EntityId, FocusContext, ModelHandle, SingletonEntity, UpdateModel, ViewAsRef, WindowId,
-};
+use warpui::{EntityId, FocusContext, ModelHandle, SingletonEntity, ViewAsRef, WindowId};
 
 /// The padding that should be applied to the workspace as a whole.
 pub const WORKSPACE_PADDING: f32 = 1.0;
@@ -343,19 +304,13 @@ pub const TOGGLE_COMMAND_PALETTE_KEYBINDING_NAME: &str = "workspace:toggle_comma
 
 const USER_AVATAR_BUTTON_POSITION_ID: &str = "workspace:user_avatar_button";
 
-// these won't have to be public after we deprecate the code mode v1 project explorer which is defined in terminal
-pub(crate) const TOGGLE_PROJECT_EXPLORER_BINDING_NAME: &str = "workspace:toggle_project_explorer";
 pub(crate) const TOGGLE_VERTICAL_TABS_PANEL_BINDING_NAME: &str =
     "workspace:toggle_vertical_tabs_panel";
-pub(crate) const OPEN_GLOBAL_SEARCH_BINDING_NAME: &str = "workspace:open_global_search";
 pub(crate) const NEW_TAB_BINDING_NAME: &str = "workspace:new_tab";
 pub(crate) const NEW_TERMINAL_TAB_BINDING_NAME: &str = "workspace:new_terminal_tab";
 pub(crate) const TOGGLE_TAB_CONFIGS_MENU_BINDING_NAME: &str = "workspace:toggle_tab_configs_menu";
 
-// Editable left panel toolbelt keybindings.
-pub(crate) const LEFT_PANEL_PROJECT_EXPLORER_BINDING_NAME: &str =
-    "workspace:left_panel_project_explorer";
-pub(crate) const LEFT_PANEL_GLOBAL_SEARCH_BINDING_NAME: &str = "workspace:left_panel_global_search";
+// Cached toolbar keybindings.
 const KEYBINDINGS_TO_CACHE: [&str; 3] = [
     TOGGLE_RESOURCE_CENTER_KEYBINDING_NAME,
     SHOW_SETTINGS_KEYBINDING_NAME,
@@ -417,7 +372,6 @@ enum PanePanelDirection {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FocusRegion {
-    LeftPanel,
     PaneGroup,
     RightPanel,
     Other,
@@ -512,7 +466,6 @@ pub struct TransferredTab {
     pub pane_group: ViewHandle<PaneGroup>,
     pub color: Option<AnsiColorIdentifier>,
     pub custom_title: Option<String>,
-    pub left_panel_open: bool,
     pub vertical_tabs_panel_open: bool,
 }
 
@@ -552,13 +505,11 @@ pub struct Workspace {
     welcome_tips_view_state: WelcomeTipsViewState,
     welcome_tips_view: ViewHandle<TipsView>,
     model_event_sender: Option<mpsc::SyncSender<ModelEvent>>,
-    launch_config_save_modal: ModalViewState<LaunchConfigSaveModal>,
     tab_config_params_modal: ModalViewState<Modal<TabConfigParamsModal>>,
     session_config_modal: ModalViewState<Modal<SessionConfigModal>>,
     pending_session_config_replacement: Option<PendingSessionConfigReplacement>,
     pending_session_config_tab_config_chip: bool,
     show_session_config_tab_config_chip: bool,
-    new_worktree_modal: ModalViewState<Modal<NewWorktreeModal>>,
     resource_center_view: ViewHandle<ResourceCenterView>,
     command_search_view: ViewHandle<CommandSearchView>,
     settings_file_error: Option<crate::settings::SettingsFileError>,
@@ -582,12 +533,8 @@ pub struct Workspace {
     native_modal: ViewHandle<NativeModal>,
 
     file_upload_sessions: FileUploadSessions,
-    left_panel_open: bool,
     vertical_tabs_panel_open: bool,
     vertical_tabs_panel: VerticalTabsPanelState,
-    left_panel_view: ViewHandle<LeftPanelView>,
-    left_panel_views: Vec<ToolPanelView>,
-    working_directories_model: ModelHandle<pane_group::WorkingDirectoriesModel>,
     lightbox_view: Option<ViewHandle<LightboxView>>,
     /// When true, this workspace was created to receive a transferred PaneGroup.
     /// The placeholder tab will be replaced when adopt_transferred_pane_group is called.
@@ -608,6 +555,65 @@ pub struct Workspace {
 }
 
 impl Workspace {
+    #[cfg(feature = "local_fs")]
+    pub fn open_file_with_target(
+        &mut self,
+        path: PathBuf,
+        target: FileTarget,
+        line_col: Option<LineAndColumnArg>,
+        ctx: &mut ViewContext<Self>,
+    ) {
+        match target {
+            FileTarget::EnvEditor => {
+                let editor_env = self
+                    .get_active_session(ctx)
+                    .or_else(|| ActiveSession::as_ref(ctx).session(self.window_id))
+                    .and_then(|session| session.editor().map(str::to_owned))
+                    .or_else(|| std::env::var("EDITOR").ok());
+                if let Some(editor_env) = editor_env {
+                    if let Ok(editor) = Editor::try_from(editor_env.as_str()) {
+                        crate::util::file::open_file_path_with_editor(
+                            line_col,
+                            path,
+                            Some(editor),
+                            ctx,
+                        );
+                        return;
+                    }
+                    let pane_group = self.active_tab_pane_group().clone();
+                    let pane_id = pane_group.update(ctx, |group, ctx| {
+                        group.add_terminal_pane(Direction::Right, None, ctx)
+                    });
+                    if let Some(terminal) = pane_group
+                        .as_ref(ctx)
+                        .terminal_view_from_pane_id(pane_id, ctx)
+                    {
+                        terminal.update(ctx, |terminal, ctx| {
+                            let command =
+                                crate::util::file::external_editor::generate_editor_command(
+                                    &path,
+                                    line_col,
+                                    Some(&editor_env),
+                                );
+                            terminal.set_pending_command(&command, ctx);
+                        });
+                    }
+                } else {
+                    crate::util::file::open_file_path_in_external_editor(line_col, path, ctx);
+                }
+            }
+            FileTarget::ExternalEditor(editor) => {
+                crate::util::file::open_file_path_with_editor(line_col, path, Some(editor), ctx)
+            }
+            FileTarget::SystemDefault => {
+                crate::util::file::open_file_path_with_editor(line_col, path, None, ctx)
+            }
+            FileTarget::SystemGeneric => {
+                crate::util::file::open_file_path_with_editor(line_col, path, None, ctx)
+            }
+        }
+    }
+
     pub fn is_drag_preview_workspace(&self) -> bool {
         self.is_drag_preview_workspace
     }
@@ -1082,17 +1088,6 @@ impl Workspace {
         (tab_right_click_menu, new_session_menu, new_session_sidecar)
     }
 
-    fn build_launch_config_save_modal(
-        ctx: &mut ViewContext<Self>,
-    ) -> ModalViewState<LaunchConfigSaveModal> {
-        let launch_config_save_modal = ctx.add_typed_action_view(LaunchConfigSaveModal::new);
-        ctx.subscribe_to_view(&launch_config_save_modal, move |me, _, event, ctx| {
-            me.handle_launch_config_save_modal_event(event, ctx);
-        });
-
-        ModalViewState::new(launch_config_save_modal)
-    }
-
     fn build_tab_config_params_modal(
         ctx: &mut ViewContext<Self>,
     ) -> ModalViewState<Modal<TabConfigParamsModal>> {
@@ -1151,41 +1146,6 @@ impl Workspace {
             if matches!(event, ModalEvent::Close) {
                 me.close_session_config_modal(ctx);
             }
-        });
-        ModalViewState::new(modal)
-    }
-
-    fn build_new_worktree_modal(
-        ctx: &mut ViewContext<Self>,
-    ) -> ModalViewState<Modal<NewWorktreeModal>> {
-        let body = ctx.add_typed_action_view(NewWorktreeModal::new);
-        ctx.subscribe_to_view(&body, |me, _, event, ctx| {
-            me.handle_new_worktree_modal_body_event(event, ctx);
-        });
-        let modal = ctx.add_typed_action_view(|ctx| {
-            // We intentionally pass `None` for the title so the Modal renders
-            // no built-in header — the body view renders its own header to
-            // match the Figma mock exactly (bold title + X close + ESC badge).
-            Modal::new(None, body, ctx)
-                .with_modal_style(UiComponentStyles {
-                    width: Some(460.),
-                    height: Some(480.),
-                    ..Default::default()
-                })
-                .with_body_style(UiComponentStyles {
-                    padding: Some(Coords {
-                        top: 0.,
-                        bottom: 0.,
-                        left: 0.,
-                        right: 0.,
-                    }),
-                    height: Some(480.),
-                    background: Some(ElementFill::None),
-                    ..Default::default()
-                })
-        });
-        ctx.subscribe_to_view(&modal, |me, _, event, ctx| {
-            me.handle_new_worktree_modal_event(event, ctx);
         });
         ModalViewState::new(modal)
     }
@@ -1613,15 +1573,11 @@ impl Workspace {
         // reads the sizes from the window snapshot. A new window initializes with all default sizes.
         let resizable_data = ResizableData::handle(ctx);
         let window_id = ctx.window_id();
-        let has_horizontal_split = workspace_setting.has_horizontal_split();
-
-        let (left_panel_size, right_panel_size) =
-            compute_default_panel_widths(ctx, window_id, has_horizontal_split);
         let new_resizable_modal_sizes = match workspace_setting.clone() {
             NewWorkspaceSource::Restored {
                 window_snapshot, ..
-            } => ModalSizes::from_restored(&window_snapshot, left_panel_size, right_panel_size),
-            _ => ModalSizes::default_with_panel_defaults(left_panel_size, right_panel_size),
+            } => ModalSizes::from_restored(&window_snapshot),
+            _ => ModalSizes::default(),
         };
         resizable_data.update(ctx, |model, _| {
             model.insert(window_id, new_resizable_modal_sizes)
@@ -1681,33 +1637,13 @@ impl Workspace {
 
         let theme_deletion_modal = Self::build_theme_deletion_modal(ctx);
 
-        let launch_config_save_modal = Self::build_launch_config_save_modal(ctx);
-
         let tab_config_params_modal = Self::build_tab_config_params_modal(ctx);
-        let new_worktree_modal = Self::build_new_worktree_modal(ctx);
 
         let session_config_modal = Self::build_session_config_modal(ctx);
 
         let command_search_view = ctx.add_typed_action_view(CommandSearchView::new);
         ctx.subscribe_to_view(&command_search_view, |me, _, event, ctx| {
             me.handle_command_search_event(event, ctx)
-        });
-
-        let working_directories_model =
-            ctx.add_model(|_| pane_group::WorkingDirectoriesModel::new());
-
-        let left_panel_views = Self::compute_left_panel_views(ctx);
-
-        let left_panel_view = ctx.add_typed_action_view(|ctx| {
-            LeftPanelView::new(
-                working_directories_model.clone(),
-                left_panel_views.clone(),
-                ctx,
-            )
-        });
-
-        ctx.subscribe_to_view(&left_panel_view, |me, _, event, ctx| {
-            me.handle_left_panel_event(event, ctx);
         });
 
         ctx.observe(&tips_completed, Workspace::on_tips_model_changed);
@@ -1728,17 +1664,6 @@ impl Workspace {
         let tab_settings_handle = TabSettings::handle(ctx);
         ctx.subscribe_to_model(&tab_settings_handle, |me, _, event, ctx| {
             me.handle_tab_settings_change(event, ctx)
-        });
-
-        ctx.subscribe_to_model(&CodeSettings::handle(ctx), |me, _, event, ctx| {
-            if matches!(
-                event,
-                CodeSettingsChangedEvent::ShowProjectExplorer { .. }
-                    | CodeSettingsChangedEvent::ShowGlobalSearch { .. }
-            ) {
-                me.update_left_panel_available_views(ctx);
-                ctx.notify();
-            }
         });
 
         let toast_stack =
@@ -1807,13 +1732,11 @@ impl Workspace {
             current_workspace_state: Default::default(),
             previous_workspace_state: None,
             model_event_sender,
-            launch_config_save_modal,
             tab_config_params_modal,
             session_config_modal,
             pending_session_config_replacement: None,
             pending_session_config_tab_config_chip: false,
             show_session_config_tab_config_chip: false,
-            new_worktree_modal,
             resource_center_view,
             command_search_view,
             settings_file_error,
@@ -1834,12 +1757,8 @@ impl Workspace {
             user_menu,
             native_modal,
             file_upload_sessions: Default::default(),
-            left_panel_open: false,
             vertical_tabs_panel_open: false,
             vertical_tabs_panel: Default::default(),
-            left_panel_view,
-            left_panel_views,
-            working_directories_model,
             tab_fixed_width: None,
             lightbox_view: None,
             pending_pane_group_transfer: false,
@@ -1857,7 +1776,6 @@ impl Workspace {
         };
 
         ws.configure_new_workspace(workspace_setting, ctx);
-        ws.sync_panel_positions_from_config(ctx);
         ws.sync_window_button_visibility(ctx);
         ws.update_titlebar_height(ctx);
         // Seed the settings pane with the initial settings-file error (if
@@ -1966,7 +1884,6 @@ impl Workspace {
                 if !vertical_tabs_enabled {
                     self.close_vertical_tabs_settings_popup();
                 }
-                self.sync_panel_positions_from_config(ctx);
                 self.sync_window_button_visibility(ctx);
                 ctx.notify();
             }
@@ -2004,133 +1921,49 @@ impl Workspace {
                 ctx.notify();
             }
             TabSettingsChangedEvent::HeaderToolbarChipSelection { .. } => {
-                self.sync_panel_positions_from_config(ctx);
                 ctx.notify();
             }
         }
     }
 
-    /// Opens a launch config window into the workspace.
-    pub fn open_launch_config_window(
-        &mut self,
-        window: WindowTemplate,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        let start_index = self.tabs.len();
-
-        window
-            .tabs
-            .iter()
-            .enumerate()
-            .for_each(|(tab_index, tab_template)| {
-                self.add_tab_with_pane_layout(
-                    PanesLayout::Template(tab_template.layout.clone()),
-                    Arc::new(HashMap::new()),
-                    tab_template.title.clone(),
-                    ctx,
-                );
-                self.tabs[start_index + tab_index].selected_color = tab_template
-                    .color
-                    .map_or(SelectedTabColor::Unset, SelectedTabColor::Color);
-            });
-
-        if !window.tabs.is_empty() {
-            // Focus the active tab from the launch config.
-
-            let mut index = start_index + window.active_tab_index.unwrap_or_default();
-
-            if index >= self.tab_count() {
-                index = start_index;
-            }
-
-            self.activate_tab_internal(index, ctx);
-        }
-    }
-
-    fn configure_new_workspace(
-        &mut self,
-        workspace_setting: NewWorkspaceSource,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        self.vertical_tabs_panel_open =
-            Self::initial_vertical_tabs_panel_open(&workspace_setting, ctx);
-        match workspace_setting {
+    fn configure_new_workspace(&mut self, source: NewWorkspaceSource, ctx: &mut ViewContext<Self>) {
+        self.vertical_tabs_panel_open = Self::initial_vertical_tabs_panel_open(&source, ctx);
+        match source {
             NewWorkspaceSource::Empty {
                 previous_active_window,
                 shell,
-            } => {
-                self.configure_empty_workspace(previous_active_window, shell, ctx);
-            }
+            } => self.configure_empty_workspace(previous_active_window, shell, ctx),
             NewWorkspaceSource::Restored {
                 window_snapshot,
                 block_lists,
             } => {
                 let active_tab_index = window_snapshot.active_tab_index;
-                let restored_left_panel_open = window_snapshot.left_panel_open;
-
-                window_snapshot
-                    .tabs
-                    .iter()
-                    .enumerate()
-                    .for_each(|(tab_index, saved_tab)| {
-                        let custom_title = saved_tab.custom_title.clone();
-                        self.add_tab_with_pane_layout(
-                            PanesLayout::Snapshot(Box::new(saved_tab.root.clone())),
-                            block_lists.clone(),
-                            custom_title,
-                            ctx,
-                        );
-                        self.tabs[tab_index].default_directory_color =
-                            saved_tab.default_directory_color;
-                        self.tabs[tab_index].selected_color = saved_tab.selected_color;
-
-                        let pane_group = self.tabs[tab_index].pane_group.clone();
-
-                        if let Some(left_panel_snapshot) = &saved_tab.left_panel {
-                            self.restore_left_panel_for_tab(&pane_group, left_panel_snapshot, ctx);
-                        }
-                    });
-
-                if self.tab_count() == 0 {
-                    if self.should_open_get_started_tab(ctx) {
-                        self.open_get_started_tab(ctx);
-                        return;
-                    }
-                    // If we still haven't created any tabs after attempting to restore, create a new tab
-                    // with sensible defaults.
-                    self.add_new_session_tab_internal(
-                        NewSessionSource::Window,
-                        None,  /* previous_active_window */
-                        None,  /* chosen_shell */
-                        false, /* hide_homepage */
+                for saved_tab in window_snapshot.tabs {
+                    self.add_tab_with_pane_layout(
+                        PanesLayout::Snapshot(Box::new(saved_tab.root)),
+                        block_lists.clone(),
+                        saved_tab.custom_title,
                         ctx,
                     );
-                } else if self.left_panel_visibility_across_tabs_enabled(ctx) {
-                    self.left_panel_open = restored_left_panel_open;
+                    if let Some(tab) = self.tabs.last_mut() {
+                        tab.default_directory_color = saved_tab.default_directory_color;
+                        tab.selected_color = saved_tab.selected_color;
+                    }
                 }
-
-                self.activate_tab_internal(active_tab_index, ctx);
+                if self.tabs.is_empty() {
+                    self.configure_empty_workspace(None, None, ctx);
+                }
+                self.activate_tab_internal(active_tab_index.min(self.tabs.len() - 1), ctx);
             }
-            NewWorkspaceSource::FromTemplate { window_template } => {
-                self.open_launch_config_window(window_template, ctx);
-            }
-            NewWorkspaceSource::Session { options } => {
-                self.add_tab_with_pane_layout(
-                    PanesLayout::SingleTerminal(options),
-                    Arc::new(HashMap::new()),
-                    None,
-                    ctx,
-                );
-            }
-
-            NewWorkspaceSource::NotebookFromFilePath { file_path } => {
-                self.add_tab_for_file_notebook(file_path, ctx);
-            }
-            #[cfg(feature = "local_fs")]
+            NewWorkspaceSource::Session { options } => self.add_tab_with_pane_layout(
+                PanesLayout::SingleTerminal(options),
+                Arc::new(HashMap::new()),
+                None,
+                ctx,
+            ),
             NewWorkspaceSource::TransferredTab {
                 tab_color,
                 custom_title,
-                left_panel_open,
                 for_drag_preview,
                 ..
             } => {
@@ -2144,50 +1977,13 @@ impl Workspace {
                 if let (Some(color), Some(tab)) = (tab_color, self.tabs.last_mut()) {
                     tab.selected_color = SelectedTabColor::Color(color);
                 }
-                if self.left_panel_visibility_across_tabs_enabled(ctx) {
-                    self.left_panel_open = left_panel_open;
-                }
                 self.pending_pane_group_transfer = true;
             }
-            #[cfg(not(feature = "local_fs"))]
-            NewWorkspaceSource::TransferredTab {
-                tab_color,
-                custom_title,
-                left_panel_open,
-                for_drag_preview,
-                ..
-            } => {
-                self.is_drag_preview_workspace = for_drag_preview;
-                self.add_tab_with_pane_layout(
-                    Default::default(),
-                    Arc::new(HashMap::new()),
-                    custom_title,
-                    ctx,
-                );
-                if let (Some(color), Some(tab)) = (tab_color, self.tabs.last_mut()) {
-                    tab.selected_color = SelectedTabColor::Color(color);
-                }
-                if self.left_panel_visibility_across_tabs_enabled(ctx) {
-                    self.left_panel_open = left_panel_open;
-                }
-                self.pending_pane_group_transfer = true;
-            }
-        };
-
-        debug_assert!(
-            self.tab_count() > 0,
-            "Workspace should have at least one tab upon configuration"
-        );
-
-        if self.left_panel_visibility_across_tabs_enabled(ctx) {
-            self.reconcile_left_panel_open_for_active_tab(ctx);
         }
-
-        let active_pane_group = self.active_tab_pane_group().clone();
-        let working_directories_model = self.working_directories_model.clone();
-        self.left_panel_view.update(ctx, |left_panel, ctx| {
-            left_panel.set_active_pane_group(active_pane_group, &working_directories_model, ctx);
-        });
+        debug_assert!(
+            !self.tabs.is_empty(),
+            "Workspace should have at least one tab"
+        );
     }
 
     fn initial_vertical_tabs_panel_open(
@@ -2205,43 +2001,10 @@ impl Workspace {
                 vertical_tabs_panel_open,
                 ..
             } => *vertical_tabs_panel_open,
-            NewWorkspaceSource::Empty { .. }
-            | NewWorkspaceSource::FromTemplate { .. }
-            | NewWorkspaceSource::Session { .. }
-            | NewWorkspaceSource::NotebookFromFilePath { .. } => should_default_open,
-        }
-    }
-
-    fn restore_left_panel_for_tab(
-        &mut self,
-        pane_group: &ViewHandle<PaneGroup>,
-        left_panel_snapshot: &LeftPanelSnapshot,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        pane_group.update(ctx, |pg, ctx| {
-            pg.set_left_panel_open(true, ctx);
-        });
-
-        let resizable = ResizableData::handle(ctx);
-        if let Some(modal_sizes) = resizable.as_ref(ctx).get_all_handles(self.window_id) {
-            if let Ok(mut handle) = modal_sizes.left_panel_width.lock() {
-                handle.set_size(left_panel_snapshot.width as f32);
+            NewWorkspaceSource::Empty { .. } | NewWorkspaceSource::Session { .. } => {
+                should_default_open
             }
         }
-
-        self.left_panel_view.update(ctx, |lp, ctx| {
-            // Restore which panel tab was active
-            let active_view = match left_panel_snapshot.left_panel_displayed_tab {
-                LeftPanelDisplayedTab::FileTree => ToolPanelView::ProjectExplorer,
-                LeftPanelDisplayedTab::GlobalSearch => ToolPanelView::GlobalSearch {
-                    entry_focus: GlobalSearchEntryFocus::Results,
-                },
-            };
-            lp.restore_active_view_from_snapshot(active_view, ctx);
-            lp.set_active_pane_group(pane_group.clone(), &self.working_directories_model, ctx);
-        });
-
-        ctx.notify();
     }
 
     // Configure an empty workspace. The behavior here is platform-specific.
@@ -2251,25 +2014,12 @@ impl Workspace {
         shell: Option<AvailableShell>,
         ctx: &mut ViewContext<Self>,
     ) {
-        let show_warp_home = !ContextFlag::CreateNewSession.is_enabled();
-        if !show_warp_home {
-            if self.should_open_get_started_tab(ctx) {
-                self.open_get_started_tab(ctx);
-            } else if FeatureFlag::WelcomeTab.is_enabled() {
-                self.add_welcome_tab(ctx);
-            } else {
-                self.add_new_session_tab_internal(
-                    NewSessionSource::Window,
-                    previous_active_window,
-                    shell, /* chosen_shell */
-                    false, /* hide_homepage */
-                    ctx,
-                );
-            }
-        } else {
-            let home_pane = super::home::create_home_pane(ctx);
-            self.add_tab_from_existing_pane(home_pane, 0, ctx);
-        };
+        self.add_new_session_tab_internal(
+            NewSessionSource::Window,
+            previous_active_window,
+            shell,
+            ctx,
+        );
     }
 
     fn current_focus_region(&self, ctx: &mut ViewContext<Self>) -> FocusRegion {
@@ -2278,19 +2028,11 @@ impl Workspace {
             return FocusRegion::PaneGroup;
         }
 
-        if self.left_panel_view.is_self_or_child_focused(app) {
-            return FocusRegion::LeftPanel;
-        }
-
         if self.resource_center_view.is_self_or_child_focused(app) {
             return FocusRegion::RightPanel;
         }
 
         FocusRegion::Other
-    }
-
-    fn has_left_region(&self, app: &AppContext) -> bool {
-        self.active_tab_pane_group().as_ref(app).left_panel_open
     }
 
     fn has_right_region(&self) -> bool {
@@ -2317,14 +2059,6 @@ impl Workspace {
         handle.update(ctx, |pane_group, ctx| pane_group.focus_last_pane(ctx))
     }
 
-    fn focus_left_region_entry(&mut self, ctx: &mut ViewContext<Self>) {
-        if self.has_left_region(ctx) {
-            self.left_panel_view.update(ctx, |left_panel, ctx| {
-                left_panel.focus_active_view_on_entry(ctx);
-            });
-        }
-    }
-
     fn focus_right_region_entry(&mut self, ctx: &mut ViewContext<Self>) {
         if self.current_workspace_state.is_resource_center_open {
             ctx.focus(&self.resource_center_view);
@@ -2337,16 +2071,10 @@ impl Workspace {
         ctx: &mut ViewContext<Self>,
     ) {
         let current_region = self.current_focus_region(ctx);
-        let has_left_panel = self.has_left_region(ctx);
         let has_right_panel = self.has_right_region();
 
-        let target_region = self.compute_target_focus_region(
-            current_region,
-            direction,
-            has_left_panel,
-            has_right_panel,
-            ctx,
-        );
+        let target_region =
+            self.compute_target_focus_region(current_region, direction, has_right_panel, ctx);
 
         self.set_pane_dimming_for_region(target_region, ctx);
 
@@ -2357,82 +2085,38 @@ impl Workspace {
         &mut self,
         region: FocusRegion,
         direction: PanePanelDirection,
-        has_left_panel: bool,
         has_right_panel: bool,
         ctx: &mut ViewContext<Self>,
     ) -> FocusRegion {
         match (region, direction) {
-            // NEXT: Left panel to first pane
-            (FocusRegion::LeftPanel, PanePanelDirection::Next) => {
-                // Always attempt to focus the first pane in the group and ensure the pane group
-                // regains application focus.
+            (FocusRegion::RightPanel, PanePanelDirection::Next) => {
                 self.focus_first_visible_pane_in_group(ctx);
                 self.focus_active_tab(ctx);
                 FocusRegion::PaneGroup
             }
-            // NEXT: Right panel to left panel if open, else first pane
-            (FocusRegion::RightPanel, PanePanelDirection::Next) => {
-                if has_left_panel {
-                    self.focus_left_region_entry(ctx);
-                    FocusRegion::LeftPanel
-                } else {
-                    self.focus_first_visible_pane_in_group(ctx);
-                    FocusRegion::PaneGroup
-                }
-            }
-            // NEXT: Pane group to next pane, or at end to right panel, left panel, first pane
-            // Included Other here for cases like the command palette action "Activate next Pane"
-            (FocusRegion::PaneGroup, PanePanelDirection::Next)
-            | (FocusRegion::Other, PanePanelDirection::Next) => {
-                let moved = self.focus_next_pane_in_group(ctx);
-                if moved {
-                    FocusRegion::PaneGroup
-                } else if has_right_panel {
-                    self.focus_right_region_entry(ctx);
-                    FocusRegion::RightPanel
-                } else if has_left_panel {
-                    self.focus_left_region_entry(ctx);
-                    FocusRegion::LeftPanel
-                } else {
-                    // No panels, wrap within panes.
-                    self.focus_first_visible_pane_in_group(ctx);
-                    FocusRegion::PaneGroup
-                }
-            }
-
-            // PREV: Right panel to last pane
             (FocusRegion::RightPanel, PanePanelDirection::Prev) => {
-                // Always attempt to focus the last pane in the group and ensure the pane group
-                // regains application focus.
                 self.focus_last_visible_pane_in_group(ctx);
                 self.focus_active_tab(ctx);
                 FocusRegion::PaneGroup
             }
-            // PREV: Left panel to right panel if open, else last pane
-            (FocusRegion::LeftPanel, PanePanelDirection::Prev) => {
-                if has_right_panel {
-                    self.focus_right_region_entry(ctx);
-                    FocusRegion::RightPanel
-                } else {
-                    self.focus_last_visible_pane_in_group(ctx);
+            (FocusRegion::PaneGroup | FocusRegion::Other, PanePanelDirection::Next) => {
+                if self.focus_next_pane_in_group(ctx) {
                     FocusRegion::PaneGroup
-                }
-            }
-            // PREV: Pane group to prev pane, or at beginning to left panel to right panel to last pane
-            // Included Other here for cases like the command palette action "Activate next Pane"
-            (FocusRegion::PaneGroup, PanePanelDirection::Prev)
-            | (FocusRegion::Other, PanePanelDirection::Prev) => {
-                let did_move = self.focus_prev_pane_in_group(ctx);
-                if did_move {
-                    FocusRegion::PaneGroup
-                } else if has_left_panel {
-                    self.focus_left_region_entry(ctx);
-                    FocusRegion::LeftPanel
                 } else if has_right_panel {
                     self.focus_right_region_entry(ctx);
                     FocusRegion::RightPanel
                 } else {
-                    // No panels, wrap within panes.
+                    self.focus_first_visible_pane_in_group(ctx);
+                    FocusRegion::PaneGroup
+                }
+            }
+            (FocusRegion::PaneGroup | FocusRegion::Other, PanePanelDirection::Prev) => {
+                if self.focus_prev_pane_in_group(ctx) {
+                    FocusRegion::PaneGroup
+                } else if has_right_panel {
+                    self.focus_right_region_entry(ctx);
+                    FocusRegion::RightPanel
+                } else {
                     self.focus_last_visible_pane_in_group(ctx);
                     FocusRegion::PaneGroup
                 }
@@ -2446,8 +2130,7 @@ impl Workspace {
     }
 
     fn set_pane_dimming_for_region(&mut self, region: FocusRegion, ctx: &mut ViewContext<Self>) {
-        let dim_even_if_focused =
-            matches!(region, FocusRegion::LeftPanel | FocusRegion::RightPanel);
+        let dim_even_if_focused = matches!(region, FocusRegion::RightPanel);
         let handle = self.active_tab_pane_group().clone();
         handle.update(ctx, |pane_group, ctx| {
             pane_group.set_dim_even_if_focused_for_all_panes(dim_even_if_focused, ctx);
@@ -2566,14 +2249,12 @@ impl Workspace {
         let pane_group = tab.pane_group.clone();
         let color = tab.color();
         let custom_title = pane_group.read(ctx, |pg, ctx| pg.custom_title(ctx));
-        let left_panel_open = pane_group.read(ctx, |pg, _| pg.left_panel_open);
         let vertical_tabs_panel_open = self.vertical_tabs_panel_open;
 
         Some(TransferredTab {
             pane_group,
             color,
             custom_title,
-            left_panel_open,
             vertical_tabs_panel_open,
         })
     }
@@ -2599,15 +2280,6 @@ impl Workspace {
             .expect("Active tab index entry should exist")
     }
 
-    /// Attempts to get selected text from the focused pane.
-    /// Returns None if there is no selection, multiple selections, or an empty selection.
-    /// Supports code, notebook, and terminal panes.
-    fn get_selected_text_from_focused_view(&self, ctx: &AppContext) -> Option<String> {
-        self.active_tab_pane_group()
-            .as_ref(ctx)
-            .selected_text_from_focused_pane(ctx)
-    }
-
     /// This is meant to be dispatched directly by actions.
     pub fn activate_tab(&mut self, index: usize, ctx: &mut ViewContext<Self>) {
         self.activate_tab_internal(index, ctx);
@@ -2631,30 +2303,6 @@ impl Workspace {
         }
     }
 
-    fn left_panel_visibility_across_tabs_enabled(&self, ctx: &AppContext) -> bool {
-        *WindowSettings::as_ref(ctx)
-            .left_panel_visibility_across_tabs
-            .value()
-    }
-
-    /// Reconciles the active tab's tools panel open/closed state to match the window-scoped desired state
-    /// (syncing left panel open/closed state across tabs).
-    fn reconcile_left_panel_open_for_active_tab(&mut self, ctx: &mut ViewContext<Self>) {
-        let pane_group = self.active_tab_pane_group().clone();
-        let pane_group_supports_tools_panel = pane_group.read(ctx, |pane_group, _| {
-            Self::should_enable_file_tree_and_global_search_for_pane_group(pane_group)
-        });
-
-        if !pane_group_supports_tools_panel {
-            return;
-        }
-
-        let desired_open = self.left_panel_open;
-        pane_group.update(ctx, |pane_group, ctx| {
-            pane_group.set_left_panel_open(desired_open, ctx);
-        });
-    }
-
     /// Change the active tab index. This must be used instead of setting `self.active_tab_index`
     /// directly, as it updates related state.
     fn set_active_tab_index(&mut self, index: usize, ctx: &mut ViewContext<Self>) {
@@ -2676,21 +2324,6 @@ impl Workspace {
         {
             self.vertical_tabs_panel.scroll_to_tab(index);
         }
-
-        if self.left_panel_visibility_across_tabs_enabled(ctx) {
-            self.reconcile_left_panel_open_for_active_tab(ctx);
-        }
-
-        let left_active_pane_group = self.active_tab_pane_group().clone();
-        let working_directories_model = self.working_directories_model.clone();
-
-        self.left_panel_view.update(ctx, |left_panel, ctx| {
-            left_panel.set_active_pane_group(
-                left_active_pane_group,
-                &working_directories_model,
-                ctx,
-            );
-        });
 
         self.update_active_session(ctx);
     }
@@ -3008,7 +2641,6 @@ impl Workspace {
     }
 
     /// Searches other windows for the given terminal view and focuses it there.
-    /// (Uses the same cross-window dispatch pattern as open_notebook/open_workflow.)
     fn focus_terminal_view_in_other_window(
         &self,
         terminal_view_id: EntityId,
@@ -3145,21 +2777,6 @@ impl Workspace {
         });
     }
 
-    fn sync_panel_positions_from_config(&mut self, ctx: &mut ViewContext<Self>) {
-        let config = TabSettings::as_ref(ctx)
-            .header_toolbar_chip_selection
-            .clone();
-        let left_items = config.left_items();
-        let tools_position = if left_items.contains(&HeaderToolbarItemKind::ToolsPanel) {
-            PanelPosition::Left
-        } else {
-            PanelPosition::Right
-        };
-        self.left_panel_view.update(ctx, |view, ctx| {
-            view.set_panel_position(tools_position, ctx);
-        });
-    }
-
     fn build_header_toolbar_context_menu(
         ctx: &mut ViewContext<Self>,
     ) -> ViewHandle<Menu<WorkspaceAction>> {
@@ -3218,145 +2835,6 @@ impl Workspace {
                 let session_id = tv_ref.active_block_session_id()?;
                 tv_ref.sessions_model().as_ref(ctx).get(session_id)
             })
-    }
-
-    #[cfg(not(feature = "local_fs"))]
-    pub fn open_file_with_target(
-        &mut self,
-        _path: PathBuf,
-        _target: FileTarget,
-        _line_col: Option<LineAndColumnArg>,
-        _code_source: CodeSource,
-        _ctx: &mut ViewContext<Self>,
-    ) {
-    }
-
-    #[cfg(feature = "local_fs")]
-    pub fn open_file_with_target(
-        &mut self,
-        path: PathBuf,
-        target: FileTarget,
-        line_col: Option<LineAndColumnArg>,
-        code_source: CodeSource,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        // Handle directories for CodeEditor(NewTab) target by opening a new terminal tab
-        if path.is_dir() && matches!(target, FileTarget::CodeEditor(EditorLayout::NewTab)) {
-            self.add_tab_with_pane_layout(
-                PanesLayout::SingleTerminal(Box::new(NewTerminalOptions {
-                    initial_directory: Some(path.clone()),
-                    hide_homepage: true,
-                    ..Default::default()
-                })),
-                Arc::new(HashMap::new()),
-                None,
-                ctx,
-            );
-            return;
-        }
-
-        match target {
-            FileTarget::MarkdownViewer(layout) => {
-                let session = self.get_active_session(ctx);
-
-                self.open_file_notebook(path.clone(), session, layout, ctx);
-            }
-            FileTarget::EnvEditor => {
-                let editor_value: Option<String> = self
-                    .get_active_session(ctx)
-                    .and_then(|session| session.editor().map(|s| s.to_string()));
-
-                if let Some(ref editor_env) = editor_value {
-                    if let Ok(editor) = Editor::try_from(editor_env.as_str()) {
-                        crate::util::file::open_file_path_with_editor(
-                            line_col,
-                            path.clone(),
-                            Some(editor),
-                            ctx,
-                        );
-                        return;
-                    }
-
-                    // If we have an editor string but it's not a known Editor, we try to run it in a new pane
-                    let new_pane_id =
-                        self.active_tab_pane_group().update(ctx, |pane_group, ctx| {
-                            pane_group.add_terminal_pane(
-                                Direction::Right,
-                                None, /*chosen_shell*/
-                                ctx,
-                            )
-                        });
-
-                    if let Some(terminal_view_handle) = self
-                        .active_tab_pane_group()
-                        .as_ref(ctx)
-                        .terminal_view_from_pane_id(new_pane_id, ctx)
-                    {
-                        let editor_ref = Some(editor_env.as_str());
-                        let path_clone = path.clone();
-                        terminal_view_handle.update(ctx, |terminal, ctx| {
-                            let editor_command =
-                                crate::util::file::external_editor::generate_editor_command(
-                                    &path_clone,
-                                    line_col,
-                                    editor_ref,
-                                );
-                            terminal.set_pending_command(&editor_command, ctx);
-                        });
-                        return;
-                    } else {
-                        log::error!(
-                            "Could not get terminal view handle for new pane when attempting to open file with $EDITOR."
-                        );
-                    }
-                }
-
-                crate::util::file::open_file_path_in_external_editor(line_col, path.clone(), ctx);
-            }
-            FileTarget::CodeEditor(layout) => {
-                let open_as_preview = false;
-                self.open_code(code_source, layout, line_col, open_as_preview, &[], ctx);
-            }
-            FileTarget::ExternalEditor(editor) => {
-                crate::util::file::open_file_path_with_editor(
-                    line_col,
-                    path.clone(),
-                    Some(editor),
-                    ctx,
-                );
-            }
-            FileTarget::SystemDefault => {
-                crate::util::file::open_file_path_with_editor(line_col, path.clone(), None, ctx);
-            }
-            FileTarget::SystemGeneric => {
-                ctx.open_file_path(&path);
-            }
-        }
-    }
-
-    fn handle_left_panel_event(&mut self, event: &LeftPanelEvent, ctx: &mut ViewContext<Self>) {
-        match event {
-            LeftPanelEvent::AttachPathAsContext { path } => {
-                self.attach_path_as_context(path.clone(), ctx)
-            }
-            LeftPanelEvent::FileTree(pane_group_event) => {
-                let pane_group = self.active_tab_pane_group().clone();
-                self.handle_file_tree_event(pane_group, pane_group_event, ctx);
-            }
-            LeftPanelEvent::OpenFileWithTarget {
-                path,
-                target,
-                line_col,
-            } => {
-                self.open_file_with_target(
-                    path.clone(),
-                    target.clone(),
-                    *line_col,
-                    CodeSource::FileTree { path: path.clone() },
-                    ctx,
-                );
-            }
-        }
     }
 
     fn view_local_data(&mut self, ctx: &mut ViewContext<Self>) {
@@ -3425,9 +2903,7 @@ impl Workspace {
             {
                 let is_terminal_default = effective_default == DefaultSessionMode::Terminal;
                 let mut terminal_item = MenuItemFields::new("Terminal")
-                    .with_on_select_action(WorkspaceAction::AddTerminalTab {
-                        hide_homepage: false,
-                    })
+                    .with_on_select_action(WorkspaceAction::AddTerminalTab)
                     .with_icon(icons::Icon::LayoutAlt01);
                 if is_terminal_default {
                     terminal_item = terminal_item.with_key_shortcut_label(shortcut_label.clone());
@@ -3462,9 +2938,7 @@ impl Workspace {
             #[cfg(not(target_os = "windows"))]
             {
                 let mut terminal_item = MenuItemFields::new("Terminal")
-                    .with_on_select_action(WorkspaceAction::AddTerminalTab {
-                        hide_homepage: false,
-                    })
+                    .with_on_select_action(WorkspaceAction::AddTerminalTab)
                     .with_icon(icons::Icon::LayoutAlt01);
                 if effective_default == DefaultSessionMode::Terminal {
                     terminal_item = terminal_item.with_key_shortcut_label(shortcut_label.clone());
@@ -3634,30 +3108,6 @@ impl Workspace {
         );
     }
 
-    fn open_launch_config_from_menu(
-        &mut self,
-        new_session_menu_item: NewSessionMenuItem,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        match new_session_menu_item {
-            NewSessionMenuItem::OpenLaunchConfig(launch_config) => ctx.dispatch_global_action(
-                "root_view:open_launch_config",
-                OpenLaunchConfigArg {
-                    launch_config,
-                    ui_location: LaunchConfigUiLocation::TabMenu,
-                    open_in_active_window: false,
-                },
-            ),
-            NewSessionMenuItem::OpenLaunchConfigDocs => ctx.open_url(links::USER_DOCS_URL),
-            #[cfg(feature = "local_fs")]
-            NewSessionMenuItem::CreateNewTabConfig => {
-                self.create_and_open_new_tab_config(ctx);
-            }
-            #[cfg(not(feature = "local_fs"))]
-            NewSessionMenuItem::CreateNewTabConfig => {}
-        }
-    }
-
     /// Opens a tab config after the user has filled in (or confirmed) param values.
     fn open_tab_config_with_params(
         &mut self,
@@ -3676,7 +3126,7 @@ impl Workspace {
             ctx,
         );
         if let Some(tab) = self.tabs.get_mut(self.active_tab_index) {
-            // Apply tab color if specified, matching the launch config pattern.
+            // Apply the configured tab color.
             if let Some(color) = tab_color {
                 tab.selected_color = SelectedTabColor::Color(color);
             }
@@ -3736,24 +3186,8 @@ impl Workspace {
             return;
         }
         let settings = EditorSettings::as_ref(ctx);
-        let target = resolve_file_target_with_editor_choice(
-            &path,
-            *settings.open_code_panels_file_editor,
-            *settings.prefer_markdown_viewer,
-            *settings.open_file_layout,
-            None,
-        );
-        self.open_file_with_target(
-            path.clone(),
-            target,
-            None,
-            CodeSource::Link {
-                path,
-                range_start: None,
-                range_end: None,
-            },
-            ctx,
-        );
+        let target = resolve_file_target(&path, settings);
+        self.open_file_with_target(path.clone(), target, None, ctx);
     }
 
     /// Snapshots the given tab's pane layout and writes it as a new tab config
@@ -3772,24 +3206,8 @@ impl Workspace {
         match write_tab_config(&config, &dir, "my_tab_config") {
             Ok(path) => {
                 let settings = EditorSettings::as_ref(ctx);
-                let target = resolve_file_target_with_editor_choice(
-                    &path,
-                    *settings.open_code_panels_file_editor,
-                    *settings.prefer_markdown_viewer,
-                    *settings.open_file_layout,
-                    None,
-                );
-                self.open_file_with_target(
-                    path.clone(),
-                    target,
-                    None,
-                    CodeSource::Link {
-                        path,
-                        range_start: None,
-                        range_end: None,
-                    },
-                    ctx,
-                );
+                let target = resolve_file_target(&path, settings);
+                self.open_file_with_target(path.clone(), target, None, ctx);
             }
             Err(e) => log::warn!("Failed to save tab config: {e:?}"),
         }
@@ -3930,19 +3348,6 @@ impl Workspace {
             })
     }
 
-    fn should_open_get_started_tab(&self, ctx: &mut ViewContext<Self>) -> bool {
-        if !FeatureFlag::GetStartedTab.is_enabled() {
-            return false;
-        }
-
-        let _ = ctx;
-        false
-    }
-
-    fn open_get_started_tab(&mut self, ctx: &mut ViewContext<Self>) {
-        self.add_get_started_tab(ctx);
-    }
-
     fn open_settings_pane(
         &mut self,
         page: Option<SettingsSection>,
@@ -3971,7 +3376,7 @@ impl Workspace {
         self.settings_pane.update(ctx, move |settings_pane, ctx| {
             // TODO: This check shouldn't be necessary, but `active_session_ps1_grid_info` returns
             // None when the active tab has no running terminal sessions, e.g. if it contains only
-            // notebooks/workflow panes.
+            // non-terminal panes.
             if ps1_grid_info.is_some() {
                 settings_pane.set_ps1_info(ps1_grid_info, ctx);
             }
@@ -3991,63 +3396,6 @@ impl Workspace {
             Some("Settings".to_owned()),
             ctx,
         );
-    }
-
-    /// Open a file from the given session as a notebook pane.
-    #[cfg(feature = "local_fs")]
-    fn open_file_notebook(
-        &mut self,
-        path: PathBuf,
-        session: Option<Arc<Session>>,
-        layout: EditorLayout,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        let pane = FilePane::new(
-            Some(path),
-            session,
-            #[cfg(feature = "local_fs")]
-            None,
-            ctx,
-        );
-
-        match layout {
-            EditorLayout::NewTab => {
-                let new_tab_placement_setting = TabSettings::as_ref(ctx).new_tab_placement;
-                let new_idx = match new_tab_placement_setting {
-                    NewTabPlacement::AfterAllTabs => self.tab_count(),
-                    // Add tab after current tab
-                    NewTabPlacement::AfterCurrentTab => self.active_tab_index + 1,
-                };
-                self.add_tab_from_existing_pane(Box::new(pane), new_idx, ctx);
-            }
-            EditorLayout::SplitPane => {
-                self.active_tab_pane_group().update(ctx, |pane_group, ctx| {
-                    pane_group.add_pane_with_direction(
-                        Direction::Right,
-                        pane,
-                        true, /* focus_new_pane */
-                        ctx,
-                    );
-                });
-            }
-        }
-    }
-
-    fn attach_path_as_context(&mut self, path: PathBuf, ctx: &mut ViewContext<Self>) {
-        let Some(view) = self.active_session_view(ctx) else {
-            log::warn!("No active terminal view session when trying to attach path as context");
-            return;
-        };
-
-        view.update(ctx, |terminal_view, ctx| {
-            if terminal_view.active_cli_agent(ctx).is_some() {
-                let text = terminal_view
-                    .shell_family(ctx)
-                    .shell_escape(&path.to_string_lossy())
-                    .into_owned();
-                terminal_view.try_send_text_to_cli_agent_or_rich_input(text, ctx);
-            }
-        });
     }
 
     fn cd_to_directory(&mut self, path: PathBuf, ctx: &mut ViewContext<Self>) {
@@ -4075,150 +3423,6 @@ impl Workspace {
             None,
             ctx,
         );
-    }
-
-    #[cfg(feature = "local_fs")]
-    fn open_code(
-        &mut self,
-        source: CodeSource,
-        layout: EditorLayout,
-        line_col: Option<LineAndColumnArg>,
-        preview: bool,
-        additional_paths: &[PathBuf],
-        ctx: &mut ViewContext<Self>,
-    ) {
-        let grouping_on = FeatureFlag::TabbedEditorView.is_enabled()
-            && *EditorSettings::as_ref(ctx)
-                .prefer_tabbed_editor_view
-                .value();
-
-        if grouping_on {
-            let code_view = self
-                .active_tab_pane_group()
-                .as_ref(ctx)
-                .code_panes(ctx)
-                .find(|(pane_id, _)| {
-                    !self
-                        .active_tab_pane_group()
-                        .as_ref(ctx)
-                        .is_pane_hidden_for_close(*pane_id)
-                });
-            // If the tabbed editor view is enabled and there is an existing CodeView, we should group the newly opened file into this view.
-            if let (Some(path), Some((pane_id, code_view))) = (source.path(), code_view) {
-                code_view.update(ctx, |code_view, ctx| {
-                    if preview {
-                        code_view.open_in_preview_or_promote_and_jump(path, line_col, ctx);
-                    } else {
-                        code_view.open_or_focus_existing(Some(path), line_col, ctx);
-                    }
-                    for extra in additional_paths {
-                        code_view.open_or_focus_existing(Some(extra.clone()), None, ctx);
-                    }
-                });
-                // Only focus the pane for non-preview opens
-                if !preview {
-                    self.active_tab_pane_group().update(ctx, |pane_group, ctx| {
-                        pane_group.focus_pane(pane_id, true, ctx);
-                    });
-                }
-                return;
-            }
-        } else {
-            // When grouping is off, avoid opening duplicate code panes for the same file in the
-            // current pane group. Instead, focus the existing pane and jump.
-            if let Some(path) = source.path() {
-                let pane_group_id = self.active_tab_pane_group().id();
-                let existing_locator = CodeManager::handle(ctx).read(ctx, |manager, _| {
-                    manager.get_locator_for_path_in_tab(pane_group_id, path.as_path())
-                });
-
-                if let Some(locator) = existing_locator {
-                    self.active_tab_pane_group().update(ctx, |pane_group, ctx| {
-                        pane_group.focus_pane_by_id(locator.pane_id, ctx);
-
-                        if let Some(code_view) =
-                            pane_group.code_view_from_pane_id(locator.pane_id, ctx)
-                        {
-                            code_view.update(ctx, |code_view, ctx| {
-                                if preview {
-                                    code_view.open_in_preview_or_promote_and_jump(
-                                        path.clone(),
-                                        line_col,
-                                        ctx,
-                                    );
-                                } else {
-                                    code_view.open_or_focus_existing(
-                                        Some(path.clone()),
-                                        line_col,
-                                        ctx,
-                                    );
-                                }
-
-                                for extra in additional_paths {
-                                    code_view.open_or_focus_existing(
-                                        Some(extra.clone()),
-                                        None,
-                                        ctx,
-                                    );
-                                }
-                            });
-                        }
-                    });
-
-                    return;
-                }
-            }
-        }
-
-        let pane = if preview {
-            CodePane::new_preview(source, ctx)
-        } else {
-            CodePane::new(source, line_col, ctx)
-        };
-
-        match layout {
-            EditorLayout::NewTab => {
-                let new_tab_placement_setting = TabSettings::as_ref(ctx).new_tab_placement;
-                let new_idx = match new_tab_placement_setting {
-                    NewTabPlacement::AfterAllTabs => self.tab_count(),
-                    // Add tab after current tab
-                    NewTabPlacement::AfterCurrentTab => self.active_tab_index + 1,
-                };
-                self.add_tab_from_existing_pane(Box::new(pane), new_idx, ctx);
-            }
-            EditorLayout::SplitPane => {
-                self.active_tab_pane_group().update(ctx, |pane_group, ctx| {
-                    pane_group.add_pane_with_direction(
-                        Direction::Right,
-                        pane,
-                        !preview, /* focus_new_pane */
-                        ctx,
-                    );
-                });
-            }
-        }
-
-        // Open any additional paths as tabs in the code view we just created.
-        if !additional_paths.is_empty() {
-            let code_view_handle = self
-                .active_tab_pane_group()
-                .as_ref(ctx)
-                .code_panes(ctx)
-                .find(|(pane_id, _)| {
-                    !self
-                        .active_tab_pane_group()
-                        .as_ref(ctx)
-                        .is_pane_hidden_for_close(*pane_id)
-                })
-                .map(|(_, view)| view);
-            if let Some(code_view) = code_view_handle {
-                code_view.update(ctx, |code_view, ctx| {
-                    for path in additional_paths {
-                        code_view.open_or_focus_existing(Some(path.clone()), None, ctx);
-                    }
-                });
-            }
-        }
     }
 
     pub(super) fn active_session_view(
@@ -4260,10 +3464,9 @@ impl Workspace {
                 .read(ctx, |pane_group_view, ctx| {
                     pane_group_view.active_session_view(ctx)
                 });
-            // A tab may not have any active session, say if it only contains notebook(s). If
-            // that's the case, create a new tab.
+            // A Settings tab has no terminal session. Create a terminal tab for the command.
             if active_session_handle.is_none() {
-                self.add_new_session_tab_internal(NewSessionSource::Tab, None, None, false, ctx);
+                self.add_new_session_tab_internal(NewSessionSource::Tab, None, None, ctx);
             }
             active_session_handle = self
                 .active_tab_pane_group()
@@ -4395,28 +3598,6 @@ impl Workspace {
         ctx.notify();
     }
 
-    fn open_left_panel(&mut self, ctx: &mut ViewContext<Self>) {
-        self.left_panel_open = true;
-
-        let active_pane_group = self.active_tab_pane_group().clone();
-        active_pane_group.update(ctx, |pane_group, ctx| {
-            pane_group.set_left_panel_open(true, ctx);
-        });
-
-        ctx.notify();
-    }
-
-    fn close_left_panel(&mut self, ctx: &mut ViewContext<Self>) {
-        self.left_panel_open = false;
-
-        let active_pane_group = self.active_tab_pane_group().clone();
-        active_pane_group.update(ctx, |pane_group, ctx| {
-            pane_group.set_left_panel_open(false, ctx);
-        });
-
-        ctx.notify();
-    }
-
     fn toggle_vertical_tabs_panel(&mut self, ctx: &mut ViewContext<Self>) {
         self.vertical_tabs_panel_open = !self.vertical_tabs_panel_open;
         if !self.vertical_tabs_panel_open {
@@ -4429,65 +3610,6 @@ impl Workspace {
 
     fn close_vertical_tabs_settings_popup(&mut self) {
         self.vertical_tabs_panel.show_settings_popup = false;
-    }
-
-    fn toggle_left_panel(&mut self, ctx: &mut ViewContext<Self>) {
-        let active_pane_group = self.active_tab_pane_group().clone();
-
-        let was_open = active_pane_group.read(ctx, |pane_group, _| pane_group.left_panel_open);
-        let new_state = !was_open;
-
-        if new_state {
-            self.open_left_panel(ctx);
-        } else {
-            self.close_left_panel(ctx);
-        }
-
-        // If we are opening the panel, set width based on the most recent tab's width if available,
-        // otherwise compute default width from current window size. Also auto-expand the project
-        // explorer if it's the active left panel view.
-        if new_state {
-            let window_id = ctx.window_id();
-            let resizable_data = ResizableData::handle(ctx);
-            if let Some(handle) = resizable_data
-                .as_ref(ctx)
-                .get_handle(window_id, ModalType::LeftPanelWidth)
-            {
-                if let Ok(mut state) = handle.lock() {
-                    // Get the current width from ResizableData - this reflects the most recent tab's width
-                    let current_width = state.size();
-
-                    // Only recompute default if the current width is at the default value
-                    // This preserves the width from the most recent tab
-                    if current_width == DEFAULT_LEFT_PANEL_WIDTH {
-                        let has_horizontal_split = active_pane_group
-                            .read(ctx, |pane_group, _| pane_group.has_horizontal_split());
-                        let (left_width, _right_width) =
-                            compute_default_panel_widths(ctx, window_id, has_horizontal_split);
-                        state.set_size(left_width);
-                    }
-                    // If current_width is not the default, it means we have a width from a previous tab,
-                    // so we don't need to do anything - the width is already preserved
-                }
-            }
-
-            // Auto-expand the file tree when the left panel is opened and the project explorer is
-            // the active view.
-            let file_tree_active = self
-                .left_panel_view
-                .read(ctx, |lp, _| lp.is_file_tree_active());
-            if file_tree_active {
-                self.left_panel_view.update(ctx, |left_panel, ctx| {
-                    left_panel.auto_expand_active_file_tree_to_most_recent_directory(ctx);
-                });
-            }
-        }
-
-        if !new_state {
-            self.focus_active_tab(ctx);
-        }
-
-        ctx.notify();
     }
 
     fn user_menu_items(&self, _app: &AppContext) -> Vec<MenuItem<WorkspaceAction>> {
@@ -4844,7 +3966,7 @@ impl Workspace {
                 config: config.clone(),
             },
 
-            Some(WorkspaceAction::AddTerminalTab { .. }) => SidecarItemKind::BuiltIn {
+            Some(WorkspaceAction::AddTerminalTab) => SidecarItemKind::BuiltIn {
                 name: label.to_string(),
                 default_mode: DefaultSessionMode::Terminal,
                 shell: None,
@@ -5006,45 +4128,6 @@ impl Workspace {
         }
     }
 
-    fn handle_launch_config_save_modal_event(
-        &mut self,
-        event: &LaunchConfigModalEvent,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        match event {
-            LaunchConfigModalEvent::Close => {
-                self.current_workspace_state
-                    .is_launch_config_save_modal_open = false;
-                self.launch_config_save_modal.close();
-                ctx.notify();
-            }
-            LaunchConfigModalEvent::SuccessfullySavedConfig(launch_config) => {
-                ctx.update_model(&WarpConfig::handle(ctx), move |warp_config, ctx| {
-                    warp_config.append_launch_config(launch_config, ctx);
-                });
-                ctx.notify();
-            }
-            #[cfg(feature = "local_fs")]
-            LaunchConfigModalEvent::OpenFileWithTarget {
-                path,
-                target,
-                line_col,
-            } => {
-                self.open_file_with_target(
-                    path.clone(),
-                    target.clone(),
-                    *line_col,
-                    CodeSource::Link {
-                        path: path.clone(),
-                        range_start: None,
-                        range_end: None,
-                    },
-                    ctx,
-                );
-            }
-        }
-    }
-
     fn handle_tab_config_params_modal_event(
         &mut self,
         event: &ModalEvent,
@@ -5171,44 +4254,6 @@ impl Workspace {
         ctx.notify();
     }
 
-    fn handle_new_worktree_modal_event(&mut self, event: &ModalEvent, ctx: &mut ViewContext<Self>) {
-        match event {
-            ModalEvent::Close => self.close_new_worktree_modal(ctx),
-        }
-    }
-
-    fn handle_new_worktree_modal_body_event(
-        &mut self,
-        event: &NewWorktreeModalEvent,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        match event {
-            NewWorktreeModalEvent::Close => self.close_new_worktree_modal(ctx),
-            NewWorktreeModalEvent::Submit {
-                repo,
-                branch,
-                worktree_branch_name,
-            } => {
-                self.handle_new_worktree_submit(repo, branch, worktree_branch_name.as_deref(), ctx);
-                self.close_new_worktree_modal(ctx);
-            }
-            NewWorktreeModalEvent::PickNewRepo => {
-                ctx.dispatch_typed_action_deferred(WorkspaceAction::OpenNewWorktreeRepoPicker);
-            }
-        }
-    }
-
-    fn close_new_worktree_modal(&mut self, ctx: &mut ViewContext<Self>) {
-        self.current_workspace_state.is_new_worktree_modal_open = false;
-        self.new_worktree_modal.close();
-        self.new_worktree_modal.view.update(ctx, |modal, ctx| {
-            modal.body().update(ctx, |body, ctx| {
-                body.on_close(ctx);
-            });
-        });
-        ctx.notify();
-    }
-
     /// Checks whether the tab config references the special-cased
     /// `autogenerated_branch_name` template var. If so, fetches existing
     /// branches and generates a unique themed name.
@@ -5233,119 +4278,6 @@ impl Workspace {
         Some(warp_util::worktree_names::generate_worktree_branch_name(
             &branch_refs,
         ))
-    }
-
-    /// Generates a worktree tab config TOML, writes it to `~/.warp/tab_configs/`,
-    /// and opens the resulting config as a new tab.
-    ///
-    /// When `worktree_branch_name` is `None` (autogenerate), the TOML stores
-    /// commands with `{autogenerated_branch_name}` template variables that get
-    /// substituted with a fresh name on every open.
-    /// When `Some(name)` (manual naming), the commands are baked in and a
-    /// `worktree_branch_name` param is added so re-opens show the params modal.
-    #[cfg(feature = "local_fs")]
-    fn handle_new_worktree_submit(
-        &mut self,
-        repo: &str,
-        base_branch: &str,
-        worktree_branch_name: Option<&str>,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        let repo_display_name = Path::new(repo)
-            .file_name()
-            .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_else(|| repo.to_string());
-        let config_name = match worktree_branch_name {
-            Some(name) if !name.is_empty() => {
-                format!("New worktree: {repo_display_name}, {name}")
-            }
-            _ if !base_branch.is_empty() => {
-                format!("New worktree: {repo_display_name}, {base_branch}")
-            }
-            _ => format!("New worktree: {repo_display_name}"),
-        };
-
-        let filename_hint = if let Some(name) = worktree_branch_name {
-            name.to_string()
-        } else {
-            let branches = crate::util::git::list_local_branches_sync(Path::new(repo));
-            let branch_refs: HashSet<&str> = branches.iter().map(|s| s.as_str()).collect();
-            warp_util::worktree_names::generate_worktree_branch_name(&branch_refs)
-        };
-
-        let toml_content = crate::tab_configs::build_worktree_config_toml(
-            &config_name,
-            repo,
-            base_branch,
-            worktree_branch_name,
-        );
-
-        let dir = tab_configs_dir();
-        if let Err(e) = std::fs::create_dir_all(&dir) {
-            log::warn!("Failed to create tab_configs dir: {e:?}");
-            return;
-        }
-
-        let path = find_unused_worktree_config_path(&dir, &filename_hint);
-        if let Err(e) = std::fs::write(&path, &toml_content) {
-            log::warn!("Failed to write worktree tab config: {e:?}");
-            return;
-        }
-
-        match toml::from_str::<crate::tab_configs::TabConfig>(&toml_content) {
-            Ok(tab_config) => {
-                if let Some(name) = worktree_branch_name {
-                    // First open with manual name — bypass the params modal.
-                    let mut param_values = HashMap::new();
-                    param_values.insert("worktree_branch_name".to_string(), name.to_string());
-                    self.open_tab_config_with_params(tab_config, param_values, None, ctx);
-                } else {
-                    // Autogenerate — open with the name we just generated.
-                    let param_values = tab_config.default_param_values();
-                    self.open_tab_config_with_params(
-                        tab_config,
-                        param_values,
-                        Some(&filename_hint),
-                        ctx,
-                    );
-                }
-            }
-            Err(e) => {
-                log::warn!("Failed to parse generated worktree config: {e:?}");
-            }
-        }
-    }
-
-    #[cfg(not(feature = "local_fs"))]
-    fn handle_new_worktree_submit(
-        &mut self,
-        _repo: &str,
-        _base_branch: &str,
-        _worktree_branch_name: Option<&str>,
-        _ctx: &mut ViewContext<Self>,
-    ) {
-    }
-
-    fn open_repo_picker_for_new_worktree_modal(&mut self, ctx: &mut ViewContext<Self>) {
-        let modal_view = self.new_worktree_modal.view.clone();
-        ctx.open_file_picker(
-            move |result, ctx| {
-                let Ok(paths) = result else { return };
-                let Some(path) = paths.into_iter().next() else {
-                    return;
-                };
-                let path_buf: PathBuf = path.clone().into();
-                PersistedWorkspace::handle(ctx).update(ctx, |persisted, ctx| {
-                    persisted.user_added_workspace(path_buf.clone(), ctx);
-                });
-                modal_view.update(ctx, |modal, ctx| {
-                    modal.body().update(ctx, |body, ctx| {
-                        body.on_new_repo_selected(path_buf, ctx);
-                    });
-                });
-            },
-            warpui::platform::FilePickerConfiguration::new().folders_only(),
-        );
     }
 
     /// Opens a worktree in the given repo using the default worktree tab config,
@@ -5589,20 +4521,9 @@ impl Workspace {
             .tab_views()
             .enumerate()
             .map(|(tab_index, pane_group_view)| {
-                let resizable_data = ResizableData::handle(app);
-                let modal_sizes = resizable_data.as_ref(app).get_all_handles(window_id);
-
-                let left_panel_width = modal_sizes.map(|ms| {
-                    ms.left_panel_width
-                        .lock()
-                        .expect("should be able to lock left panel handle")
-                        .size()
-                });
-
                 let pane_group = pane_group_view.as_ref(app);
                 let root = pane_group.snapshot(app);
-                let left_panel =
-                    self.compute_left_panel_snapshot(pane_group_view, left_panel_width, app);
+
                 TabSnapshot {
                     root,
                     custom_title: pane_group.custom_title(app),
@@ -5614,8 +4535,6 @@ impl Workspace {
                         .tabs
                         .get(tab_index)
                         .map_or(SelectedTabColor::Unset, |tab| tab.selected_color),
-                    left_panel,
-                    right_panel: None,
                 }
             })
             .collect();
@@ -5631,27 +4550,6 @@ impl Workspace {
                 .size()
         });
 
-        let voltron_width = modal_sizes.map(|ms| {
-            ms.voltron_width
-                .lock()
-                .expect("should be able to lock voltron resizable state handle")
-                .size()
-        });
-
-        let left_panel_width = modal_sizes.map(|ms| {
-            ms.left_panel_width
-                .lock()
-                .map(|guard| guard.size())
-                .unwrap_or(DEFAULT_LEFT_PANEL_WIDTH)
-        });
-
-        let right_panel_width = modal_sizes.map(|ms| {
-            ms.right_panel_width
-                .lock()
-                .map(|guard| guard.size())
-                .unwrap_or(DEFAULT_RIGHT_PANEL_WIDTH)
-        });
-
         WindowSnapshot {
             tabs,
             active_tab_index,
@@ -5659,59 +4557,8 @@ impl Workspace {
             fullscreen_state: window_fullscreen_state,
             quake_mode,
             universal_search_width,
-            voltron_width,
-            left_panel_open: self.left_panel_open,
             vertical_tabs_panel_open: self.vertical_tabs_panel_open,
-            left_panel_width,
-            right_panel_width,
         }
-    }
-
-    fn compute_left_panel_snapshot(
-        &self,
-        pane_group: &ViewHandle<PaneGroup>,
-        left_panel_width: Option<f32>,
-        app: &AppContext,
-    ) -> Option<LeftPanelSnapshot> {
-        let pane_group_ref = pane_group.as_ref(app);
-        if !pane_group_ref.left_panel_open {
-            return None;
-        }
-
-        let pane_group_id = pane_group.id();
-
-        self.left_panel_view.read(app, |lp, _| {
-            Some(LeftPanelSnapshot {
-                left_panel_displayed_tab: lp.active_view().into(),
-                pane_group_id: pane_group_id.to_string(),
-                width: left_panel_width.unwrap_or(DEFAULT_LEFT_PANEL_WIDTH) as usize,
-            })
-        })
-    }
-
-    pub fn open_launch_config_save_modal(&mut self, ctx: &mut ViewContext<Self>) {
-        self.close_palette(true, None, ctx); // close palettes if any are open
-        self.launch_config_save_modal.open();
-        self.current_workspace_state
-            .is_launch_config_save_modal_open = true;
-
-        self.launch_config_save_modal.view.update(ctx, |view, ctx| {
-            view.set_snapshot_source(ctx);
-            view.reset_editor(ctx); // placeholder and clear editor
-            ctx.notify();
-        });
-
-        self.tips_completed.update(ctx, |tips_completed, ctx| {
-            mark_feature_used_and_write_to_user_defaults(
-                Tip::Action(TipAction::SaveNewLaunchConfig),
-                tips_completed,
-                ctx,
-            );
-            ctx.notify();
-        });
-
-        ctx.focus(&self.launch_config_save_modal.view);
-        ctx.notify();
     }
 
     pub fn cycle_prev_session(&mut self, ctx: &mut ViewContext<Self>) {
@@ -5845,7 +4692,6 @@ impl Workspace {
         }
 
         if detach_panes_for_close {
-            let working_directories_model = self.working_directories_model.clone();
             tab_data.pane_group.update(ctx, |pane_group, ctx| {
                 pane_group.for_all_terminal_panes(
                     |terminal_view, ctx| {
@@ -5862,7 +4708,7 @@ impl Workspace {
                     ctx,
                 );
 
-                pane_group.detach_panes_for_close(&working_directories_model, ctx);
+                pane_group.detach_panes(ctx);
             });
         }
 
@@ -5926,9 +4772,8 @@ impl Workspace {
 
         let placeholder_pane_group =
             std::mem::replace(&mut placeholder_tab.pane_group, new_pane_group);
-        let working_directories_model = self.working_directories_model.clone();
         placeholder_pane_group.update(ctx, |pg, ctx| {
-            pg.detach_panes_for_close(&working_directories_model, ctx);
+            pg.detach_panes(ctx);
         });
         self.pending_pane_group_transfer = false;
 
@@ -6081,50 +4926,6 @@ impl Workspace {
         }
     }
 
-    /// Closes all tabs that have code panes with the specified file path open.
-    /// This is used when a file is renamed or deleted in the file tree
-    #[cfg(feature = "local_fs")]
-    fn close_tabs_with_file_path(&mut self, old_path: &Path, ctx: &mut ViewContext<Self>) {
-        // Find all code panes across all tabs that have this file open
-        for tab_data in &self.tabs {
-            // Check if this tab has any code panes with the old file path open
-            tab_data.pane_group.update(ctx, |pane_group, ctx| {
-                // Collect code panes first to avoid borrowing issues
-                let code_panes: Vec<_> = pane_group.code_panes(ctx).collect();
-                for (_, code_pane) in code_panes {
-                    code_pane.update(ctx, |code_view, ctx| {
-                        code_view.close_tabs_with_path(old_path, ctx);
-                    });
-                }
-            });
-        }
-
-        ctx.notify();
-    }
-
-    /// Renames all open code tabs that point to `old_path` to now point to `new_path`,
-    /// updating their contents in-place rather than closing them.
-    #[cfg(feature = "local_fs")]
-    fn rename_tabs_with_file_path(
-        &mut self,
-        old_path: &Path,
-        new_path: &Path,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        for tab_data in &self.tabs {
-            tab_data.pane_group.update(ctx, |pane_group, ctx| {
-                // Collect code panes first to avoid borrowing issues
-                let code_panes: Vec<_> = pane_group.code_panes(ctx).collect();
-                for (_, code_pane) in code_panes {
-                    code_pane.update(ctx, |code_view, ctx| {
-                        code_view.rename_tabs_with_path(old_path, new_path, ctx);
-                    });
-                }
-            });
-        }
-        ctx.notify();
-    }
-
     /// Update this workspace when it is reopened after being closed.
     pub fn handle_reopen(&mut self, ctx: &mut ViewContext<Self>) {
         self.sync_window_button_visibility(ctx);
@@ -6154,48 +4955,8 @@ impl Workspace {
         ctx.notify();
     }
 
-    pub fn add_terminal_tab(&mut self, hide_homepage: bool, ctx: &mut ViewContext<Self>) {
-        self.add_new_session_tab_internal(
-            NewSessionSource::Tab,
-            Some(ctx.window_id()),
-            None,
-            hide_homepage,
-            ctx,
-        );
-        ctx.notify();
-    }
-
-    fn add_welcome_tab(&mut self, ctx: &mut ViewContext<Self>) {
-        let startup_directory = self.get_new_tab_startup_directory(
-            NewSessionSource::Tab,
-            Some(ctx.window_id()),
-            None,
-            ctx,
-        );
-        self.add_tab_with_pane_layout(
-            PanesLayout::Snapshot(Box::new(PaneNodeSnapshot::Leaf(LeafSnapshot {
-                is_focused: true,
-                custom_vertical_tabs_title: None,
-                contents: LeafContents::Welcome { startup_directory },
-            }))),
-            Arc::new(HashMap::new()),
-            None,
-            ctx,
-        );
-        ctx.notify();
-    }
-
-    fn add_get_started_tab(&mut self, ctx: &mut ViewContext<Self>) {
-        self.add_tab_with_pane_layout(
-            PanesLayout::Snapshot(Box::new(PaneNodeSnapshot::Leaf(LeafSnapshot {
-                is_focused: true,
-                custom_vertical_tabs_title: None,
-                contents: LeafContents::GetStarted,
-            }))),
-            Arc::new(HashMap::new()),
-            None,
-            ctx,
-        );
+    pub fn add_terminal_tab(&mut self, ctx: &mut ViewContext<Self>) {
+        self.add_new_session_tab_internal(NewSessionSource::Tab, Some(ctx.window_id()), None, ctx);
         ctx.notify();
     }
 
@@ -6205,7 +4966,6 @@ impl Workspace {
             NewSessionSource::Tab,
             Some(ctx.window_id()),
             Some(shell),
-            false,
             ctx,
         );
         ctx.notify();
@@ -6217,7 +4977,6 @@ impl Workspace {
         new_session_source: NewSessionSource,
         previous_session_window_id: Option<WindowId>,
         chosen_shell: Option<AvailableShell>,
-        hide_homepage: bool,
         ctx: &mut ViewContext<Self>,
     ) {
         let startup_directory = self.get_new_tab_startup_directory(
@@ -6231,7 +4990,6 @@ impl Workspace {
             PanesLayout::SingleTerminal(Box::new(NewTerminalOptions {
                 shell: chosen_shell,
                 initial_directory: startup_directory,
-                hide_homepage,
                 ..Default::default()
             })),
             Arc::new(HashMap::new()),
@@ -6247,14 +5005,6 @@ impl Workspace {
         custom_tab_title: Option<String>,
         ctx: &mut ViewContext<Self>,
     ) {
-        // Remember whether the left panel was open on the current active pane group
-        // before creating a new active pane group.
-        let left_panel_was_open = if self.tabs.is_empty() {
-            false
-        } else {
-            self.active_tab_pane_group().as_ref(ctx).left_panel_open
-        };
-
         // Capture the active tab's colors before creating the new tab.
         let active_tab = self.tabs.get(self.active_tab_index);
         let active_tab_selected_color = active_tab.map(|tab| tab.selected_color);
@@ -6279,7 +5029,7 @@ impl Workspace {
         });
 
         ctx.subscribe_to_view(&new_pane_group, move |me, pane_group, event, ctx| {
-            me.handle_file_tree_event(pane_group, event, ctx)
+            me.handle_pane_group_event(pane_group, event, ctx)
         });
 
         let new_tab_placement_setting = TabSettings::as_ref(ctx).new_tab_placement;
@@ -6325,14 +5075,6 @@ impl Workspace {
                 }
             }
         }
-
-        // If the previous tab's left panel was open, maintain that state with the new tab
-        // (unless we're restoring the tab from a persisted snapshot).
-        if !is_restoration && left_panel_was_open {
-            self.active_tab_pane_group().update(ctx, |pg, ctx| {
-                pg.set_left_panel_open(true, ctx);
-            });
-        }
     }
 
     pub fn add_tab_from_existing_pane(
@@ -6352,7 +5094,7 @@ impl Workspace {
             )
         });
         ctx.subscribe_to_view(&new_pane_group, move |me, pane_group, event, ctx| {
-            me.handle_file_tree_event(pane_group, event, ctx)
+            me.handle_pane_group_event(pane_group, event, ctx)
         });
 
         if self.tab_count() == 0 {
@@ -6362,167 +5104,6 @@ impl Workspace {
             self.tabs.insert(new_idx, TabData::new(new_pane_group));
             self.activate_tab_internal(new_idx, ctx);
         }
-    }
-
-    /// Add a tab with a file notebook pane open.
-    pub fn add_tab_for_file_notebook(
-        &mut self,
-        file_path: Option<PathBuf>,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        let panes_layout = PanesLayout::Snapshot(Box::new(PaneNodeSnapshot::Leaf(LeafSnapshot {
-            is_focused: true,
-            custom_vertical_tabs_title: None,
-            contents: LeafContents::Notebook(NotebookPaneSnapshot::LocalFileNotebook {
-                path: file_path,
-            }),
-        })));
-        self.add_tab_with_pane_layout(panes_layout, Arc::new(HashMap::new()), None, ctx);
-    }
-
-    /// Add a tab with a code pane open for the specified file.
-    pub fn add_tab_for_code_file(
-        &mut self,
-        file_path: PathBuf,
-        line_and_column: Option<LineAndColumnArg>,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        let source = CodeSource::Link {
-            path: file_path,
-            range_start: None,
-            range_end: None,
-        };
-        let pane = CodePane::new(source, line_and_column, ctx);
-
-        let new_tab_placement_setting = TabSettings::as_ref(ctx).new_tab_placement;
-        let new_idx = match new_tab_placement_setting {
-            NewTabPlacement::AfterAllTabs => self.tab_count(),
-            NewTabPlacement::AfterCurrentTab => self.active_tab_index + 1,
-        };
-        self.add_tab_from_existing_pane(Box::new(pane), new_idx, ctx);
-    }
-
-    pub fn add_tab_for_new_code_file(&mut self, ctx: &mut ViewContext<Self>) {
-        #[cfg(feature = "local_fs")]
-        {
-            let default_directory = self
-                .active_session_view(ctx)
-                .and_then(|view| view.as_ref(ctx).pwd())
-                .map(PathBuf::from)
-                .or_else(dirs::home_dir);
-            let source = CodeSource::New { default_directory };
-
-            let layout = *EditorSettings::as_ref(ctx).open_file_layout.value();
-
-            // Check if we can add the new file to an existing code pane (when using split pane
-            // layout).
-            if layout == EditorLayout::SplitPane
-                && FeatureFlag::TabbedEditorView.is_enabled()
-                && *EditorSettings::as_ref(ctx)
-                    .prefer_tabbed_editor_view
-                    .value()
-            {
-                let code_view = self
-                    .active_tab_pane_group()
-                    .as_ref(ctx)
-                    .code_panes(ctx)
-                    .find(|(pane_id, _)| {
-                        !self
-                            .active_tab_pane_group()
-                            .as_ref(ctx)
-                            .is_pane_hidden_for_close(*pane_id)
-                    });
-
-                if let Some((pane_id, code_view)) = code_view {
-                    code_view.update(ctx, |code_view, ctx| {
-                        code_view.open_or_focus_existing(None, None, ctx);
-                    });
-                    self.active_tab_pane_group().update(ctx, |pane_group, ctx| {
-                        pane_group.focus_pane(pane_id, true, ctx);
-                    });
-                    return;
-                }
-            }
-
-            let pane = CodePane::new(source, None, ctx);
-
-            match layout {
-                EditorLayout::NewTab => {
-                    let new_tab_placement_setting = TabSettings::as_ref(ctx).new_tab_placement;
-                    let new_idx = match new_tab_placement_setting {
-                        NewTabPlacement::AfterAllTabs => self.tab_count(),
-                        NewTabPlacement::AfterCurrentTab => self.active_tab_index + 1,
-                    };
-                    self.add_tab_from_existing_pane(Box::new(pane), new_idx, ctx);
-                }
-                EditorLayout::SplitPane => {
-                    self.active_tab_pane_group().update(ctx, |pane_group, ctx| {
-                        pane_group.add_pane_with_direction(
-                            Direction::Right,
-                            pane,
-                            true, /* focus_new_pane */
-                            ctx,
-                        );
-                    });
-                }
-            }
-        }
-
-        #[cfg(not(feature = "local_fs"))]
-        {
-            let _ = ctx;
-            // Code file functionality is not available without local_fs feature
-            log::warn!("NewCodeFile action called but local_fs feature is not enabled");
-        }
-    }
-
-    fn open_repository(&mut self, path: Option<&str>, ctx: &mut ViewContext<Self>) {
-        match path {
-            Some(path) => self.handle_open_repository(path, ctx),
-            None => ctx.open_file_picker(
-                |result, ctx| match result {
-                    Ok(paths) => {
-                        let Some(path) = paths.into_iter().next() else {
-                            return;
-                        };
-
-                        if let Some(handle) = ctx.handle().upgrade(ctx) {
-                            handle.update(ctx, |workspace, ctx| {
-                                workspace.handle_open_repository(&path, ctx);
-                            });
-                        }
-                    }
-                    Err(err) => {
-                        let window_id = ctx.window_id();
-                        ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
-                            toast_stack.add_ephemeral_toast(
-                                DismissibleToast::error(format!("{err}")),
-                                window_id,
-                                ctx,
-                            );
-                        });
-                    }
-                },
-                FilePickerConfiguration::new().folders_only(),
-            ),
-        }
-    }
-
-    fn handle_open_repository(&mut self, path: &str, ctx: &mut ViewContext<Self>) {
-        let path_buf = PathBuf::from(path);
-        ProjectManagementModel::handle(ctx).update(ctx, |projects, ctx| {
-            projects.upsert_project(path_buf.clone(), ctx);
-        });
-        self.add_tab_with_pane_layout(
-            PanesLayout::SingleTerminal(Box::new(NewTerminalOptions {
-                initial_directory: Some(path_buf.clone()),
-                hide_homepage: true,
-                ..Default::default()
-            })),
-            Arc::new(HashMap::new()),
-            None,
-            ctx,
-        );
     }
 
     /// Handle a tab being dragged
@@ -6816,26 +5397,6 @@ impl Workspace {
         });
     }
 
-    fn open_files_palette(&mut self, ctx: &mut ViewContext<Self>) {
-        self.tips_completed.update(ctx, |tips_completed, ctx| {
-            mark_feature_used_and_write_to_user_defaults(
-                Tip::Action(TipAction::CommandPalette),
-                tips_completed,
-                ctx,
-            );
-            ctx.notify();
-        });
-
-        self.palette.update(ctx, |view, ctx| {
-            view.reset(ctx);
-            // Reset mixer with correct file data source before setting filter
-            let mixer = view.search_bar.as_ref(ctx).mixer().clone();
-            view.data_source_store.update(ctx, |store, ctx| {
-                store.reset_search_mixer(mixer, ctx);
-            });
-            view.set_active_query_filter(QueryFilter::Files, ctx);
-        });
-    }
     fn set_command_palette_binding_source(
         &mut self,
         source: PaletteSource,
@@ -6924,13 +5485,6 @@ impl Workspace {
         self.set_navigation_palette_session_source(source, ctx);
     }
 
-    fn open_launch_config_palette(&mut self, ctx: &mut ViewContext<Self>) {
-        self.palette.update(ctx, |view, ctx| {
-            view.reset(ctx);
-            view.set_active_query_filter(QueryFilter::LaunchConfigurations, ctx);
-        });
-    }
-
     fn close_palette(
         &mut self,
         focus_active_tab: bool,
@@ -7004,8 +5558,6 @@ impl Workspace {
                 } => self.open_ctrl_tab_palette(shift_pressed_initially, ctx),
                 _ => self.open_navigation_palette(ctx),
             },
-            PaletteMode::LaunchConfig => self.open_launch_config_palette(ctx),
-            PaletteMode::Files => self.open_files_palette(ctx),
         }
 
         ctx.focus(&self.palette);
@@ -7066,40 +5618,6 @@ impl Workspace {
             CommandPaletteEvent::Close {
                 accepted_action_type,
             } => self.close_palette(true, *accepted_action_type, ctx),
-            CommandPaletteEvent::ExecuteWorkflow { .. }
-            | CommandPaletteEvent::InvokeEnvironmentVariables { .. } => {}
-            CommandPaletteEvent::OpenNotebook { .. } => {}
-            #[allow(unused_variables)]
-            CommandPaletteEvent::OpenFile {
-                path,
-                line_and_column_arg,
-            } => {
-                #[cfg(feature = "local_fs")]
-                self.open_code(
-                    CodeSource::Link {
-                        path: path.clone().into(),
-                        range_start: None,
-                        range_end: None,
-                    },
-                    *EditorSettings::as_ref(ctx).open_file_layout.value(),
-                    *line_and_column_arg,
-                    false, // preview
-                    &[],
-                    ctx,
-                );
-            }
-            CommandPaletteEvent::OpenDirectory { path } => {
-                let active_terminal_view = self
-                    .active_tab_pane_group()
-                    .as_ref(ctx)
-                    .active_session_view(ctx);
-
-                if let Some(terminal_view) = active_terminal_view {
-                    terminal_view.update(ctx, |terminal_view, ctx| {
-                        terminal_view.open_repo_folder(path.to_string(), ctx);
-                    });
-                }
-            }
         }
     }
 
@@ -7116,10 +5634,6 @@ impl Workspace {
             || self.current_workspace_state.is_ctrl_tab_palette_open
     }
 
-    pub fn is_left_panel_open(&self, ctx: &AppContext) -> bool {
-        self.active_tab_pane_group().as_ref(ctx).left_panel_open
-    }
-
     fn handle_settings_pane_event(
         &mut self,
         event: &SettingsViewEvent,
@@ -7133,57 +5647,10 @@ impl Workspace {
                         .add_ephemeral_toast(DismissibleToast::new(message.clone(), *flavor), ctx);
                 });
             }
-
-            SettingsViewEvent::OpenLspLogs { log_path } => {
-                self.open_lsp_logs(log_path, ctx);
-            }
         }
     }
 
-    fn refresh_working_directories_for_pane_group(
-        &mut self,
-        pane_group: &ViewHandle<PaneGroup>,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        let pane_group_id = pane_group.id();
-        let terminal_cwds: Vec<(EntityId, String)> = pane_group
-            .as_ref(ctx)
-            .terminal_view_working_directories(ctx)
-            .filter_map(|(id, cwd)| cwd.map(|c| (id, c)))
-            .collect();
-        let code_local_paths: Vec<(EntityId, String)> = pane_group
-            .as_ref(ctx)
-            .code_view_local_paths(ctx)
-            .filter_map(|(id, cwd)| cwd.map(|c| (id, c)))
-            .collect();
-        let notebook_local_paths: Vec<(EntityId, String)> = pane_group
-            .as_ref(ctx)
-            .file_notebook_local_paths(ctx)
-            .filter_map(|(id, cwd)| cwd.map(|c| (id, c)))
-            .collect();
-        let local_paths: Vec<(EntityId, String)> = code_local_paths
-            .into_iter()
-            .chain(notebook_local_paths)
-            .collect();
-
-        // Get the focused terminal ID to prioritize it in the repo_to_terminal map
-        let focused_terminal_id = pane_group
-            .as_ref(ctx)
-            .active_session_view(ctx)
-            .map(|terminal_view| terminal_view.id());
-
-        self.working_directories_model.update(ctx, |model, ctx| {
-            model.refresh_working_directories_for_pane_group(
-                pane_group_id,
-                terminal_cwds,
-                local_paths,
-                focused_terminal_id,
-                ctx,
-            );
-        });
-    }
-
-    fn handle_file_tree_event(
+    fn handle_pane_group_event(
         &mut self,
         pane_group: ViewHandle<PaneGroup>,
         event: &pane_group::Event,
@@ -7192,7 +5659,6 @@ impl Workspace {
         match event {
             pane_group::Event::AppStateChanged => {
                 ctx.dispatch_global_action("workspace:save_app", ());
-                self.refresh_working_directories_for_pane_group(&pane_group, ctx);
                 self.update_resource_center_action_target(ctx);
                 self.update_active_session(ctx);
 
@@ -7294,9 +5760,6 @@ impl Workspace {
             pane_group::Event::TerminalViewStateChanged => ctx.notify(),
 
             pane_group::Event::ExecuteCommand(_) => ctx.notify(),
-            pane_group::Event::OpenWorkflowModalWithCommand(_)
-            | pane_group::Event::OpenLocalWorkflowForEdit(_)
-            | pane_group::Event::OpenWorkflowModalWithTemporary(_) => {}
 
             pane_group::Event::OpenPromptEditor => {
                 self.open_prompt_editor(ctx);
@@ -7306,34 +5769,6 @@ impl Workspace {
                 self.open_agent_toolbar_editor(ctx);
             }
 
-            #[cfg_attr(not(feature = "local_fs"), allow(unused_variables))]
-            pane_group::Event::OpenFileInWarp { path, session } => {
-                #[cfg(feature = "local_fs")]
-                {
-                    let layout = *EditorSettings::as_ref(ctx).open_file_layout.value();
-                    self.open_file_notebook(path.clone(), Some(session.clone()), layout, ctx);
-                }
-            }
-            #[cfg(feature = "local_fs")]
-            pane_group::Event::OpenCodeInWarp {
-                source,
-                layout,
-                line_col,
-            } => {
-                self.open_code(source.clone(), *layout, *line_col, false, &[], ctx);
-            }
-            #[cfg(feature = "local_fs")]
-            pane_group::Event::PreviewCodeInWarp { source } => {
-                self.open_code(
-                    source.clone(),
-                    EditorLayout::SplitPane, // preview always uses split pane
-                    None,                    // no line/column for preview
-                    true,                    // preview
-                    &[],
-                    ctx,
-                );
-            }
-
             pane_group::Event::CDToDirectory { path } => {
                 self.cd_to_directory(path.clone(), ctx);
             }
@@ -7341,22 +5776,6 @@ impl Workspace {
                 self.open_directory_in_new_tab(path.clone(), ctx);
             }
 
-            pane_group::Event::RunWorkflow {
-                workflow,
-                workflow_source,
-                workflow_selection_source,
-                argument_override,
-            } => {
-                self.run_workflow_in_active_input(
-                    workflow,
-                    workflow_source.clone(),
-                    *workflow_selection_source,
-                    argument_override.clone(),
-                    TerminalSessionFallbackBehavior::default(),
-                    ctx,
-                );
-            }
-            pane_group::Event::InvokeEnvVarCollection { .. } => {}
             pane_group::Event::MaximizePaneToggled => {
                 ctx.notify();
             }
@@ -7395,7 +5814,6 @@ impl Workspace {
                 // Focus an existing pane by its locator (used when avoiding duplicate file panes during undo close pane)
                 self.focus_pane(*locator, ctx);
             }
-            // If focused pane contains an object, then set selected state in WD to that object
             pane_group::Event::PaneFocused => {
                 self.current_workspace_state.close_all_modals();
 
@@ -7403,8 +5821,6 @@ impl Workspace {
                 self.update_pane_dimming_for_current_focus_region(ctx);
             }
             pane_group::Event::RepoChanged => {
-                self.refresh_working_directories_for_pane_group(&pane_group, ctx);
-
                 if FeatureFlag::DirectoryTabColors.is_enabled() {
                     if let Some(tab) = self
                         .tabs
@@ -7415,63 +5831,21 @@ impl Workspace {
                     }
                 }
             }
-            #[cfg(feature = "local_fs")]
-            pane_group::Event::RemoteRepoNavigated {
-                host_id,
-                indexed_path,
-            } => {
-                use warp_util::standardized_path::StandardizedPath;
-
-                if let Ok(std_path) = StandardizedPath::try_new(indexed_path) {
-                    let remote_id = RemoteRepositoryIdentifier::new(host_id.clone(), std_path);
-                    let pane_group_id = pane_group.id();
-                    if let Some(file_tree_view) = self
-                        .working_directories_model
-                        .as_ref(ctx)
-                        .get_file_tree_view(pane_group_id)
-                    {
-                        file_tree_view.update(ctx, |view, ctx| {
-                            view.set_remote_root_directories(std::slice::from_ref(&remote_id), ctx);
-                        });
-                    }
-                }
-            }
-            #[cfg(not(feature = "local_fs"))]
-            pane_group::Event::RemoteRepoNavigated { .. } => {}
-            pane_group::Event::DroppedOnTabBar { origin, pane_id } => {
-                if let Some(hovered_tab_index) = self.hovered_tab_index {
-                    match hovered_tab_index {
-                        TabBarHoverIndex::BeforeTab(workspace_tab_index) => {
-                            // If an editor tab is dropped into a new position in the workspace tab group,
-                            // create a new pane and insert it into the group.
-                            let pane = if let ActionOrigin::EditorTab(editor_tab_index) = origin {
-                                pane_group.update(ctx, |pane_group, ctx| {
-                                    pane_group.remove_editor_tab_for_move(
-                                        *pane_id,
-                                        *editor_tab_index,
-                                        ctx,
-                                    )
-                                })
-                            } else {
-                                // Otherwise, move the existing pane's contents into the workspace tab group.
-                                pane_group.update(ctx, |pane_group, ctx| {
-                                    pane_group.remove_pane_for_move(pane_id, ctx)
-                                })
-                            };
-
-                            if let Some(pane) = pane {
-                                self.add_tab_from_existing_pane(pane, workspace_tab_index, ctx);
-
-                                // If the setting is enabled, preserve the color of the original pane's
-                                // tab for the newly created tab.
-                                if *TabSettings::as_ref(ctx).preserve_active_tab_color.value() {
-                                    if let Some(source_tab) = self
-                                        .tabs
-                                        .iter()
-                                        .find(|t| t.pane_group.id() == pane_group.id())
-                                    {
-                                        let selected = source_tab.selected_color;
-                                        let default = source_tab.default_directory_color;
+            pane_group::Event::DroppedOnTabBar { origin: _, pane_id } => {
+                if let Some(hovered) = self.hovered_tab_index {
+                    match hovered {
+                        TabBarHoverIndex::BeforeTab(index) => {
+                            let source_color = self
+                                .tabs
+                                .iter()
+                                .find(|tab| tab.pane_group.id() == pane_group.id())
+                                .map(|tab| (tab.selected_color, tab.default_directory_color));
+                            if let Some(pane) = pane_group
+                                .update(ctx, |group, ctx| group.remove_pane_for_move(pane_id, ctx))
+                            {
+                                self.add_tab_from_existing_pane(pane, index, ctx);
+                                if *TabSettings::as_ref(ctx).preserve_active_tab_color {
+                                    if let Some((selected, default)) = source_color {
                                         self.tabs[self.active_tab_index].selected_color = selected;
                                         self.tabs[self.active_tab_index].default_directory_color =
                                             default;
@@ -7479,140 +5853,9 @@ impl Workspace {
                                 }
                             }
                         }
-                        TabBarHoverIndex::OverTab(workspace_tab_index) => {
-                            {
-                                let prefers_tabbed_editor_view = FeatureFlag::TabbedEditorView
-                                    .is_enabled()
-                                    && *EditorSettings::as_ref(ctx)
-                                        .prefer_tabbed_editor_view
-                                        .value();
-
-                                let target_pane_group =
-                                    self.get_pane_group_view(workspace_tab_index);
-                                let target_code_view = target_pane_group.and_then(|pane_group| {
-                                    pane_group
-                                        .as_ref(ctx)
-                                        .code_panes(ctx)
-                                        .next()
-                                        .map(|(_, view)| view)
-                                });
-
-                                if let ActionOrigin::EditorTab(editor_tab_index) = origin {
-                                    // If the target pane group has an existing editor view, we want to open the dragged file as a tab in it.
-                                    if let Some(target_code_view) = target_code_view {
-                                        // If an editor tab is dropped onto its originating workspace tab, ensure that tab becomes the active editor within that workspace tab.
-                                        if self.active_tab_index() == workspace_tab_index {
-                                            target_code_view.update(ctx, |view, ctx| {
-                                                view.set_active_tab_index(*editor_tab_index, ctx);
-                                            });
-                                            return;
-                                        }
-
-                                        let moved_file_path =
-                                            pane_group.update(ctx, |pane_group, ctx| {
-                                                pane_group.code_pane_by_id(*pane_id).and_then(
-                                                    |pane| {
-                                                        pane.file_view(ctx).update(
-                                                            ctx,
-                                                            |file_view, ctx| {
-                                                                let moved_file_path = file_view
-                                                                    .tab_at(*editor_tab_index)
-                                                                    .and_then(|t| t.path());
-
-                                                                file_view.remove_tab_for_move(
-                                                                    *editor_tab_index,
-                                                                    ctx,
-                                                                );
-
-                                                                moved_file_path
-                                                            },
-                                                        )
-                                                    },
-                                                )
-                                            });
-
-                                        // After removing the file from the origin's editor, we want to open it in the target's editor.
-                                        if let Some(path) = moved_file_path {
-                                            target_code_view.update(ctx, |view, ctx| {
-                                                view.open_or_focus_existing(Some(path), None, ctx);
-                                            });
-                                        }
-                                        return;
-                                    } else if let Some(target_pane_group) = target_pane_group {
-                                        // Otherwise, we want to open the dragged file in a new editor pane in the hovered tab's pane group.
-                                        pane_group.update(ctx, |pane_group, ctx| {
-                                            pane_group
-                                                .code_pane_by_id(*pane_id)
-                                                .and_then(|pane| {
-                                                    pane.file_view(ctx).update(
-                                                        ctx,
-                                                        |file_view, ctx| {
-                                                            file_view.remove_tab_for_move(
-                                                                *editor_tab_index,
-                                                                ctx,
-                                                            )
-                                                        },
-                                                    )
-                                                })
-                                                .map(|new_pane| {
-                                                    target_pane_group.update(
-                                                        ctx,
-                                                        |pane_group, ctx| {
-                                                            pane_group.add_pane_with_direction(
-                                                                Direction::Right,
-                                                                new_pane,
-                                                                true, /* focus_new_pane */
-                                                                ctx,
-                                                            );
-                                                        },
-                                                    );
-                                                })
-                                        });
-                                    }
-
-                                    self.set_active_tab_index(workspace_tab_index, ctx);
-                                    return;
-                                } else if prefers_tabbed_editor_view
-                                    && pane_id.is_code_pane()
-                                    && target_code_view.is_some()
-                                    && self.active_tab_index() != workspace_tab_index
-                                {
-                                    // If a CodePane is dropped onto a tab with another CodePane and grouping is enabled, we want to merge them.
-                                    if let Some(target_code_view) = target_code_view.as_ref() {
-                                        pane_group.update(ctx, |pane_group, ctx| {
-                                            if let Some(pane) = pane_group.code_pane_by_id(*pane_id)
-                                            {
-                                                pane.file_view(ctx).update(
-                                                    ctx,
-                                                    |source_file_view, ctx| {
-                                                        target_code_view.update(
-                                                            ctx,
-                                                            |target_code_view, ctx| {
-                                                                target_code_view.merge_tabs(
-                                                                    source_file_view,
-                                                                    ctx,
-                                                                );
-                                                            },
-                                                        );
-                                                    },
-                                                );
-                                                pane_group.remove_pane_for_move(pane_id, ctx);
-                                            }
-                                        });
-                                    }
-                                    self.set_active_tab_index(workspace_tab_index, ctx);
-                                    return;
-                                }
-                            }
-
-                            #[allow(unreachable_code)]
-                            // Otherwise, we want to perform a left split on the root.
-                            pane_group.update(ctx, |pane_group, ctx| {
-                                pane_group.move_pane_with_root_split(
-                                    *pane_id,
-                                    Direction::Left,
-                                    ctx,
-                                );
+                        TabBarHoverIndex::OverTab(_) => {
+                            pane_group.update(ctx, |group, ctx| {
+                                group.move_pane_with_root_split(*pane_id, Direction::Left, ctx)
                             });
                         }
                     }
@@ -7623,41 +5866,16 @@ impl Workspace {
                 pane_id,
                 hidden_pane_preview_direction,
             } => {
-                #[cfg(feature = "local_fs")]
-                let prefers_tabbed_editor_view = FeatureFlag::TabbedEditorView.is_enabled()
-                    && *EditorSettings::as_ref(ctx)
-                        .prefer_tabbed_editor_view
-                        .value();
-
-                #[cfg(not(feature = "local_fs"))]
-                let prefers_tabbed_editor_view = false;
-
-                // If a code pane is being dragged over a workspace tab with an existing code pane,
-                // we don't allow it to be placed freely. Instead, it should be merged into the existing
-                // code pane in the target tab (handled above in the OverTab case).
-                let should_not_move_pane = prefers_tabbed_editor_view
-                    && pane_id.is_code_pane()
-                    && self
-                        .get_pane_group_view(*tab_idx)
-                        .map(|target_pane_group| {
-                            target_pane_group.read(ctx, |pane_group, _| pane_group.has_code_panes())
-                        })
-                        .unwrap_or(false);
-
-                // If we are already on this tab, then we should just make sure the pane is hidden.
-                if self.active_tab_index() == *tab_idx || should_not_move_pane {
-                    pane_group.update(ctx, |pane_group, ctx| {
-                        pane_group.hide_pane_for_move(*pane_id, ctx)
-                    });
+                if self.active_tab_index() == *tab_idx {
+                    pane_group.update(ctx, |group, ctx| group.hide_pane_for_move(*pane_id, ctx));
                     return;
-                };
-
-                if let Some(pane) = pane_group.update(ctx, |pane_group, ctx| {
-                    pane_group.remove_pane_for_move(pane_id, ctx)
-                }) {
+                }
+                if let Some(pane) =
+                    pane_group.update(ctx, |group, ctx| group.remove_pane_for_move(pane_id, ctx))
+                {
                     self.set_active_tab_index(*tab_idx, ctx);
-                    self.active_tab_pane_group().update(ctx, |pane_group, ctx| {
-                        pane_group.add_pane_as_hidden(pane, *hidden_pane_preview_direction, ctx)
+                    self.active_tab_pane_group().update(ctx, |group, ctx| {
+                        group.add_pane_as_hidden(pane, *hidden_pane_preview_direction, ctx)
                     });
                 }
             }
@@ -7820,73 +6038,13 @@ impl Workspace {
                 self.show_theme_chooser_for_custom_theme(ctx);
             }
 
-            pane_group::Event::OpenFilesPalette { source } => {
-                self.open_palette_action(PaletteMode::Files, *source, None, ctx);
-            }
-            pane_group::Event::ToggleLeftPanel {
-                target_view: _,
-                force_open,
-            } => {
-                let is_target_active = self
-                    .left_panel_view
-                    .read(ctx, |left_panel, _| left_panel.is_file_tree_active());
-
-                if self.active_tab_pane_group().as_ref(ctx).left_panel_open && is_target_active {
-                    // No-op if we are forcing the target to open when it is already active.
-                    if !*force_open {
-                        self.toggle_left_panel(ctx);
-                    }
-                } else {
-                    if !self.active_tab_pane_group().as_ref(ctx).left_panel_open {
-                        self.toggle_left_panel(ctx);
-                    }
-                    self.left_panel_view.update(ctx, |left_panel, ctx| {
-                        left_panel.handle_action_with_force_open(
-                            &LeftPanelAction::ProjectExplorer,
-                            *force_open,
-                            ctx,
-                        );
-                    });
-                }
-            }
             #[cfg(feature = "local_fs")]
             pane_group::Event::OpenFileWithTarget {
                 path,
                 target,
                 line_col,
             } => {
-                self.open_file_with_target(
-                    path.clone(),
-                    target.clone(),
-                    *line_col,
-                    CodeSource::Link {
-                        path: path.clone(),
-                        range_start: None,
-                        range_end: None,
-                    },
-                    ctx,
-                );
-            }
-            #[cfg(feature = "local_fs")]
-            pane_group::Event::FileRenamed { old_path, new_path } => {
-                self.rename_tabs_with_file_path(old_path, new_path, ctx);
-            }
-            #[cfg(feature = "local_fs")]
-            pane_group::Event::FileDeleted { path } => {
-                self.close_tabs_with_file_path(path, ctx);
-            }
-
-            pane_group::Event::OpenLspLogs { log_path } => {
-                self.open_lsp_logs(log_path, ctx);
-            }
-            pane_group::Event::LeftPanelToggled { is_open } => {
-                // Only handle visibility changes from the active pane group.
-                if pane_group.id() == self.active_tab_pane_group().id() {
-                    self.left_panel_open = *is_open;
-                    self.left_panel_view.update(ctx, |left_panel, ctx| {
-                        left_panel.on_left_panel_visibility_changed(*is_open, ctx);
-                    });
-                }
+                self.open_file_with_target(path.clone(), target.clone(), *line_col, ctx);
             }
         }
     }
@@ -7959,10 +6117,6 @@ impl Workspace {
                 InitContent::Custom(query) => query.to_owned(),
             };
 
-            let session_context = active_input_handle.as_ref().and_then(|input_handle| {
-                input_handle.read(ctx, |input, ctx| input.completion_session_context(ctx))
-            });
-
             let menu_positioning = active_input_handle
                 .as_ref()
                 .map_or_else(MenuPositioning::default, |input_handle| {
@@ -7980,7 +6134,6 @@ impl Workspace {
             self.command_search_view.update(ctx, |view, ctx| {
                 view.reset_state(
                     session_id,
-                    session_context,
                     initial_query,
                     query_filter,
                     menu_positioning,
@@ -8073,36 +6226,17 @@ impl Workspace {
     /// Update the active session model state.
     fn update_active_session(&mut self, ctx: &mut ViewContext<Self>) {
         let pane_group_handle = self.active_tab_pane_group();
-        let file_tree_and_global_search_are_enabled = {
-            #[cfg(feature = "local_fs")]
-            {
-                Self::should_enable_file_tree_and_global_search_for_pane_group(
-                    self.active_tab_pane_group().as_ref(ctx),
-                )
-            }
-
-            #[cfg(not(feature = "local_fs"))]
-            {
-                false
-            }
-        };
-
-        // Update working directories for the current pane group
         let pane_group_handle = pane_group_handle.clone();
-        self.refresh_working_directories_for_pane_group(&pane_group_handle, ctx);
 
         if let Some(terminal_handle) = pane_group_handle.as_ref(ctx).active_session_view(ctx) {
             #[cfg_attr(not(feature = "local_fs"), allow(unused_variables))]
-            let (session, path_if_local, is_local, is_wsl_session) =
-                terminal_handle.read(ctx, |terminal, ctx| {
-                    let active_session_id = terminal.active_block_session_id();
-                    let session = active_session_id
-                        .and_then(|id| terminal.sessions_model().as_ref(ctx).get(id));
-                    let path_if_local = terminal.active_session_path_if_local(ctx);
-                    let is_local = terminal.active_session_is_local(ctx);
-                    let is_wsl_session = session.as_ref().map(|s| s.is_wsl()).unwrap_or(false);
-                    (session, path_if_local, is_local, is_wsl_session)
-                });
+            let (session, path_if_local) = terminal_handle.read(ctx, |terminal, ctx| {
+                let active_session_id = terminal.active_block_session_id();
+                let session =
+                    active_session_id.and_then(|id| terminal.sessions_model().as_ref(ctx).get(id));
+                let path_if_local = terminal.active_session_path_if_local(ctx);
+                (session, path_if_local)
+            });
 
             let window_id = ctx.window_id();
             let path_if_local_clone = path_if_local.clone();
@@ -8114,153 +6248,6 @@ impl Workspace {
                     Some(terminal_handle.id()),
                     ctx,
                 );
-            });
-
-            let is_remote = matches!(is_local, Some(false));
-            let is_unsupported_session = is_wsl_session;
-
-            let enablement = CodingPanelEnablementState::from_session_env(
-                file_tree_and_global_search_are_enabled,
-                is_remote,
-                is_unsupported_session,
-            );
-
-            self.left_panel_view.update(ctx, |left_panel, ctx| {
-                left_panel.update_coding_panel_enablement(enablement, ctx);
-            });
-        } else {
-            let enablement = CodingPanelEnablementState::from_session_env(
-                file_tree_and_global_search_are_enabled,
-                false,
-                false,
-            );
-
-            self.left_panel_view.update(ctx, |left_panel, ctx| {
-                left_panel.update_coding_panel_enablement(enablement, ctx);
-            });
-        }
-    }
-
-    /// Focus and return the active terminal input. If there is no active terminal input (either
-    /// because a command is running or because there are no terminal panes), this may create a new
-    /// terminal pane according to the [`UnavailableTerminalBehavior`].
-    fn focus_terminal_input(
-        &mut self,
-        fallback_behavior: TerminalSessionFallbackBehavior,
-        ctx: &mut ViewContext<Self>,
-    ) -> Option<ViewHandle<TerminalView>> {
-        let active_pane_group = self.active_tab_pane_group();
-
-        // If there's an active terminal session and it's not busy, return it.
-        // If there is no terminal session open, add a terminal pane to the right and return the new terminal view handle.
-        let terminal_view_handle = active_pane_group
-            .as_ref(ctx)
-            .active_session_view(ctx)
-            .unwrap_or_else(|| {
-                let active_pane_group = self.active_tab_pane_group();
-                active_pane_group.update(ctx, |pane_group, ctx| {
-                    pane_group.add_terminal_pane(Direction::Right, None /*chosen_shell*/, ctx);
-                });
-                active_pane_group
-                    .as_ref(ctx)
-                    .active_session_view(ctx)
-                    .unwrap()
-            });
-
-        let is_env_var_block = terminal_view_handle.read(ctx, |terminal_view, ctx| {
-            terminal_view.has_active_env_var_block(ctx)
-        });
-
-        if self.is_input_box_visible(ctx) {
-            active_pane_group.update(ctx, |pane_group, ctx| pane_group.focus_active_session(ctx));
-            return Some(terminal_view_handle);
-        } else if is_env_var_block {
-            terminal_view_handle.update(ctx, |terminal_view, ctx| {
-                terminal_view.cancel_env_var_block(ctx);
-            });
-            active_pane_group.update(ctx, |pane_group, ctx| pane_group.focus_active_session(ctx));
-            return Some(terminal_view_handle);
-        } else if fallback_behavior != TerminalSessionFallbackBehavior::OpenIfNeeded {
-            // The active terminal exists but is busy, and the fallback behavior is
-            // RequireExisting or OpenIfNone. In those cases, show a toast and no-op.
-            self.toast_stack.update(ctx, |toast_stack, ctx| {
-                let toast = DismissibleToast::error(
-                    "A command in this session is still running.".to_string(),
-                );
-                toast_stack.add_ephemeral_toast(toast, ctx);
-            });
-            return None;
-        }
-
-        // There's no available session and we were asked not to create one.
-        if fallback_behavior == TerminalSessionFallbackBehavior::RequireExisting {
-            return None;
-        }
-
-        // Either:
-        // * There's no active session
-        // * The active session is busy but the fallback behavior is OpenIfNeeded
-        // In this case, open a new terminal pane to the right.
-
-        if !ContextFlag::CreateNewSession.is_enabled() {
-            self.toast_stack.update(ctx, |toast_stack, ctx| {
-                let toast =
-                    DismissibleToast::error("Cannot open a new terminal session".to_string());
-                toast_stack.add_ephemeral_toast(toast, ctx);
-            });
-            return None;
-        }
-
-        active_pane_group.as_ref(ctx).active_session_view(ctx)
-    }
-
-    /// Opens the LSP log file in a new terminal pane using `tail -f`.
-    fn open_lsp_logs(&mut self, log_path: &PathBuf, ctx: &mut ViewContext<Self>) {
-        use crate::workflows::local_workflows::tail_command_for_shell;
-
-        let active_pane_group = self.active_tab_pane_group();
-
-        // Add a terminal pane to the right
-        active_pane_group.update(ctx, |pane_group, ctx| {
-            pane_group.add_terminal_pane(PaneGroupDirection::Right, None, ctx);
-        });
-
-        let Some(terminal_view_handle) = active_pane_group.as_ref(ctx).active_session_view(ctx)
-        else {
-            log::error!("Could not get terminal view handle when attempting to open LSP logs.");
-            return;
-        };
-
-        terminal_view_handle.update(ctx, |terminal, ctx| {
-            let shell_family = terminal.shell_family(ctx);
-            let tail_command = tail_command_for_shell(shell_family, log_path);
-            terminal.set_pending_command(&tail_command, ctx);
-        });
-    }
-
-    /// Runs a workflow in whichever terminal input is currently active.
-    /// No-ops if the active session is long-running.
-    fn run_workflow_in_active_input(
-        &mut self,
-        workflow: &WorkflowType,
-        workflow_source: WorkflowSource,
-        workflow_selection_source: WorkflowSelectionSource,
-        argument_override: Option<HashMap<String, String>>,
-        fallback_behavior: TerminalSessionFallbackBehavior,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        if let Some(terminal_view_handle) = self.focus_terminal_input(fallback_behavior, ctx) {
-            let terminal_input =
-                terminal_view_handle.read(ctx, |terminal_view, _| terminal_view.input().clone());
-            terminal_input.update(ctx, |input, ctx| {
-                input.show_workflows_info_box_on_workflow_selection(
-                    workflow.clone(),
-                    workflow_source,
-                    workflow_selection_source,
-                    argument_override,
-                    ctx,
-                );
-                ctx.notify();
             });
         }
     }
@@ -8297,85 +6284,32 @@ impl Workspace {
         event: &CommandSearchEvent,
         ctx: &mut ViewContext<Self>,
     ) {
-        use CommandSearchEvent::*;
-        let Some(active_input_handle) = self.get_active_input_view_handle(ctx) else {
-            return;
-        };
         match event {
-            Close => {
+            CommandSearchEvent::Close => {
                 self.current_workspace_state.is_command_search_open = false;
-
-                active_input_handle.update(ctx, |input, ctx| {
-                    input.focus_input_box(ctx);
-                    ctx.notify();
-                });
-
+                if let Some(input) = self.get_active_input_view_handle(ctx) {
+                    input.update(ctx, |input, ctx| input.focus_input_box(ctx));
+                }
                 ctx.notify();
             }
-            Blur => {
+            CommandSearchEvent::Blur => {
                 self.current_workspace_state.is_command_search_open = false;
                 ctx.notify();
             }
-            ItemSelected { payload } => {
-                use CommandSearchItemAction::*;
-                match payload.as_ref() {
-                    AcceptHistory(AcceptedHistoryItem {
-                        command,
-                        linked_workflow_data,
-                    }) => {
-                        // Switch to shell input mode so the history command is
-                        // treated as a shell command, not an agent prompt.
-                        active_input_handle.update(ctx, |input, ctx| {
-                            input.replace_buffer_content(command.as_str(), ctx);
+            CommandSearchEvent::ItemSelected { payload } => {
+                if let Some(input) = self.get_active_input_view_handle(ctx) {
+                    input.update(ctx, |input, ctx| match payload.as_ref() {
+                        CommandSearchItemAction::AcceptHistory(AcceptedHistoryItem { command }) => {
+                            input.replace_buffer_content(command, ctx);
                             input.focus_input_box(ctx);
-                        });
-
-                        if let Some(linked_workflow_data) = linked_workflow_data {
-                            active_input_handle.update(ctx, |input, ctx| {
-                                if let Some((workflow_type, workflow_source)) =
-                                    linked_workflow_data.linked_workflow(ctx)
-                                {
-                                    input.show_workflow_info_box_for_history_command(
-                                        command.as_str(),
-                                        workflow_type,
-                                        workflow_source,
-                                        WorkflowSelectionSource::UniversalSearch,
-                                        ctx,
-                                    );
-                                }
-                                ctx.notify();
-                            });
                         }
-                    }
-                    ExecuteHistory(command) => {
-                        active_input_handle.update(ctx, |input, ctx| {
-                            input.try_execute_command(command.as_str(), ctx);
-                            ctx.notify();
-                        });
-                    }
-                    AcceptWorkflow(accepted) => {
-                        let (workflow, workflow_source) = match accepted {
-                            AcceptedWorkflow::Local {
-                                workflow, source, ..
-                            } => ((**workflow).clone(), source.clone()),
-                        };
-                        active_input_handle.update(ctx, |input, ctx| {
-                            input.show_workflows_info_box_on_workflow_selection(
-                                workflow,
-                                workflow_source,
-                                WorkflowSelectionSource::UniversalSearch,
-                                None,
-                                ctx,
-                            );
-                            ctx.notify();
-                        });
-                    }
+                        CommandSearchItemAction::ExecuteHistory(command) => {
+                            input.try_execute_command(command, ctx);
+                        }
+                    });
                 }
             }
-            Resize => {
-                // A resize of universal search should write the app snapshot to sqlite.
-                ctx.dispatch_global_action("workspace:save_app", ());
-            }
+            CommandSearchEvent::Resize => ctx.dispatch_global_action("workspace:save_app", ()),
         }
     }
 
@@ -8388,13 +6322,6 @@ impl Workspace {
             WindowSettingsChangedEvent::BackgroundOpacity { .. }
             | WindowSettingsChangedEvent::TerminalBackgroundImagePath { .. } => {
                 ctx.notify();
-            }
-            WindowSettingsChangedEvent::LeftPanelVisibilityAcrossTabs { .. } => {
-                if self.left_panel_visibility_across_tabs_enabled(ctx) {
-                    self.left_panel_open = self
-                        .active_tab_pane_group()
-                        .read(ctx, |pane_group, _| pane_group.left_panel_open);
-                }
             }
             WindowSettingsChangedEvent::ZoomLevel { .. } => {
                 self.update_titlebar_height(ctx);
@@ -8962,120 +6889,6 @@ impl Workspace {
         .finish()
     }
 
-    fn render_left_toggle_button(
-        &self,
-        appearance: &Appearance,
-        ctx: &AppContext,
-    ) -> Box<dyn Element> {
-        let vertical_tabs_active =
-            FeatureFlag::VerticalTabs.is_enabled() && *TabSettings::as_ref(ctx).use_vertical_tabs;
-
-        let (is_active, tooltip_text, action, keybinding_name, save_position_id) =
-            if vertical_tabs_active {
-                (
-                    self.vertical_tabs_panel_open,
-                    "Tabs panel",
-                    WorkspaceAction::ToggleVerticalTabsPanel,
-                    "workspace:toggle_vertical_tabs_panel",
-                    "workspace:toggle_vertical_tabs_panel",
-                )
-            } else {
-                let tooltip = if self.left_panel_views.len() <= 1 {
-                    match self
-                        .left_panel_views
-                        .first()
-                        .copied()
-                        .unwrap_or(ToolPanelView::ProjectExplorer)
-                    {
-                        ToolPanelView::ProjectExplorer => "Project explorer",
-                        ToolPanelView::GlobalSearch { .. } => "Global search",
-                    }
-                } else {
-                    "Tools panel"
-                };
-                (
-                    self.active_tab_pane_group().as_ref(ctx).left_panel_open,
-                    tooltip,
-                    WorkspaceAction::ToggleLeftPanel,
-                    "workspace:toggle_left_panel",
-                    "workspace:toggle_left_panel",
-                )
-            };
-
-        SavePosition::new(
-            Container::new(
-                Align::new(
-                    self.render_tab_bar_icon_button(
-                        appearance,
-                        icons::Icon::Menu,
-                        &self.mouse_states.left_panel_icon,
-                        action,
-                        tooltip_text.to_string(),
-                        keybinding_name_to_display_string(keybinding_name, ctx),
-                        is_active,
-                        false,
-                    )
-                    .finish(),
-                )
-                .finish(),
-            )
-            .finish(),
-            save_position_id,
-        )
-        .finish()
-    }
-
-    fn render_tools_panel_button(
-        &self,
-        appearance: &Appearance,
-        ctx: &AppContext,
-    ) -> Box<dyn Element> {
-        let is_active = self.active_tab_pane_group().as_ref(ctx).left_panel_open;
-
-        let tooltip_text = if self.left_panel_views.len() <= 1 {
-            match self
-                .left_panel_views
-                .first()
-                .copied()
-                .unwrap_or(ToolPanelView::ProjectExplorer)
-            {
-                ToolPanelView::ProjectExplorer => "Project explorer",
-                ToolPanelView::GlobalSearch { .. } => "Global search",
-            }
-        } else {
-            "Tools panel"
-        };
-
-        SavePosition::new(
-            Container::new(
-                Align::new(
-                    self.render_tab_bar_icon_button(
-                        appearance,
-                        icons::Icon::Tool2,
-                        &self.mouse_states.tools_panel_icon,
-                        WorkspaceAction::ToggleLeftPanel,
-                        tooltip_text.to_string(),
-                        keybinding_name_to_display_string("workspace:toggle_left_panel", ctx),
-                        is_active,
-                        false,
-                    )
-                    .finish(),
-                )
-                .finish(),
-            )
-            .finish(),
-            "workspace:toggle_left_panel",
-        )
-        .finish()
-    }
-
-    fn should_enable_file_tree_and_global_search_for_pane_group(pane_group: &PaneGroup) -> bool {
-        pane_group
-            .pane_ids()
-            .filter(|id| !pane_group.is_pane_hidden_for_close(*id))
-            .any(|id| id.is_terminal_pane() || id.is_file_pane() || id.is_code_pane())
-    }
-
     /// Renders an invisible rect for detecting hovers over the tab bar.
     fn render_tab_bar_hover_area(&self) -> Box<dyn Element> {
         self.render_tab_bar_hoverable(
@@ -9326,6 +7139,37 @@ impl Workspace {
     /// Returns `None` if the item is not currently available.
     /// The button is wrapped with a right-click handler that opens the
     /// toolbar configurator.
+    fn render_tabs_toggle_button(
+        &self,
+        appearance: &Appearance,
+        ctx: &AppContext,
+    ) -> Box<dyn Element> {
+        SavePosition::new(
+            Container::new(
+                Align::new(
+                    self.render_tab_bar_icon_button(
+                        appearance,
+                        icons::Icon::Menu,
+                        &self.mouse_states.tabs_panel_icon,
+                        WorkspaceAction::ToggleVerticalTabsPanel,
+                        "Tabs panel".to_string(),
+                        keybinding_name_to_display_string(
+                            TOGGLE_VERTICAL_TABS_PANEL_BINDING_NAME,
+                            ctx,
+                        ),
+                        self.vertical_tabs_panel_open,
+                        false,
+                    )
+                    .finish(),
+                )
+                .finish(),
+            )
+            .finish(),
+            TOGGLE_VERTICAL_TABS_PANEL_BINDING_NAME,
+        )
+        .finish()
+    }
+
     fn render_header_toolbar_button(
         &self,
         item: &HeaderToolbarItemKind,
@@ -9335,20 +7179,8 @@ impl Workspace {
         if !item.is_available(ctx) {
             return None;
         }
-        let vertical_tabs_active =
-            FeatureFlag::VerticalTabs.is_enabled() && *TabSettings::as_ref(ctx).use_vertical_tabs;
         let inner = match item {
-            HeaderToolbarItemKind::TabsPanel => self.render_left_toggle_button(appearance, ctx),
-            HeaderToolbarItemKind::ToolsPanel => {
-                if self.left_panel_views.is_empty() {
-                    return None;
-                }
-                if vertical_tabs_active {
-                    self.render_tools_panel_button(appearance, ctx)
-                } else {
-                    self.render_left_toggle_button(appearance, ctx)
-                }
-            }
+            HeaderToolbarItemKind::TabsPanel => self.render_tabs_toggle_button(appearance, ctx),
         };
         Some(
             Container::new(
@@ -9944,7 +7776,6 @@ impl Workspace {
 
         let vertical_tabs_active =
             FeatureFlag::VerticalTabs.is_enabled() && *TabSettings::as_ref(app).use_vertical_tabs;
-        let pane_group = self.active_tab_pane_group().as_ref(app);
 
         let mut main_content = Flex::row();
 
@@ -9960,7 +7791,7 @@ impl Workspace {
                 Self::add_panel_with_separator(
                     &mut main_content,
                     &mut prev_panel_added,
-                    self.render_config_panel(&item, pane_group, &config, app),
+                    self.render_config_panel(&item, &config, app),
                     app,
                 );
             }
@@ -9975,7 +7806,7 @@ impl Workspace {
                 Self::add_panel_with_separator(
                     &mut main_content,
                     &mut prev_panel_added,
-                    self.render_config_panel(&item, pane_group, &config, app),
+                    self.render_config_panel(&item, &config, app),
                     app,
                 );
             }
@@ -10385,7 +8216,7 @@ impl Workspace {
         let mut prev_panel_added = false;
 
         // Config-driven vertical-tabs-era panels (left side).
-        // Hidden for simplified views (notebooks, transcripts, etc.)
+        // Hidden for settings-only views.
         // where these panels are unnecessary.
         let vertical_tabs_active = !hide_vertical_tabs
             && FeatureFlag::VerticalTabs.is_enabled()
@@ -10398,13 +8229,12 @@ impl Workspace {
             let config = TabSettings::as_ref(app)
                 .header_toolbar_chip_selection
                 .clone();
-            let pane_group = self.active_tab_pane_group().as_ref(app);
 
             for item in config.left_items() {
                 Self::add_panel_with_separator(
                     &mut panels_view,
                     &mut prev_panel_added,
-                    self.render_config_panel(&item, pane_group, &config, app),
+                    self.render_config_panel(&item, &config, app),
                     app,
                 );
             }
@@ -10436,13 +8266,12 @@ impl Workspace {
             let config = TabSettings::as_ref(app)
                 .header_toolbar_chip_selection
                 .clone();
-            let pane_group = self.active_tab_pane_group().as_ref(app);
 
             for item in config.right_items() {
                 Self::add_panel_with_separator(
                     &mut panels_view,
                     &mut prev_panel_added,
-                    self.render_config_panel(&item, pane_group, &config, app),
+                    self.render_config_panel(&item, &config, app),
                     app,
                 );
             }
@@ -10484,7 +8313,6 @@ impl Workspace {
     fn render_config_panel(
         &self,
         item: &HeaderToolbarItemKind,
-        pane_group: &PaneGroup,
         config: &HeaderToolbarChipSelection,
         app: &AppContext,
     ) -> Option<Box<dyn Element>> {
@@ -10503,12 +8331,6 @@ impl Workspace {
                     )
                     .finish(),
                 )
-            }
-            HeaderToolbarItemKind::ToolsPanel => {
-                if !pane_group.left_panel_open || warpui::platform::is_mobile_device() {
-                    return None;
-                }
-                Some(ChildView::new(&self.left_panel_view).finish())
             }
         }
     }
@@ -10566,7 +8388,6 @@ impl Workspace {
         let block_list_settings = BlockListSettings::as_ref(app);
         let tab_settings = TabSettings::as_ref(app);
         let alias_expansion_settings = AliasExpansionSettings::as_ref(app);
-        let code_settings = CodeSettings::as_ref(app);
         let input_settings = InputSettings::as_ref(app);
         let reporting_setings = AltScreenReporting::as_ref(app);
         let general_settings = GeneralSettings::as_ref(app);
@@ -10752,10 +8573,6 @@ impl Workspace {
             context.set.insert(flags::MIDDLE_CLICK_PASTE_FLAG);
         }
 
-        if *code_settings.code_as_default_editor.value() {
-            context.set.insert(flags::CODE_AS_DEFAULT_EDITOR);
-        }
-
         if *input_settings.show_hint_text.value() {
             context.set.insert(flags::SHOW_INPUT_HINT_TEXT_CONTEXT_FLAG);
         }
@@ -10887,63 +8704,6 @@ impl Workspace {
     fn all_pane_group_ids(&self) -> impl Iterator<Item = EntityId> + '_ {
         self.tab_views().map(|tab| tab.id())
     }
-
-    fn open_left_panel_view(&mut self, action: &LeftPanelAction, ctx: &mut ViewContext<Self>) {
-        if !self.active_tab_pane_group().as_ref(ctx).left_panel_open {
-            self.toggle_left_panel(ctx);
-        }
-
-        if self.active_tab_pane_group().as_ref(ctx).left_panel_open {
-            self.left_panel_view.update(ctx, |left_panel, ctx| {
-                left_panel.handle_action_with_force_open(action, false, ctx);
-                left_panel.focus_active_view_on_entry(ctx);
-            });
-        }
-    }
-
-    fn toggle_left_panel_view(
-        &mut self,
-        action: &LeftPanelAction,
-        is_showing_target_view: bool,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        let is_left_panel_open = self.active_tab_pane_group().as_ref(ctx).left_panel_open;
-
-        if is_left_panel_open && is_showing_target_view {
-            // If we're showing the target view for this action,
-            // toggle the left panel closed.
-            self.toggle_left_panel(ctx);
-        } else {
-            self.open_left_panel_view(action, ctx);
-        }
-    }
-
-    /// Computes the list of available left panel views based on current settings and feature flags.
-    fn compute_left_panel_views(ctx: &AppContext) -> Vec<ToolPanelView> {
-        let mut views = vec![];
-        if cfg!(feature = "local_fs") && *CodeSettings::as_ref(ctx).show_project_explorer.value() {
-            views.push(ToolPanelView::ProjectExplorer);
-        }
-        if cfg!(feature = "local_fs")
-            && FeatureFlag::GlobalSearch.is_enabled()
-            && *CodeSettings::as_ref(ctx).show_global_search.value()
-        {
-            views.push(ToolPanelView::GlobalSearch {
-                entry_focus: GlobalSearchEntryFocus::Results,
-            });
-        }
-        views
-    }
-
-    /// Recomputes the available left panel views based on current settings and feature flags,
-    /// then updates both the workspace's left_panel_views and the LeftPanelView's toolbelt buttons.
-    fn update_left_panel_available_views(&mut self, ctx: &mut ViewContext<Self>) {
-        let views = Self::compute_left_panel_views(ctx);
-        self.left_panel_views = views.clone();
-        self.left_panel_view.update(ctx, |left_panel, ctx| {
-            left_panel.update_available_views(views, ctx);
-        });
-    }
 }
 
 impl Entity for Workspace {
@@ -10977,7 +8737,6 @@ impl TypedActionView for Workspace {
             ActivateTab(index) => self.activate_tab(*index, ctx),
             ActivateTabByNumber(num) => self.activate_tab(num.saturating_sub(1), ctx),
             ActivatePrevTab => self.activate_prev_tab(ctx),
-            OpenLaunchConfigSaveModal => self.open_launch_config_save_modal(ctx),
             ActivateNextTab => self.activate_next_tab(ctx),
             ActivateLastTab => self.activate_last_tab(ctx),
             CyclePrevSession => self.cycle_prev_session(ctx),
@@ -11030,31 +8789,23 @@ impl TypedActionView for Workspace {
                                     .default_tab_config_path
                                     .set_value(String::new(), ctx));
                             });
-                            self.add_terminal_tab(false, ctx);
+                            self.add_terminal_tab(ctx);
                         }
                     }
 
-                    DefaultSessionMode::Terminal => {
-                        if FeatureFlag::WelcomeTab.is_enabled() {
-                            self.add_welcome_tab(ctx);
-                        } else {
-                            self.add_terminal_tab(false, ctx);
-                        }
-                    }
+                    DefaultSessionMode::Terminal => self.add_terminal_tab(ctx),
                 }
             }
-            AddTerminalTab { hide_homepage } => {
+            AddTerminalTab => {
                 self.add_new_session_tab_internal(
                     NewSessionSource::Tab,
                     Some(window_id),
                     None,
-                    *hide_homepage,
                     ctx,
                 );
                 ctx.notify();
             }
             AddTabWithShell { shell, .. } => self.add_tab_with_shell(shell.clone(), ctx),
-            AddGetStartedTab => self.add_get_started_tab(ctx),
 
             OpenNewSessionMenu { position } => self.open_new_session_dropdown_menu(*position, ctx),
             ToggleTabConfigsMenu => self.toggle_tab_configs_menu(ctx),
@@ -11069,28 +8820,11 @@ impl TypedActionView for Workspace {
                 position,
                 is_vertical_tabs,
             } => self.toggle_new_session_dropdown_menu(*position, *is_vertical_tabs, ctx),
-            SelectNewSessionMenuItem(new_session_menu_item) => {
-                self.open_launch_config_from_menu(new_session_menu_item.clone(), ctx)
-            }
+            SelectNewSessionMenuItem(new_session_menu_item) => match new_session_menu_item {
+                NewSessionMenuItem::CreateNewTabConfig => self.create_and_open_new_tab_config(ctx),
+            },
             SelectTabConfig(tab_config) => {
                 self.open_tab_config(tab_config.clone(), ctx);
-            }
-            OpenNewWorktreeModal => {
-                let cwd = self
-                    .active_session_view(ctx)
-                    .and_then(|view| view.as_ref(ctx).pwd())
-                    .map(PathBuf::from);
-                self.new_worktree_modal.view.update(ctx, |modal, ctx| {
-                    modal.body().update(ctx, |body, ctx| {
-                        body.on_open(cwd, ctx);
-                    });
-                });
-                self.new_worktree_modal.open();
-                self.current_workspace_state.is_new_worktree_modal_open = true;
-                ctx.notify();
-            }
-            OpenNewWorktreeRepoPicker => {
-                self.open_repo_picker_for_new_worktree_modal(ctx);
             }
             OpenTabConfigErrorFile {
                 #[cfg_attr(not(feature = "local_fs"), allow(unused_variables))]
@@ -11100,24 +8834,8 @@ impl TypedActionView for Workspace {
                 #[cfg(feature = "local_fs")]
                 {
                     let settings = EditorSettings::as_ref(ctx);
-                    let target = resolve_file_target_with_editor_choice(
-                        path,
-                        *settings.open_code_panels_file_editor,
-                        *settings.prefer_markdown_viewer,
-                        *settings.open_file_layout,
-                        None,
-                    );
-                    self.open_file_with_target(
-                        path.clone(),
-                        target,
-                        None,
-                        CodeSource::Link {
-                            path: path.clone(),
-                            range_start: None,
-                            range_end: None,
-                        },
-                        ctx,
-                    );
+                    let target = resolve_file_target(path, settings);
+                    self.open_file_with_target(path.clone(), target, None, ctx);
                 }
                 self.dismiss_older_toasts(toast_object_id, ctx);
             }
@@ -11151,24 +8869,8 @@ impl TypedActionView for Workspace {
                 #[cfg(feature = "local_fs")]
                 {
                     let settings = EditorSettings::as_ref(ctx);
-                    let target = resolve_file_target_with_editor_choice(
-                        path,
-                        *settings.open_code_panels_file_editor,
-                        *settings.prefer_markdown_viewer,
-                        *settings.open_file_layout,
-                        None,
-                    );
-                    self.open_file_with_target(
-                        path.clone(),
-                        target,
-                        None,
-                        CodeSource::Link {
-                            path: path.clone(),
-                            range_start: None,
-                            range_end: None,
-                        },
-                        ctx,
-                    );
+                    let target = resolve_file_target(path, settings);
+                    self.open_file_with_target(path.clone(), target, None, ctx);
                 }
                 self.close_new_session_dropdown_menu(ctx);
             }
@@ -11186,7 +8888,9 @@ impl TypedActionView for Workspace {
             }
             OpenSettingsFile => {
                 let path = crate::settings::user_preferences_toml_file_path();
-                self.add_tab_for_code_file(path, None, ctx);
+                let settings = EditorSettings::as_ref(ctx);
+                let target = resolve_file_target(&path, settings);
+                self.open_file_with_target(path, target, None, ctx);
             }
 
             OpenWorktreeInRepo { repo_path } => {
@@ -11255,10 +8959,6 @@ impl TypedActionView for Workspace {
                 filter,
                 init_content,
             }) => self.show_command_search(*filter, init_content, ctx),
-            CreatePersonalNotebook
-            | CreatePersonalEnvVarCollection
-            | CreatePersonalWorkflow
-            | CreatePersonalFolder => {}
             ToggleMouseReporting => self.toggle_mouse_reporting(ctx),
             ToggleScrollReporting => self.toggle_scroll_reporting(ctx),
             ToggleFocusReporting => self.toggle_focus_reporting(ctx),
@@ -11266,30 +8966,6 @@ impl TypedActionView for Workspace {
                 // If we are renaming a tab, finish the rename before dragging.
                 self.finish_tab_rename(ctx);
                 self.current_workspace_state.is_tab_being_dragged = true;
-            }
-            ToggleLeftPanel => {
-                let active_pane_group = self.active_tab_pane_group().clone();
-                let was_open = active_pane_group.read(ctx, |pg, _| pg.left_panel_open);
-
-                // Don't open the panel if no views are available.
-                if !was_open && self.left_panel_views.is_empty() {
-                    return;
-                }
-
-                let file_tree_active = self
-                    .left_panel_view
-                    .read(ctx, |lp, _| lp.is_file_tree_active());
-                self.toggle_left_panel(ctx);
-
-                let is_open = active_pane_group.read(ctx, |pg, _| pg.left_panel_open);
-
-                if !was_open && is_open {
-                    self.left_panel_view.update(ctx, |left_panel, ctx| {
-                        left_panel.focus_active_view_on_entry(ctx);
-                    });
-
-                    if file_tree_active {}
-                }
             }
             ToggleVerticalTabsPanel => {
                 self.toggle_vertical_tabs_panel(ctx);
@@ -11371,11 +9047,6 @@ impl TypedActionView for Workspace {
                         .set_value(new_value, ctx);
                 });
                 ctx.notify();
-            }
-            ClosePanel => {
-                if self.left_panel_view.is_self_or_child_focused(ctx) {
-                    self.close_left_panel(ctx);
-                }
             }
             OpenInExplorer { path } => {
                 ctx.open_file_path_in_explorer(path);
@@ -11469,7 +9140,6 @@ impl TypedActionView for Workspace {
                     view.add_ephemeral_toast(new_toast, ctx);
                 });
             }
-            HandleConflictingWorkflow(_) | HandleConflictingEnvVarCollection(_) => {}
             OpenPromptEditor { .. } => {
                 self.open_prompt_editor(ctx);
             }
@@ -11559,44 +9229,12 @@ impl TypedActionView for Workspace {
                 });
                 ctx.notify();
             }
-            OpenFileInNewTab {
-                full_path,
-                line_and_column,
-            } => {
-                self.add_tab_for_code_file(full_path.clone(), *line_and_column, ctx);
-            }
-            OpenRepository { path } => {
-                self.open_repository(path.as_deref(), ctx);
-            }
             OpenTabConfigRepoPicker { param_index } => {
                 self.open_repo_picker_for_tab_config_modal(*param_index, ctx);
             }
-            NewCodeFile => {
-                self.add_tab_for_new_code_file(ctx);
-            }
-            OpenNotebook { .. } => {}
-            RunWorkflow {
-                workflow,
-                workflow_source,
-                workflow_selection_source,
-                argument_override,
-            } => self.run_workflow_in_active_input(
-                workflow,
-                workflow_source.clone(),
-                *workflow_selection_source,
-                argument_override.clone(),
-                TerminalSessionFallbackBehavior::default(),
-                ctx,
-            ),
 
             #[cfg(feature = "local_fs")]
-            FileRenamed { old_path, new_path } => {
-                self.rename_tabs_with_file_path(old_path, new_path, ctx);
-            }
             #[cfg(feature = "local_fs")]
-            FileDeleted { path } => {
-                self.close_tabs_with_file_path(path, ctx);
-            }
             #[cfg(debug_assertions)]
             #[cfg(debug_assertions)]
             InstallOpenCodeWarpPlugin => {
@@ -11618,55 +9256,6 @@ impl TypedActionView for Workspace {
                 self.toast_stack.update(ctx, |view, ctx| {
                     view.add_ephemeral_toast(DismissibleToast::default(message), ctx);
                 });
-            }
-            ToggleProjectExplorer => {
-                if *CodeSettings::as_ref(ctx).show_project_explorer {
-                    let is_showing = self.left_panel_view.as_ref(ctx).active_view()
-                        == ToolPanelView::ProjectExplorer;
-                    self.toggle_left_panel_view(&LeftPanelAction::ProjectExplorer, is_showing, ctx);
-                }
-            }
-            ToggleGlobalSearch => {
-                if FeatureFlag::GlobalSearch.is_enabled()
-                    && *CodeSettings::as_ref(ctx).show_global_search
-                {
-                    let is_showing = matches!(
-                        self.left_panel_view.as_ref(ctx).active_view(),
-                        ToolPanelView::GlobalSearch { .. }
-                    );
-                    self.toggle_left_panel_view(
-                        &LeftPanelAction::GlobalSearch {
-                            entry_focus: GlobalSearchEntryFocus::QueryEditor,
-                        },
-                        is_showing,
-                        ctx,
-                    );
-                }
-            }
-            OpenGlobalSearch => {
-                if FeatureFlag::GlobalSearch.is_enabled()
-                    && *CodeSettings::as_ref(ctx).show_global_search
-                {
-                    if let Some(selected_text) = self.get_selected_text_from_focused_view(ctx) {
-                        if let Some(global_search_view) = self
-                            .left_panel_view
-                            .as_ref(ctx)
-                            .active_global_search_view(ctx)
-                        {
-                            // If we detect selected text in the active pane, pre-populate the global search input
-                            global_search_view.update(ctx, |view, ctx| {
-                                view.set_initial_query(selected_text, ctx);
-                            });
-                        }
-                    }
-
-                    self.open_left_panel_view(
-                        &LeftPanelAction::GlobalSearch {
-                            entry_focus: GlobalSearchEntryFocus::QueryEditor,
-                        },
-                        ctx,
-                    );
-                }
             }
 
             OpenLightbox {
@@ -11706,9 +9295,6 @@ impl TypedActionView for Workspace {
                     ctx.notify();
                 }
             }
-            HandoffPendingTransfer { .. } => {}
-            ReverseHandoff { .. } => {}
-            FinalizeDropTab => {}
             SyncTrafficLights => {
                 self.sync_window_button_visibility(ctx);
             }
@@ -11743,17 +9329,6 @@ impl View for Workspace {
             context.set.insert("Workspace_PaneDragging");
         }
 
-        // TODO: This is temporary. We currently check if any code pane is open where it should
-        // really be whether the code pane is opened and focused.
-        if self
-            .active_tab_pane_group()
-            .as_ref(app)
-            .pane_ids()
-            .any(|id| id.is_code_pane())
-        {
-            context.set.insert("Workspace_TextOpen");
-        }
-
         if matches!(
             *AccessibilitySettings::as_ref(app).a11y_verbosity,
             AccessibilityVerbosity::Verbose
@@ -11781,13 +9356,6 @@ impl View for Workspace {
                 }
             }
         };
-
-        if *CodeSettings::as_ref(app).show_project_explorer {
-            context.set.insert(flags::SHOW_PROJECT_EXPLORER);
-        }
-        if *CodeSettings::as_ref(app).show_global_search {
-            context.set.insert(flags::SHOW_GLOBAL_SEARCH);
-        }
 
         self.add_toggle_setting_context_flags(app, &mut context);
 
@@ -12248,10 +9816,6 @@ impl View for Workspace {
             stack.add_child(ChildView::new(&self.theme_deletion_modal).finish());
         }
 
-        if self.launch_config_save_modal.is_open() {
-            stack.add_child(self.launch_config_save_modal.render());
-        }
-
         if self.tab_config_params_modal.is_open() {
             stack.add_child(self.tab_config_params_modal.render());
         }
@@ -12294,10 +9858,6 @@ impl View for Workspace {
                     ),
                 );
             }
-        }
-
-        if self.new_worktree_modal.is_open() {
-            stack.add_child(self.new_worktree_modal.render());
         }
 
         if self.current_workspace_state.is_prompt_editor_open {
@@ -12496,23 +10056,6 @@ impl View for Workspace {
         ActiveSession::handle(ctx).update(ctx, |active_session, _| {
             active_session.close_workspace(window_id);
         })
-    }
-}
-
-fn compute_default_panel_widths(
-    app: &AppContext,
-    window_id: WindowId,
-    has_horizontal_split: bool,
-) -> (f32, f32) {
-    if let Some(bounds) = app.window_bounds(&window_id) {
-        let window_width = bounds.width();
-        let left_ratio = 0.15;
-        let right_ratio = if has_horizontal_split { 0.3 } else { 0.5 };
-        let left = window_width * left_ratio;
-        let right = window_width * right_ratio;
-        (left, right)
-    } else {
-        (DEFAULT_LEFT_PANEL_WIDTH, DEFAULT_RIGHT_PANEL_WIDTH)
     }
 }
 

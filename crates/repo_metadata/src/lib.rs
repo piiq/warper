@@ -1,7 +1,6 @@
 //! Repository metadata utilities for Warp.
 //!
-//! This crate provides utilities for managing repository metadata, including file trees,
-//! gitignore processing, and filesystem watching capabilities.s
+//! Repository detection, Git path filtering, and filesystem watching for terminal metadata.
 use std::{
     borrow::Borrow,
     path::{Path, PathBuf},
@@ -22,33 +21,17 @@ pub enum RepoMetadataError {
     PathEncodingMismatch(StandardizedPath),
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
-    #[error("Build tree error: {0}")]
-    BuildTree(BuildTreeError),
     #[error("Failed to start watcher: {0}")]
     WatcherError(#[from] anyhow::Error),
 }
-// Re-export the modules
-pub mod entry;
-pub mod file_tree_store;
-pub mod file_tree_update;
-pub mod local_model;
-pub mod remote_model;
+mod git_paths;
 pub mod repositories;
 pub mod repository;
-pub mod repository_identifier;
 pub mod watcher;
-pub mod wrapper_model;
-
-pub use entry::{
-    gitignores_for_directory, matches_gitignores, path_passes_filters, should_ignore_git_path,
-    BuildTreeError, DirectoryEntry, Entry, FileId, FileMetadata,
-};
-
-// Re-export the local model's event under its original name for backward compatibility.
-pub use local_model::RepositoryMetadataEvent;
 
 pub use repository::Repository;
 pub use watcher::{DirectoryWatcher, RepositoryUpdate, TargetFile};
+
 pub fn is_in_repo(path: &str, app: &warpui::AppContext) -> bool {
     use crate::repositories::DetectedRepositories;
 
@@ -56,16 +39,6 @@ pub fn is_in_repo(path: &str, app: &warpui::AppContext) -> bool {
         .get_root_for_path(std::path::Path::new(path))
         .is_some()
 }
-
-pub use file_tree_store::FileTreeEntry;
-
-pub use local_model::{LocalRepoMetadataModel, RepoContent};
-
-// New types.
-pub use file_tree_update::RepoMetadataUpdate;
-pub use remote_model::RemoteRepoMetadataModel;
-pub use repository_identifier::{RemoteRepositoryIdentifier, RepositoryIdentifier};
-pub use wrapper_model::{RepoMetadataEvent, RepoMetadataModel};
 
 /// A wrapper around PathBuf that ensures the path is canonicalized.
 /// This helps avoid issues with symbolic links, relative paths, and different path representations.

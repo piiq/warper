@@ -1,7 +1,7 @@
 use super::model::EditorModel;
 use super::{
-    AutosuggestionLocation, AutosuggestionState, BaselinePositionComputationMethod, Bias,
-    DisplayPoint, DrawableSelection, ScrollState, ToBufferOffset, ToDisplayPoint,
+    AutosuggestionState, BaselinePositionComputationMethod, Bias, DisplayPoint, DrawableSelection,
+    ScrollState, ToBufferOffset, ToDisplayPoint,
 };
 use super::{ToCharOffset, ToPoint};
 
@@ -175,12 +175,6 @@ impl ViewSnapshot {
 
     pub fn max_point(&self, app: &AppContext) -> DisplayPoint {
         self.editor_model.as_ref(app).max_point(app)
-    }
-
-    pub fn autosuggestion_location(&self) -> Option<AutosuggestionLocation> {
-        self.autosuggestion_state
-            .as_ref()
-            .map(|state| state.location)
     }
 
     pub fn active_autosuggestion(&self) -> bool {

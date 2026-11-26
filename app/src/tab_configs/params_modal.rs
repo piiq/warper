@@ -1,8 +1,8 @@
 use std::{collections::HashMap, path::PathBuf};
 
+use crate::editor::NavigationKey;
 use warp_core::ui::theme::color::internal_colors;
 use warp_core::ui::Icon;
-use warp_editor::editor::NavigationKey;
 use warpui::{
     elements::{
         Border, ChildView, ClippedScrollStateHandle, ClippedScrollable, ConstrainedBox, Container,

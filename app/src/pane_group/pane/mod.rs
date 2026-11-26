@@ -8,32 +8,22 @@
 //! The [`PaneContent`] interface requires implementers to maintain a [`PaneId`] for their pane.
 //! The [`PaneId`] must be created via a [`PaneView<BackingView>`]. The [`PaneId`] is consequently
 //! used to render a [`PaneView`] which internally renders the pane, including the [`BackingView`].
-pub(super) mod code_pane;
-pub(super) mod file_pane;
-pub(super) mod get_started_pane;
-pub(super) mod get_started_view;
 pub(super) mod settings_pane;
 pub(super) mod terminal_pane;
 pub mod view;
-pub(super) mod welcome_pane;
-pub(crate) mod welcome_view;
 
 use std::{any::Any, fmt::Display};
 
 use crate::pane_group::focus_state::PaneFocusHandle;
-use crate::pane_group::pane::get_started_view::GetStartedView;
 use crate::view_components::action_button::ActionButton;
 use crate::{
-    code::view::CodeView,
     menu::MenuItem,
-    notebooks::file::FileNotebookView,
     settings::PaneSettings,
     settings_view::SettingsView,
     terminal::{available_shells::AvailableShell, TerminalView},
 };
 use serde::{Deserialize, Serialize};
 use url::Url;
-use warp_core::HostId;
 use warpui::{
     elements::{DispatchEventResult, EventHandler, MouseInBehavior},
     presenter::ChildView,
@@ -46,14 +36,10 @@ pub use self::view::PaneHeaderCustomAction;
 pub use self::view::PaneView;
 pub use self::view::PaneViewEvent;
 
-use welcome_view::WelcomeView;
-
 use super::{ActivationReason, LeafContents, PaneGroup, PaneGroupAction};
 
 pub(super) fn init(app: &mut AppContext) {
     self::view::init(app);
-    welcome_view::init(app);
-    get_started_view::init(app);
 }
 
 /// The opaque identifier for an arbitrary pane. Consumers
@@ -65,8 +51,6 @@ pub struct PaneId(IPaneId);
 
 #[derive(Debug, Clone, Copy)]
 pub enum ActionOrigin {
-    // If a drag/drop action started from an editor tab, we pass its index forward.
-    EditorTab(usize),
     Pane,
 }
 
@@ -115,13 +99,8 @@ impl Display for IPaneId {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub(crate) enum IPaneType {
     Terminal,
-    File,
-    Code,
 
     Settings,
-
-    GetStarted,
-    Welcome,
 
     /// A pane type only for tests.
     #[cfg(test)]
@@ -132,13 +111,8 @@ impl Display for IPaneType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             IPaneType::Terminal => write!(f, "Terminal"),
-            IPaneType::File => write!(f, "File"),
-            IPaneType::Code => write!(f, "Code"),
 
             IPaneType::Settings => write!(f, "Settings"),
-
-            IPaneType::GetStarted => write!(f, "GetStarted"),
-            IPaneType::Welcome => write!(f, "Welcome"),
 
             #[cfg(test)]
             IPaneType::Dummy => write!(f, "Dummy"),
@@ -166,28 +140,9 @@ impl PaneId {
         Self::new_from_ctx(IPaneType::Terminal, ctx)
     }
 
-    /// Creates a [`PaneId`] from a [`ViewContext<PaneView<FileNotebookView>>`]
-    pub fn from_file_pane_ctx(ctx: &ViewContext<PaneView<FileNotebookView>>) -> Self {
-        Self::new_from_ctx(IPaneType::File, ctx)
-    }
-
-    /// Creates a [`PaneId`] from a [`ViewContext<PaneView<EnvironmentsPageView>>`]
-    /// Creates a [`PaneId`] from a [`ViewContext<PaneView<TextView>>`]
-    pub fn from_code_pane_ctx(ctx: &ViewContext<PaneView<CodeView>>) -> Self {
-        Self::new_from_ctx(IPaneType::Code, ctx)
-    }
-
     /// Creates a [`PaneId`] from a [`ViewContext<PaneView<SettingsView>>`]
     pub fn from_settings_pane_ctx(ctx: &ViewContext<PaneView<SettingsView>>) -> Self {
         Self::new_from_ctx(IPaneType::Settings, ctx)
-    }
-
-    pub fn from_welcome_pane_ctx(ctx: &ViewContext<PaneView<WelcomeView>>) -> Self {
-        Self::new_from_ctx(IPaneType::Welcome, ctx)
-    }
-
-    pub fn from_get_started_pane_ctx(ctx: &ViewContext<PaneView<GetStartedView>>) -> Self {
-        Self::new_from_ctx(IPaneType::GetStarted, ctx)
     }
 
     /// Creates a [`PaneId`] from a [`PaneView<TerminalView>`] entity ID.
@@ -197,32 +152,11 @@ impl PaneId {
         Self::new(IPaneType::Terminal, terminal_pane_view)
     }
 
-    /// Creates a [`PaneId`] from a [`PaneView<FileNotebookView>`] entity ID.
-    pub fn from_file_pane_view(file_pane_view: &ViewHandle<PaneView<FileNotebookView>>) -> Self {
-        Self::new(IPaneType::File, file_pane_view)
-    }
-
-    /// Creates a [`PaneId`] from a [`PaneView<TextView>`] entity ID.
-    pub fn from_code_pane_view(code_pane_view: &ViewHandle<PaneView<CodeView>>) -> Self {
-        Self::new(IPaneType::Code, code_pane_view)
-    }
-
-    /// Creates a [`PaneId`] from a [`PaneView<EnvironmentsPageView>`] entity ID.
     /// Creates a [`PaneId`] from a [`PaneView<SettingsView>`] entity ID.
     pub fn from_settings_pane_view(
         settings_pane_view: &ViewHandle<PaneView<SettingsView>>,
     ) -> Self {
         Self::new(IPaneType::Settings, settings_pane_view)
-    }
-
-    pub fn from_get_started_pane_view(
-        get_started_pane_view: &ViewHandle<PaneView<GetStartedView>>,
-    ) -> Self {
-        Self::new(IPaneType::GetStarted, get_started_pane_view)
-    }
-
-    pub fn from_welcome_pane_view(welcome_pane_view: &ViewHandle<PaneView<WelcomeView>>) -> Self {
-        Self::new(IPaneType::Welcome, welcome_pane_view)
     }
 
     /// Creates a [`PaneId`] for a dummy pane.
@@ -255,36 +189,15 @@ impl PaneId {
         matches!(self.0.pane_type, IPaneType::Terminal)
     }
 
-    pub fn is_code_pane(&self) -> bool {
-        matches!(self.0.pane_type, IPaneType::Code)
-    }
-
-    pub fn is_file_pane(&self) -> bool {
-        matches!(self.0.pane_type, IPaneType::File)
-    }
-
     /// Renders the child view backing this pane.
     pub fn render(self, app: &AppContext) -> Box<dyn Element> {
         let mut element = match self.0.pane_type {
             IPaneType::Terminal => {
                 ChildView::<PaneView<TerminalView>>::with_id(self.0.pane_view_id).finish()
             }
-            IPaneType::File => {
-                ChildView::<PaneView<FileNotebookView>>::with_id(self.0.pane_view_id).finish()
-            }
-            IPaneType::Code => {
-                ChildView::<PaneView<CodeView>>::with_id(self.0.pane_view_id).finish()
-            }
 
             IPaneType::Settings => {
                 ChildView::<PaneView<SettingsView>>::with_id(self.0.pane_view_id).finish()
-            }
-
-            IPaneType::GetStarted => {
-                ChildView::<PaneView<GetStartedView>>::with_id(self.0.pane_view_id).finish()
-            }
-            IPaneType::Welcome => {
-                ChildView::<PaneView<WelcomeView>>::with_id(self.0.pane_view_id).finish()
             }
 
             #[cfg(test)]
@@ -873,21 +786,6 @@ pub enum PaneEvent {
     AppStateChanged,
     /// Repo for this pane's terminal has changed
     RepoChanged,
-    /// A remote session resolved the repo root for a session in this pane.
-    RemoteRepoNavigated {
-        host_id: HostId,
-        indexed_path: String,
-    },
 
     ClearHoveredTabIndex,
-    #[cfg(feature = "local_fs")]
-    ReplaceWithCodePane {
-        path: std::path::PathBuf,
-        source: Option<crate::code::editor_management::CodeSource>,
-    },
-    #[cfg(feature = "local_fs")]
-    ReplaceWithFilePane {
-        path: std::path::PathBuf,
-        source: Option<crate::code::editor_management::CodeSource>,
-    },
 }

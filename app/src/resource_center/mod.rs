@@ -85,8 +85,6 @@ pub enum TipAction {
     ThemePicker,
     HistorySearch,
     CommandSearch,
-
-    SaveNewLaunchConfig,
 }
 
 impl TipAction {
@@ -97,7 +95,6 @@ impl TipAction {
             TipAction::HistorySearch => "input:search_command_history",
             TipAction::CommandSearch => "workspace:show_command_search",
             TipAction::ThemePicker => "workspace:show_theme_chooser",
-            TipAction::SaveNewLaunchConfig => "workspace:open_launch_config_save_modal",
         }
     }
 

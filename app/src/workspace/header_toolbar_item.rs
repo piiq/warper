@@ -25,21 +25,18 @@ use warpui::{AppContext, SingletonEntity};
 #[schemars(rename_all = "snake_case")]
 pub enum HeaderToolbarItemKind {
     TabsPanel,
-    ToolsPanel,
 }
 
 impl HeaderToolbarItemKind {
     pub fn display_label(&self) -> &'static str {
         match self {
             Self::TabsPanel => "Tabs Panel",
-            Self::ToolsPanel => "Tools Panel",
         }
     }
 
     pub fn icon(&self) -> Icon {
         match self {
             Self::TabsPanel => Icon::Menu,
-            Self::ToolsPanel => Icon::Tool2,
         }
     }
 
@@ -50,7 +47,6 @@ impl HeaderToolbarItemKind {
                 FeatureFlag::VerticalTabs.is_enabled()
                     && *TabSettings::as_ref(app).use_vertical_tabs
             }
-            Self::ToolsPanel => true,
         }
     }
 
@@ -62,11 +58,11 @@ impl HeaderToolbarItemKind {
     /// Whether this item opens a side panel (as opposed to replacing the content
     /// area or opening a popover).
     pub fn is_panel(&self) -> bool {
-        matches!(self, Self::TabsPanel | Self::ToolsPanel)
+        matches!(self, Self::TabsPanel)
     }
 
     pub fn default_left() -> Vec<Self> {
-        vec![Self::TabsPanel, Self::ToolsPanel]
+        vec![Self::TabsPanel]
     }
 
     pub fn default_right() -> Vec<Self> {
@@ -75,6 +71,6 @@ impl HeaderToolbarItemKind {
 
     /// All toolbar item variants (availability filtering is done at the call site).
     pub fn all_items() -> Vec<Self> {
-        vec![Self::TabsPanel, Self::ToolsPanel]
+        vec![Self::TabsPanel]
     }
 }

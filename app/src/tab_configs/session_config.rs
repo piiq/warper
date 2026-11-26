@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use anyhow::Result;
 
 use crate::app_state::{BranchSnapshot, LeafContents, LeafSnapshot, PaneNodeSnapshot};
-use crate::launch_configs::launch_config::SplitDirection;
+use crate::tab_configs::template::SplitDirection;
 use crate::terminal::cli_agent::CLIAgent;
 use crate::themes::theme::AnsiColorIdentifier;
 use crate::ui_components::icons::Icon;
@@ -200,7 +200,7 @@ pub fn is_git_repo(path: &Path) -> bool {
 /// Builds a `TabConfig` from a live tab's pane tree snapshot.
 ///
 /// Walks the `PaneNodeSnapshot` recursively and produces a flat `[[panes]]`
-/// array. Non-terminal leaves (notebook, code, settings, etc.) are replaced
+/// array. Settings panes are replaced
 /// with empty terminal panes to preserve the spatial layout.
 pub fn tab_config_from_pane_snapshot(
     snapshot: &PaneNodeSnapshot,

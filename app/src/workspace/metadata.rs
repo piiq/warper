@@ -13,14 +13,6 @@ pub enum PaletteSource {
     TitleBarSearchBar,
 }
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-pub enum LaunchConfigUiLocation {
-    CommandPalette,
-    AppMenu,
-    TabMenu,
-    Uri,
-}
-
 /// How the user triggered the [`AddTabWithShell`] event.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 pub enum AddTabWithShellSource {

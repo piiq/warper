@@ -4,7 +4,6 @@
 mod alias_expansion;
 mod notifications_discovery;
 mod notifications_error;
-mod open_in_warp;
 mod shell_process_terminated;
 mod ssh;
 mod vim_mode;
@@ -12,7 +11,6 @@ mod vim_mode;
 pub use alias_expansion::*;
 pub use notifications_discovery::*;
 pub use notifications_error::*;
-pub use open_in_warp::*;
 pub use shell_process_terminated::*;
 pub use ssh::*;
 pub use vim_mode::*;
@@ -56,10 +54,6 @@ enum InlineBannerStyle {
     /// Styling for an inline banner that is requesting user action.
     /// Mock: https://www.figma.com/file/vgZqQ1YvHgFrAX83QO9DkB/SSH-wrapper?node-id=2%3A95
     CallToAction,
-    /// Styling for an inline banner that is recommending an action, but at lower priority than a
-    /// CTA.
-    /// Mock: https://www.figma.com/file/hCvzJWMtWq38rDMPNOLc2l/Notebooks-UX?node-id=1198:559&mode=dev
-    Recommendation,
     /// Styling for an inline banner that is giving the user low-priority
     /// information.
     /// Mock: https://www.figma.com/file/vgZqQ1YvHgFrAX83QO9DkB/SSH-wrapper?node-id=201%3A418
@@ -199,7 +193,6 @@ fn render_inline_block_list_banner(
 
     let text_opacity = match style {
         InlineBannerStyle::CallToAction => 100,
-        InlineBannerStyle::Recommendation => 100,
         InlineBannerStyle::LowPriority => 90,
         InlineBannerStyle::VeryLowPriority => 50,
     };
@@ -362,7 +355,6 @@ fn render_inline_block_list_banner(
 
     let background = match style {
         InlineBannerStyle::CallToAction => theme.accent().with_opacity(80),
-        InlineBannerStyle::Recommendation => theme.surface_2(),
         InlineBannerStyle::LowPriority => {
             theme
                 .accent()

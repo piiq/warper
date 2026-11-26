@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use crate::app_state::{LocalObjectOpenSettings, SettingsPaneSnapshot};
+use crate::app_state::SettingsPaneSnapshot;
 use crate::settings_view::SettingsSection;
 use crate::terminal::cli_agent::CLIAgent;
 
@@ -192,11 +192,8 @@ fn render_terminal_produces_correct_pane_template() {
     let (title, pane_template) = super::super::render_tab_config(&config, &param_values, None);
 
     assert!(title.is_none());
-    if let crate::launch_configs::launch_config::PaneTemplateType::PaneTemplate {
-        cwd,
-        commands,
-        ..
-    } = pane_template
+    if let crate::tab_configs::template::PaneTemplateType::PaneTemplate { cwd, commands, .. } =
+        pane_template
     {
         assert_eq!(cwd, std::path::PathBuf::from("/home/user/project"));
         assert!(commands.is_empty());
@@ -216,9 +213,8 @@ fn render_cli_agent_produces_correct_commands() {
     let param_values = config.default_param_values();
     let (_, pane_template) = super::super::render_tab_config(&config, &param_values, None);
 
-    if let crate::launch_configs::launch_config::PaneTemplateType::PaneTemplate {
-        commands, ..
-    } = pane_template
+    if let crate::tab_configs::template::PaneTemplateType::PaneTemplate { commands, .. } =
+        pane_template
     {
         assert_eq!(commands.len(), 1);
         assert_eq!(commands[0].exec, "claude");
@@ -239,9 +235,8 @@ fn render_worktree_substitutes_default_branch_name() {
     let (title, pane_template) = super::super::render_tab_config(&config, &param_values, None);
 
     assert_eq!(title.as_deref(), Some("my-feature-branch"));
-    if let crate::launch_configs::launch_config::PaneTemplateType::PaneTemplate {
-        commands, ..
-    } = pane_template
+    if let crate::tab_configs::template::PaneTemplateType::PaneTemplate { commands, .. } =
+        pane_template
     {
         assert!(commands[0].exec.contains("my-feature-branch"));
         assert!(commands[1].exec.contains("my-feature-branch"));
@@ -411,7 +406,7 @@ fn snapshot_two_pane_horizontal_split() {
     assert_eq!(config.panes[0].id, "p1");
     assert_eq!(
         config.panes[0].split,
-        Some(crate::launch_configs::launch_config::SplitDirection::Horizontal)
+        Some(crate::tab_configs::template::SplitDirection::Horizontal)
     );
     assert_eq!(
         config.panes[0].children,
@@ -471,14 +466,12 @@ fn snapshot_2x2_grid() {
 
 #[test]
 fn snapshot_non_terminal_leaf_replaced_with_terminal() {
-    use crate::app_state::NotebookPaneSnapshot;
-
-    let notebook_leaf = PaneNodeSnapshot::Leaf(LeafSnapshot {
+    let settings_leaf = PaneNodeSnapshot::Leaf(LeafSnapshot {
         is_focused: false,
         custom_vertical_tabs_title: None,
-        contents: LeafContents::Notebook(NotebookPaneSnapshot::LocalNotebook {
-            notebook_id: None,
-            settings: LocalObjectOpenSettings::default(),
+        contents: LeafContents::Settings(SettingsPaneSnapshot::Local {
+            current_page: SettingsSection::Appearance,
+            search_query: None,
         }),
     });
     let snapshot = PaneNodeSnapshot::Branch(BranchSnapshot {
@@ -488,14 +481,14 @@ fn snapshot_non_terminal_leaf_replaced_with_terminal() {
                 crate::app_state::PaneFlex(0.5),
                 make_terminal_leaf(Some("/home/user"), true),
             ),
-            (crate::app_state::PaneFlex(0.5), notebook_leaf),
+            (crate::app_state::PaneFlex(0.5), settings_leaf),
         ],
     });
 
     let config = tab_config_from_pane_snapshot(&snapshot, None, None);
 
     assert_eq!(config.panes.len(), 3);
-    // The notebook pane should be replaced with a terminal (no cwd).
+    // The settings pane should be replaced with a terminal (no cwd).
     assert_eq!(config.panes[2].pane_type, Some(TabConfigPaneType::Terminal));
     assert!(config.panes[2].directory.is_none());
 }

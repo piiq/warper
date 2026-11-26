@@ -1,8 +1,4 @@
-use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Arc;
-
-use warp_util::path::LineAndColumnArg;
 
 use crate::palette::PaletteMode;
 use crate::prompt::editor_modal::OpenSource as PromptEditorOpenSource;
@@ -13,17 +9,15 @@ use crate::tab_configs::TabConfig;
 use crate::terminal::available_shells::AvailableShell;
 use crate::themes::theme::AnsiColorIdentifier;
 use crate::themes::theme_chooser::ThemeChooserMode;
-use crate::workflows::{WorkflowSelectionSource, WorkflowSource, WorkflowType};
 use crate::workspace::metadata::{AddTabWithShellSource, PaletteSource};
 use crate::workspace::PaneViewLocator;
-use warp_server_client::ids::SyncId;
 
 use ui_components::lightbox;
 use warpui::accessibility::AccessibilityVerbosity;
 use warpui::geometry::rect::RectF;
 use warpui::geometry::vector::Vector2F;
 use warpui::platform::Cursor;
-use warpui::{EntityId, WindowId};
+use warpui::EntityId;
 
 use super::tab_settings::{
     VerticalTabsCompactSubtitle, VerticalTabsDisplayGranularity, VerticalTabsPrimaryInfo,
@@ -109,14 +103,11 @@ pub enum WorkspaceAction {
     CloseTabsRight(usize),
     CloseTabsRightActiveTab,
     AddDefaultTab,
-    AddTerminalTab {
-        hide_homepage: bool,
-    },
+    AddTerminalTab,
     AddTabWithShell {
         shell: AvailableShell,
         source: AddTabWithShellSource,
     },
-    AddGetStartedTab,
 
     OpenNewSessionMenu {
         position: Vector2F,
@@ -170,17 +161,12 @@ pub enum WorkspaceAction {
         color: AnsiColorIdentifier,
         tab_index: usize,
     },
-    OpenLaunchConfigSaveModal,
     SelectTabConfig(TabConfig),
     DispatchToSettingsTab(SettingsTabAction),
     ToggleResourceCenter,
     ToggleUserMenu,
     ToggleKeybindingsPage,
     ShowCommandSearch(CommandSearchOptions),
-    CreatePersonalNotebook,
-    CreatePersonalWorkflow,
-    CreatePersonalFolder,
-    CreatePersonalEnvVarCollection,
 
     ToggleMouseReporting,
     ToggleScrollReporting,
@@ -190,18 +176,7 @@ pub enum WorkspaceAction {
         tab_index: usize,
         tab_position: RectF,
     },
-    HandoffPendingTransfer {
-        target_window_id: WindowId,
-        insertion_index: usize,
-    },
-    ReverseHandoff {
-        target_window_id: WindowId,
-        target_insertion_index: usize,
-    },
     DropTab,
-    FinalizeDropTab,
-    /// Toggles the left panel. This happens as explicit action from the user.
-    ToggleLeftPanel,
     /// Toggles the vertical tabs panel. This happens as an explicit action from the user.
     ToggleVerticalTabsPanel,
     ToggleVerticalTabsSettingsPopup,
@@ -214,7 +189,6 @@ pub enum WorkspaceAction {
     ToggleVerticalTabsShowDiffStats,
     ToggleVerticalTabsShowDetailsOnHover,
     /// Closes the focused panel. This happens as an explicit action from the user.
-    ClosePanel,
     CopyTextToClipboard(String),
     DismissWorkspaceBanner(WorkspaceBanner),
     /// An action only registered in dev and local builds, which triggers a
@@ -233,8 +207,6 @@ pub enum WorkspaceAction {
     ToggleSyncTerminalInputsInTab,
     /// An action to force terminal input syncing off
     DisableTerminalInputSync,
-    HandleConflictingWorkflow(SyncId),
-    HandleConflictingEnvVarCollection(SyncId),
     OpenPromptEditor {
         open_source: PromptEditorOpenSource,
     },
@@ -289,20 +261,6 @@ pub enum WorkspaceAction {
     /// Focus a specific pane by its locator (pane_group_id and pane_id).
     FocusPane(PaneViewLocator),
 
-    /// Open a file in a new tab with a code pane
-    OpenFileInNewTab {
-        full_path: PathBuf,
-        line_and_column: Option<LineAndColumnArg>,
-    },
-    OpenNotebook {
-        id: SyncId,
-    },
-    RunWorkflow {
-        workflow: Arc<WorkflowType>,
-        workflow_source: WorkflowSource,
-        workflow_selection_source: WorkflowSelectionSource,
-        argument_override: Option<HashMap<String, String>>,
-    },
     ScrollToSettingsWidget {
         page: SettingsSection,
         widget_id: &'static str,
@@ -314,37 +272,13 @@ pub enum WorkspaceAction {
     /// Uninstall the Warp CLI command from /usr/local/bin
     #[cfg(target_os = "macos")]
     UninstallCLI,
-    /// Handle a file being renamed in the file tree
-    #[cfg(feature = "local_fs")]
-    FileRenamed {
-        old_path: PathBuf,
-        new_path: PathBuf,
-    },
-    /// Handle a file being deleted in the file tree
-    #[cfg(feature = "local_fs")]
-    FileDeleted {
-        path: PathBuf,
-    },
-    /// Open a repository directory via file picker. The `path` is an `Option` because some
-    /// dispatchers don't know the path to open yet (so the Workspace must open the file picker)
-    /// and some do, e.g. the GetStartedView. The GetStartedView needs to handle the file picker
-    /// because it needs to determine whether or not to close itself based on whether the user
-    /// actually selects a file in the file picker or cancels it.
-    OpenRepository {
-        path: Option<String>,
-    },
     /// Open the native folder picker for a repo param in the tab-config modal after the
     /// current interaction cycle finishes.
     OpenTabConfigRepoPicker {
         param_index: usize,
     },
-    /// Open a new blank code file in the current tab
-    NewCodeFile,
     NavigatePrevPaneOrPanel,
     NavigateNextPaneOrPanel,
-    ToggleProjectExplorer,
-    ToggleGlobalSearch,
-    OpenGlobalSearch,
     /// Reset the AWS Bedrock login banner dismissed state (for debugging).
     #[cfg(debug_assertions)]
 
@@ -368,10 +302,6 @@ pub enum WorkspaceAction {
     },
     ShowSessionConfigModal,
     DismissSessionConfigTabConfigChip,
-    /// Open the "New worktree" modal for creating a reusable worktree tab config.
-    OpenNewWorktreeModal,
-    /// Open the native folder picker for the repo field in the new-worktree modal.
-    OpenNewWorktreeRepoPicker,
     /// Create a new worktree in the given repo using the default worktree tab config.
     /// The branch name is auto-generated.
     OpenWorktreeInRepo {
@@ -402,7 +332,7 @@ pub enum WorkspaceAction {
         name: String,
         path: PathBuf,
     },
-    /// Opens the settings.toml file in a code editor pane.
+    /// Opens settings.toml in the configured external editor.
     OpenSettingsFile,
 }
 
@@ -439,18 +369,12 @@ impl WorkspaceAction {
             | CloseTabsRightActiveTab
             | ToggleTabColor { .. }
             | AddDefaultTab
-            | AddTerminalTab { .. }
+            | AddTerminalTab
             | AddTabWithShell { .. }
-            | AddGetStartedTab
             | AddWindow
             | AddWindowWithShell { .. }
             | CloseWindow
             | ScrollToSettingsWidget { .. }
-            | OpenNotebook { .. }
-            | RunWorkflow { .. }
-            | OpenFileInNewTab { .. }
-            | NewCodeFile
-            | OpenRepository { .. }
             | SelectTabConfig(_)
             | ToggleVerticalTabsPanel => true, // actions that actually change a state of the state of user's
             // workspace would most likely require a save, so that if the app gets
@@ -477,7 +401,6 @@ impl WorkspaceAction {
             | ToggleBlockSnackbar
             | ToggleErrorUnderlining
             | ToggleSyntaxHighlighting
-            | OpenLaunchConfigSaveModal
             | ToggleTabRightClickMenu { .. }
             | ToggleVerticalTabsPaneContextMenu { .. }
             | OpenNewSessionMenu { .. }
@@ -495,18 +418,9 @@ impl WorkspaceAction {
             | ToggleMouseReporting
             | ToggleScrollReporting
             | ToggleFocusReporting
-            | CreatePersonalNotebook
-            | CreatePersonalWorkflow
-            | CreatePersonalFolder
-            | CreatePersonalEnvVarCollection
             | OpenInExplorer { .. }
             | DragTab { .. }
-            | HandoffPendingTransfer { .. }
-            | ReverseHandoff { .. }
             | StartTabDrag
-            | FinalizeDropTab
-            | ToggleLeftPanel
-            | ClosePanel
             | ToggleVerticalTabsSettingsPopup
             | SetVerticalTabsDisplayGranularity(_)
             | SetVerticalTabsTabItemMode(_)
@@ -519,8 +433,6 @@ impl WorkspaceAction {
             | ToggleWelcomeTips
             | CopyTextToClipboard(_)
             | OpenTabConfigRepoPicker { .. }
-            | OpenNewWorktreeModal
-            | OpenNewWorktreeRepoPicker
             | OpenWorktreeInRepo { .. }
             | OpenWorktreeAddRepoPicker
             | Panic
@@ -530,8 +442,6 @@ impl WorkspaceAction {
             | ToggleSyncAllTerminalInputsInAllTabs
             | ToggleSyncTerminalInputsInTab
             | DisableTerminalInputSync
-            | HandleConflictingWorkflow(_)
-            | HandleConflictingEnvVarCollection(_)
             | OpenPromptEditor { .. }
             | OpenCLIAgentToolbarEditor
             | OpenHeaderToolbarEditor
@@ -555,9 +465,6 @@ impl WorkspaceAction {
             | FocusPane(..)
             | NavigatePrevPaneOrPanel
             | NavigateNextPaneOrPanel
-            | ToggleProjectExplorer
-            | ToggleGlobalSearch
-            | OpenGlobalSearch
             | OpenLightbox { .. }
             | UpdateLightboxImage { .. }
             | ShowSessionConfigModal
@@ -574,10 +481,6 @@ impl WorkspaceAction {
             ViewLogs => false,
             #[cfg(target_os = "macos")]
             InstallCLI | UninstallCLI => false,
-            #[cfg(feature = "local_fs")]
-            FileRenamed { .. } => false, // File rename doesn't change workspace state
-            #[cfg(feature = "local_fs")]
-            FileDeleted { .. } => false, // File deletion doesn't change workspace state
             #[cfg(target_os = "linux")]
             DismissWaylandCrashRecoveryBannerAndOpenLink => false,
             // actions that are related to updating user settings or

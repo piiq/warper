@@ -36,7 +36,7 @@ use crate::{
         },
         DismissibleToast, ToastLink,
     },
-    workspace::{view::TOGGLE_PROJECT_EXPLORER_BINDING_NAME, ToastStack, WorkspaceAction},
+    workspace::{ToastStack, WorkspaceAction},
 };
 use parking_lot::FairMutex;
 use pathfinder_color::ColorU;
@@ -80,7 +80,6 @@ fn plugin_chip_key(agent_prefix: &str, remote_host: &Option<String>) -> String {
 pub struct AgentInputFooter {
     terminal_view_id: EntityId,
     file_button: ViewHandle<ActionButton>,
-    file_explorer_button: ViewHandle<ActionButton>,
     rich_input_button: ViewHandle<ActionButton>,
     settings_button: ViewHandle<ActionButton>,
     install_plugin_button: ViewHandle<ActionButton>,
@@ -112,21 +111,6 @@ impl AgentInputFooter {
         });
         // CLI agent-specific buttons (only rendered when a CLI agent session is active).
         let cli_button_size = ButtonSize::AgentInputButton;
-        let file_explorer_button = ctx.add_typed_action_view(|ctx| {
-            ActionButton::new("File explorer", AgentInputButtonTheme)
-                .with_icon(Icon::FileCopy)
-                .with_tooltip("Open file explorer")
-                .with_size(cli_button_size)
-                .with_tooltip_alignment(TooltipAlignment::Left)
-                .with_keybinding(
-                    KeystrokeSource::Binding(TOGGLE_PROJECT_EXPLORER_BINDING_NAME),
-                    ctx,
-                )
-                .with_compact_keybinding(true)
-                .on_click(|ctx| {
-                    ctx.dispatch_typed_action(AgentInputFooterAction::ToggleFileExplorer);
-                })
-        });
         let rich_input_button = ctx.add_typed_action_view(|ctx| {
             ActionButton::new("Rich Input", AgentInputButtonTheme)
                 .with_icon(Icon::TextInput)
@@ -314,7 +298,6 @@ impl AgentInputFooter {
         let mut me = Self {
             terminal_view_id,
             file_button,
-            file_explorer_button,
             rich_input_button,
             settings_button,
             install_plugin_button,
@@ -703,9 +686,6 @@ impl AgentInputFooter {
             AgentToolbarItemKind::ContextChip(chip_kind) => {
                 self.cli_display_chip(chip_kind.clone(), app)
             }
-            AgentToolbarItemKind::FileExplorer => {
-                Some(ChildView::new(&self.file_explorer_button).finish())
-            }
             AgentToolbarItemKind::RichInput => FeatureFlag::CLIAgentRichInput
                 .is_enabled()
                 .then(|| ChildView::new(&self.rich_input_button).finish()),
@@ -859,7 +839,6 @@ impl View for AgentInputFooter {
 pub enum AgentInputFooterAction {
     SelectFile,
     InsertFilePath(String),
-    ToggleFileExplorer,
     ToggleRichInput,
     InstallPlugin,
     UpdatePlugin,
@@ -887,11 +866,6 @@ impl TypedActionView for AgentInputFooter {
                 }
             }
 
-            AgentInputFooterAction::ToggleFileExplorer => {
-                if let Some(agent) = self.cli_agent(ctx) {
-                    ctx.emit(AgentInputFooterEvent::ToggleFileExplorer(agent));
-                }
-            }
             AgentInputFooterAction::ToggleRichInput => {
                 if self.has_active_cli_agent_input_session(ctx) {
                     ctx.emit(AgentInputFooterEvent::HideRichInput);
@@ -967,7 +941,6 @@ impl TypedActionView for AgentInputFooter {
 pub enum AgentInputFooterEvent {
     WriteToPty(String),
     InsertIntoCLIRichInput(String),
-    ToggleFileExplorer(CLIAgent),
     OpenRichInput,
     HideRichInput,
     ToggledChipMenu { open: bool },

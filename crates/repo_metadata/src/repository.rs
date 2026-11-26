@@ -17,12 +17,9 @@ use warpui::SingletonEntity;
 use warpui::{Entity, ModelContext, ModelHandle};
 
 #[cfg(feature = "local_fs")]
-use crate::watcher::DirectoryWatcher;
+use crate::git_paths::{gitignores_for_directory, matches_gitignores, should_ignore_git_path};
 #[cfg(feature = "local_fs")]
-use crate::{
-    entry::{matches_gitignores, should_ignore_git_path},
-    gitignores_for_directory,
-};
+use crate::watcher::DirectoryWatcher;
 use crate::{watcher::TaskQueue, RepoMetadataError, RepositoryUpdate};
 
 /// Trait for entities that want to subscribe to repository file changes.

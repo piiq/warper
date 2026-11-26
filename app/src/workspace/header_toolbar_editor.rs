@@ -346,7 +346,6 @@ fn build_configurable_item(kind: &HeaderToolbarItemKind) -> ConfigurableItem {
             .with_identifier(id);
     let renderer = match kind {
         HeaderToolbarItemKind::TabsPanel => renderer.non_removable(),
-        _ => renderer,
     };
     ConfigurableItem::Control(renderer)
 }

@@ -50,7 +50,6 @@ use pathfinder_color::ColorU;
 use pathfinder_geometry::vector::Vector2F;
 use serde::{Deserialize, Serialize};
 use warp_core::command::ExitCode;
-use warp_server_client::ids::SyncId;
 use warp_terminal::model::grid::Dimensions as _;
 use warp_util::path::user_friendly_path;
 use warpui::units::{IntoLines, Lines};
@@ -137,15 +136,6 @@ lazy_static! {
     static ref BASELINE_COMMANDS: HashSet<&'static str> = HashSet::from(["", "pwd", "whoami", "cd"]);
 }
 
-/// Blocklist Env Var metadata associated with this block.
-#[derive(Debug, Clone)]
-pub struct BlocklistEnvVarMetadata {
-    /// The id used to uniquely identify the block's execution
-    pub block_id: String,
-    /// whether or not the env var block should be hidden
-    pub should_hide_block: bool,
-}
-
 pub struct Block {
     id: BlockId,
     size: SizeInfo,
@@ -211,7 +201,6 @@ pub struct Block {
     /// `true` if this command block corresponds to a local agent-environment startup command.
 
     /// Blocklist Env var metadata associated with this block, if any.
-    env_var_metadata: Option<BlocklistEnvVarMetadata>,
 
     /// Represents the 'interaction mode' for a command block with respect to the agent.
     ///
@@ -231,13 +220,6 @@ pub struct Block {
     home_dir: Option<String>,
 
     filter_query: Option<BlockFilterQuery>,
-
-    /// If the command is a cloud workflow, this is set to its id. If the block was not a workflow,
-    /// this is None.
-    cloud_workflow_id: Option<SyncId>,
-
-    /// If the command inluded an env var invocation. If not this will be None.
-    cloud_env_var_collection_id: Option<SyncId>,
 
     /// The last time this block was painted (i.e.: visible in the window),
     /// if ever.
@@ -827,14 +809,11 @@ impl Block {
             block_index,
             shell_host: None,
             is_for_in_band_command: false,
-            env_var_metadata: None,
             block_banner: None,
             ignore_next_rprompt: false,
             prompt_snapshot: None,
             home_dir: None,
             filter_query: None,
-            cloud_workflow_id: None,
-            cloud_env_var_collection_id: None,
             last_painted_at: None.into(),
             has_received_user_input: false,
             hidden: false,
@@ -943,15 +922,6 @@ impl Block {
 
         self.header_grid.start_command_grid();
         self.wakeup_after_delay();
-    }
-
-    /// Returns the `env_var_metadata` associated with this block, if any.
-    pub fn env_var_metadata(&self) -> Option<&BlocklistEnvVarMetadata> {
-        self.env_var_metadata.as_ref()
-    }
-
-    pub fn set_env_var_metadata(&mut self, env_var_metadata: BlocklistEnvVarMetadata) {
-        self.env_var_metadata = Some(env_var_metadata);
     }
 
     pub fn all_bytes_scanned_for_secrets(&self) -> bool {
@@ -1150,10 +1120,6 @@ impl Block {
         (is_bootstrap_block && !self.show_bootstrap_block)
             || is_empty_bootstrap_script_execution_block
             || is_empty_background_block
-            || self
-                .env_var_metadata
-                .as_ref()
-                .is_some_and(|metadata| metadata.should_hide_block)
             || (self.is_for_in_band_command && !self.show_in_band_command_blocks)
     }
 
@@ -2309,22 +2275,6 @@ impl Block {
         self.home_dir = home_dir;
     }
 
-    pub fn set_cloud_env_var_state(&mut self, env_var_collection_id: Option<SyncId>) {
-        self.cloud_env_var_collection_id = env_var_collection_id;
-    }
-
-    pub fn cloud_env_var_collection_state(&self) -> Option<SyncId> {
-        self.cloud_env_var_collection_id.clone()
-    }
-
-    pub fn set_cloud_workflow_state(&mut self, workflow_id: Option<SyncId>) {
-        self.cloud_workflow_id = workflow_id;
-    }
-
-    pub fn cloud_workflow_state(&self) -> Option<SyncId> {
-        self.cloud_workflow_id.clone()
-    }
-
     pub fn server_pwd(&self) -> Option<Cow<'_, str>> {
         self.pwd
             .as_ref()
@@ -2586,7 +2536,9 @@ macro_rules! delegate {
 
 impl ansi::Handler for Block {
     fn set_title(&mut self, _: Option<String>) {
-        log::error!("Handler method Block::set_title should never be called. This should be handled by TerminalModel.");
+        log::error!(
+            "Handler method Block::set_title should never be called. This should be handled by TerminalModel."
+        );
     }
 
     fn set_cursor_style(&mut self, style: Option<ansi::CursorStyle>) {
@@ -2829,11 +2781,15 @@ impl ansi::Handler for Block {
     }
 
     fn push_title(&mut self) {
-        log::error!("Handler method Block::push_title should never be called. This should be handled by TerminalModel.");
+        log::error!(
+            "Handler method Block::push_title should never be called. This should be handled by TerminalModel."
+        );
     }
 
     fn pop_title(&mut self) {
-        log::error!("Handler method Block::pop_title should never be called. This should be handled by TerminalModel.");
+        log::error!(
+            "Handler method Block::pop_title should never be called. This should be handled by TerminalModel."
+        );
     }
 
     fn prompt_marker(&mut self, marker: ansi::PromptMarker) {

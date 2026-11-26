@@ -5,7 +5,6 @@ pub mod init;
 pub mod inline_banner;
 
 mod link_detection;
-mod open_in_warp;
 mod pane_impl;
 pub(crate) mod plugin_instructions_block;
 pub mod rich_content;
@@ -32,7 +31,7 @@ use use_agent_footer::UseAgentToolbar;
 use super::CLIAgent;
 
 #[cfg(feature = "local_fs")]
-use crate::util::file::external_editor::{settings::EditorLayout, EditorSettings};
+use crate::util::file::external_editor::EditorSettings;
 
 pub use self::link_detection::GridHighlightedLink;
 pub use self::link_detection::{RichContentLink, RichContentLinkTooltipInfo};
@@ -41,9 +40,6 @@ pub use self::link_detection::{RichContentLink, RichContentLinkTooltipInfo};
 use crate::git_status::status_update::{
     GitRepoStatusModel, GitStatusMetadata, GitStatusUpdateModel,
 };
-use crate::projects::ProjectManagementModel;
-
-use crate::settings::CodeSettings;
 
 use crate::terminal::cli_agent_sessions::event::{
     parse_event, CLIAgentEvent, CLIAgentEventPayload, CLIAgentEventType,
@@ -63,28 +59,20 @@ use init::{INPUT_BOX_VISIBLE_KEY, TOGGLE_BLOCK_FILTER_KEYBINDING};
 use inline_banner::{
     render_alias_expansion_banner, render_inline_notifications_discovery_banner,
     render_inline_notifications_error_banner, render_inline_ssh_wrapper_banner,
-    render_open_in_warp_banner, render_shell_process_terminated_banner, render_vim_mode_banner,
-    AliasExpansionBanner, AliasExpansionBannerAction, OpenInWarpBannerState, SSHBannerAction,
-    SSHBannerState, VimModeBannerAction,
+    render_shell_process_terminated_banner, render_vim_mode_banner, AliasExpansionBanner,
+    AliasExpansionBannerAction, SSHBannerAction, SSHBannerState, VimModeBannerAction,
 };
 pub use inline_banner::{NotificationsDiscoveryBannerAction, NotificationsErrorBannerAction};
 #[cfg(feature = "local_fs")]
 use repo_metadata::repositories::{DetectedRepositories, RepoDetectionSource};
 use ssh_file_upload::{FileUpload, FileUploadEvent};
-use uuid::Uuid;
 use warpui::elements::ChildView;
 use warpui::fonts::Properties;
 use warpui::{ViewHandle, WeakModelHandle};
 
-#[cfg(feature = "local_fs")]
-use crate::code::editor_management::CodeSource;
 use crate::context_chips::prompt::Prompt;
 use crate::context_chips::prompt_type::PromptType;
 use crate::context_chips::ContextChipKind;
-use crate::env_vars::{
-    env_var_collection_block::{EnvVarCollectionBlock, EnvVarCollectionBlockEvent},
-    EnvVar, EnvVarCollection,
-};
 use crate::pane_group::focus_state::PaneFocusHandle;
 use crate::persistence::{self, FinishedCommandMetadata};
 use crate::safe_warn;
@@ -116,10 +104,6 @@ use crate::terminal::grid_size_util::grid_cell_dimensions;
 use crate::terminal::input::decorations::InputBackgroundJobOptions;
 use crate::terminal::input::CommandExecutionSource;
 use crate::terminal::ligature_settings::{should_use_ligature_rendering, LigatureSettings};
-#[cfg(feature = "local_tty")]
-use crate::terminal::local_tty::get_shell_starter;
-#[cfg(feature = "local_tty")]
-use crate::terminal::local_tty::shell::ShellStarter;
 use crate::terminal::model::session::active_session::ActiveSession;
 use crate::terminal::model::session::{Session, SessionId};
 use crate::terminal::model::{ObfuscateSecrets, RespectObfuscatedSecrets, SecretHandle};
@@ -151,16 +135,14 @@ use crate::util::bindings::{
 };
 use crate::util::clipboard::clipboard_content_with_escaped_paths;
 #[cfg(feature = "local_fs")]
-use crate::util::openable_file_type::{is_markdown_file, resolve_file_target, FileTarget};
+use crate::util::openable_file_type::{resolve_file_target, FileTarget};
 use crate::view_components::{DismissibleToast, ToastFlavor};
-use crate::workflows::workflow::Workflow;
 use crate::workspace::sync_inputs::SyncedInputState;
-use crate::workspace::{CommandSearchOptions, ToastStack, WorkspaceAction};
+use crate::workspace::{CommandSearchOptions, ToastStack};
 
 use crate::report_if_error;
 
 use crate::ActiveSession as WindowActiveSession;
-use warp_server_client::ids::SyncId;
 
 use async_channel::{Receiver, Sender};
 use chrono::{Local, NaiveDateTime};
@@ -300,7 +282,6 @@ use crate::terminal::{
 };
 use crate::util::links;
 use crate::view_components::find::{Event as FindEvent, Find, FindDirection, FindWithinBlockState};
-use crate::workspace::metadata::PaletteSource;
 use settings::{Setting, ToggleableSetting};
 use warp_core::semantic_selection::SemanticSelection;
 use warpui::text::SelectionType;
@@ -311,9 +292,7 @@ use super::block_list_viewport::FindMatchScrollLocation;
 use super::event::SshLoginStatus;
 use super::find::FindOptions;
 use super::model::ansi::{SystemDetails, WarpificationUnavailableReason};
-use super::model::block::{
-    BlockSection, BlocklistEnvVarMetadata, LONG_RUNNING_COMMAND_DURATION_MS,
-};
+use super::model::block::{BlockSection, LONG_RUNNING_COMMAND_DURATION_MS};
 use super::model::completions::ShellCompletion;
 use super::model::rich_content::RichContentType;
 
@@ -442,7 +421,6 @@ const BOOTSTRAP_FAILED_DURATION: Duration = Duration::from_secs(7);
 /// have failed bootstrapping. The longer duration is meant to account for
 /// a user needing to type in one or many secret manager passwords
 /// during the bootstrap period.
-const ENV_VAR_BOOTSTRAP_FAILED_DURATION: Duration = Duration::from_secs(60);
 const KNOWN_ISSUES_URL: &str = links::USER_DOCS_URL;
 
 /// Link to supported custom prompts.
@@ -743,7 +721,6 @@ pub enum InlineBannerType {
 
     AliasExpansion,
     ShellProcessTerminated,
-    OpenInWarp,
     VimMode,
 }
 
@@ -784,8 +761,6 @@ struct InlineBannersState {
     /// shell process has terminated, or None if there is no
     /// banner to display.
     shell_process_terminated_banner: Option<ShellProcessTerminatedBanner>,
-
-    open_in_warp_banner: Option<OpenInWarpBannerState>,
 
     vim_banner_state: Option<VimModeBannerState>,
 }
@@ -940,8 +915,6 @@ pub enum ContextMenuAction {
     EditPrompt,
 
     EditCLIAgentToolbar,
-
-    OpenWorkflowModal,
 }
 
 #[derive(Clone)]
@@ -952,7 +925,6 @@ pub enum InputContextMenuAction {
     Paste,
     ShowCommandSearch,
 
-    SaveAsWorkflow,
     ToggleInputHintText,
 }
 
@@ -981,7 +953,6 @@ impl fmt::Debug for ContextMenuAction {
 
             EditCLIAgentToolbar => f.write_str("EditCLIAgentToolbar"),
 
-            OpenWorkflowModal => f.write_str("OpenWorkflowModal"),
             CopyBlockFilteredOutputs => f.write_str("CopyBlockFilteredOutput"),
         }
     }
@@ -999,7 +970,6 @@ impl fmt::Debug for InputContextMenuAction {
             Paste => f.write_str("Paste"),
             ShowCommandSearch => f.write_str("CommandSearch"),
 
-            SaveAsWorkflow => f.write_str("SaveAsWorkflow"),
             ToggleInputHintText => f.write_str("ToggleInputHintText"),
         }
     }
@@ -1074,12 +1044,6 @@ pub struct ExecuteCommandEvent {
     pub command: String,
     pub session_id: SessionId,
 
-    /// If the command was executed from a saved local workflow, pass its ID here.
-    pub workflow_id: Option<SyncId>,
-    /// If the command was executed from a saved workflow, store the
-    /// templated command here.
-    pub workflow_command: Option<String>,
-
     /// `true` if the executed command should be added to session history.
     pub should_add_command_to_history: bool,
 
@@ -1105,13 +1069,6 @@ pub enum Event {
     /// inside this pane group.
     TerminalViewStateChanged,
     ShowCommandSearch(CommandSearchOptions),
-    // Tell the pane group to open the workflow modal.
-    OpenWorkflowModalWithCommand(String),
-    // Tell the pane group to open the workflow modal with an existing cloud workflow.
-    OpenWorkflowModalWithLocalWorkflow(SyncId),
-    // Tell the pane group to open the workflow modal with an unsaved workflow.
-    OpenWorkflowModalWithTemporary(Box<Workflow>),
-
     OpenPromptEditor,
 
     OpenCLIAgentToolbarEditor,
@@ -1132,21 +1089,6 @@ pub enum Event {
         is_for_in_band_command: bool,
     },
     /// Tell the pane group to open a file within Warp.
-    OpenFileInWarp {
-        path: PathBuf,
-        /// The session that the file belongs to.
-        session: Arc<Session>,
-    },
-    #[cfg(feature = "local_fs")]
-    OpenCodeInWarp {
-        source: CodeSource,
-        layout: EditorLayout,
-    },
-    #[cfg(feature = "local_fs")]
-    PreviewCodeInWarp {
-        source: CodeSource,
-    },
-
     CloseRequested,
     /// Used to focus and bring this session to the foreground.
     FocusSession,
@@ -1191,30 +1133,11 @@ pub enum Event {
     },
     OpenThemeChooser,
 
-    OpenFilesPalette {
-        source: PaletteSource,
-    },
     #[cfg(feature = "local_fs")]
     OpenFileWithTarget {
         path: PathBuf,
         target: FileTarget,
         line_col: Option<LineAndColumnArg>,
-    },
-    /// Emitted when a file in the file tree is renamed.
-    #[cfg(feature = "local_fs")]
-    FileRenamed {
-        old_path: PathBuf,
-        new_path: PathBuf,
-    },
-    /// Emitted when a file in the file tree is deleted.
-    #[cfg(feature = "local_fs")]
-    FileDeleted {
-        path: PathBuf,
-    },
-    /// Toggle the left panel to a specific view
-    ToggleLeftPanel {
-        target_view: LeftPanelTargetView,
-        force_open: bool,
     },
     SlowBootstrap,
 
@@ -1409,7 +1332,6 @@ struct TerminalViewMouseStates {
     copy_secrets_tooltip: MouseStateHandle,
 
     #[cfg_attr(not(feature = "local_fs"), allow(dead_code))]
-    open_in_warp_tooltip: MouseStateHandle,
     jump_to_bottom_of_block_button: MouseStateHandle,
 }
 
@@ -1664,12 +1586,9 @@ pub struct TerminalView {
     /// The type of the subshell that we will bootstrap/"warpify"" on the next [`AfterBlockStarted`]
     /// terminal model event. Will only be `Some` with a [`ShellType`] we can bootstrap.
     pending_auto_bootstrap_shell_type: Option<ShellType>,
-    env_vars: Vec<EnvVar>,
 
     show_snackbar: bool,
     hover_near_snackbar_area: bool,
-
-    pending_env_var_collection: Option<EnvVarCollection>,
 
     /// The ID of the containing window.
     window_id: WindowId,
@@ -2414,8 +2333,6 @@ impl TerminalView {
             rich_content_views: Vec::new(),
             settings_import_block: None,
             pending_auto_bootstrap_shell_type: None,
-            pending_env_var_collection: None,
-            env_vars: Vec::new(),
             show_snackbar: true,
             hover_near_snackbar_area: false,
             window_id,
@@ -2771,17 +2688,13 @@ impl TerminalView {
         if self.has_active_cli_agent_input_session(app) {
             return true;
         }
-        if model.is_alt_screen_active() || self.active_env_var_collection_block(app).is_some() {
+        if model.is_alt_screen_active() {
             return false;
         }
         let block_list = model.block_list();
         !block_list.active_block().is_active_and_long_running()
             || block_list.is_writing_or_executing_in_band_command()
             || !block_list.is_bootstrapped()
-    }
-
-    pub fn has_active_env_var_block(&self, app: &AppContext) -> bool {
-        self.active_env_var_collection_block(app).is_some()
     }
 
     /// Shuts down the pty and event loop, terminating the shell process.
@@ -3063,16 +2976,6 @@ impl TerminalView {
             self.input
                 .update(ctx, |input, ctx| input.system_insert(characters, ctx));
         }
-    }
-
-    /// Handles a file-tree drag-and-drop onto the terminal by piping the dropped text
-    /// through the same path as user-typed characters for the active command.
-    pub fn handle_file_tree_drop_on_active_command(
-        &mut self,
-        text: &str,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        self.typed_characters_on_terminal(text, ctx);
     }
 
     fn set_marked_text_on_terminal(
@@ -3457,13 +3360,6 @@ impl TerminalView {
         }
 
         self.write_init_subshell_bytes_to_pty(shell_type, ctx);
-
-        if !self.env_vars.is_empty() {
-            self.start_bootstrap_timer(ENV_VAR_BOOTSTRAP_FAILED_DURATION, ctx);
-            self.env_vars = Vec::new();
-        } else {
-            self.start_bootstrap_timer(BOOTSTRAP_FAILED_DURATION, ctx);
-        }
     }
 
     /// Util method to update the ssh block, with a lock
@@ -4512,30 +4408,6 @@ impl TerminalView {
                     input.handle_block_completed_event(block_completed_event_clone, ctx);
                 });
 
-                if !matches!(block_completed_event.block_type, BlockType::BootstrapHidden) {
-                    if let Some(env_var_block) = self.active_env_var_collection_block(ctx) {
-                        let output_truncated =
-                            if let BlockType::User(completed) = &block_completed_event.block_type {
-                                Some(completed.output_truncated.clone())
-                            } else {
-                                None
-                            };
-                        env_var_block.update(ctx, move |block, ctx| {
-                            if block.is_running() {
-                                match output_truncated {
-                                    // If we have a non-empty response we assume it's an error. We are
-                                    // relying on this because we don't get a non-zero exit code for the
-                                    // `export` function
-                                    Some(output) if !output.is_empty() => {
-                                        block.on_failed(Some(output), ctx)
-                                    }
-                                    _ => block.on_succeeded(ctx),
-                                }
-                            }
-                        });
-                    }
-                }
-
                 // If this block ran a possible subshell command, and it exited before the 1s timer
                 // completed, abort showing the banner.
                 if let Some(abort_handle) = self.warpify_state.take_subshell_banner_abort_handle() {
@@ -4887,8 +4759,6 @@ impl TerminalView {
                     if self.can_suggest_alias_expansion(ctx) {
                         self.maybe_suggest_alias_expansion(block_completed, ctx);
                     }
-
-                    self.maybe_suggest_open_in_warp(block_completed, ctx);
 
                     // Check if the user tried to run an AWS login command but AWS CLI wasn't installed.
                     // This runs after other suggestion checks and may add its own banner alongside them.
@@ -5690,10 +5560,6 @@ impl TerminalView {
             self.insert_vim_mode_banner(ctx);
         }
 
-        if let Some(env_var_collection) = self.pending_env_var_collection.take() {
-            self.invoke_environment_variables(env_var_collection, false, ctx);
-        }
-
         // Make sure we decorate any text that is already in the input.  We
         // need to make sure external commands have finished loading before
         // doing the decoration to ensure we don't erroneously apply error
@@ -5811,16 +5677,6 @@ impl TerminalView {
         }
 
         self.settings_import_block = None;
-    }
-
-    /// Opens a folder that the user may or may not have opened in the past
-    pub fn open_repo_folder(&mut self, path: String, ctx: &mut ViewContext<Self>) {
-        let escaped = self.shell_family(ctx).shell_escape(&path);
-        self.input.update(ctx, |input, ctx| {
-            input.try_execute_command(&format!("cd {escaped}"), ctx);
-        });
-
-        self.toggle_left_panel_file_tree(true, ctx);
     }
 
     /// Gets the selected text from the terminal, if any.
@@ -5987,7 +5843,7 @@ impl TerminalView {
         let session_id = crate::terminal::bootstrap::generate_session_id();
         self.model.lock().register_session_id(session_id);
         self.clear_line_editor_and_write_to_pty(
-            init_subshell_command(shell_type, &self.env_vars, session_id, ctx).into_bytes(),
+            init_subshell_command(shell_type, session_id, ctx).into_bytes(),
             ctx,
         );
         self.write_to_pty(vec![escape_sequences::C0::CR], ctx);
@@ -6473,13 +6329,6 @@ impl TerminalView {
         self.on_pane_state_change(ctx);
     }
 
-    fn toggle_left_panel_file_tree(&self, force_open: bool, ctx: &mut ViewContext<Self>) {
-        ctx.emit(Event::ToggleLeftPanel {
-            target_view: LeftPanelTargetView::FileTree,
-            force_open,
-        });
-    }
-
     /// Adds persistent toast to toast stack.
     pub fn show_persistent_toast(
         &mut self,
@@ -6685,68 +6534,48 @@ impl TerminalView {
                 | BlockListMenuSource::RichContentBlockRightClick { .. },
                 Some(highlighted_link),
                 _,
-            ) => {
-                match highlighted_link {
-                    GridHighlightedLink::Url(url) => {
-                        let url_content =
-                            Some(model.link_at_range(url, RespectObfuscatedSecrets::Yes));
-                        url_content
-                            .map(|url_content| {
-                                vec![MenuItemFields::new("Copy URL")
-                                    .with_on_select_action(TerminalAction::ContextMenu(
-                                        ContextMenuAction::CopyUrl { url_content },
-                                    ))
-                                    .into_item()]
-                            })
-                            .unwrap_or_default()
-                    }
-                    #[cfg(feature = "local_fs")]
-                    GridHighlightedLink::File(file_link) => {
-                        let path = file_link.get_inner().absolute_path();
-                        let show_in_file_explorer_menu_item_label = if cfg!(target_os = "macos") {
-                            "Show in Finder"
-                        } else {
-                            "Show containing folder"
-                        };
-                        path.map(|path| {
-                            let mut items = vec![
-                                MenuItemFields::new("Copy path")
-                                    .with_on_select_action(TerminalAction::ContextMenu(
-                                        ContextMenuAction::CopyUrl {
-                                            url_content: path.to_string_lossy().into(),
-                                        },
-                                    ))
-                                    .into_item(),
-                                MenuItemFields::new(show_in_file_explorer_menu_item_label)
-                                    .with_on_select_action(TerminalAction::ShowInFileExplorer(
-                                        path.clone(),
-                                    ))
-                                    .into_item(),
-                            ];
-
-                            if is_markdown_file(&path) {
-                                items.push(
-                                    MenuItemFields::new("Open in Warper")
-                                        .with_on_select_action(TerminalAction::OpenFileInWarp(path))
-                                        .into_item(),
-                                );
-                                // Because the default for cmd-click is to open in Warp, we also
-                                // have an open-in-editor option.
-                                items.push(
-                                    MenuItemFields::new("Open in editor")
-                                        .with_on_select_action(TerminalAction::OpenGridLink(
-                                            highlighted_link.clone(),
-                                        ))
-                                        .into_item(),
-                                );
-                            }
-
-                            items
+            ) => match highlighted_link {
+                GridHighlightedLink::Url(url) => {
+                    let url_content = Some(model.link_at_range(url, RespectObfuscatedSecrets::Yes));
+                    url_content
+                        .map(|url_content| {
+                            vec![MenuItemFields::new("Copy URL")
+                                .with_on_select_action(TerminalAction::ContextMenu(
+                                    ContextMenuAction::CopyUrl { url_content },
+                                ))
+                                .into_item()]
                         })
                         .unwrap_or_default()
-                    }
                 }
-            }
+                #[cfg(feature = "local_fs")]
+                GridHighlightedLink::File(file_link) => {
+                    let path = file_link.get_inner().absolute_path();
+                    let show_in_file_explorer_menu_item_label = if cfg!(target_os = "macos") {
+                        "Show in Finder"
+                    } else {
+                        "Show containing folder"
+                    };
+                    path.map(|path| {
+                        let items = vec![
+                            MenuItemFields::new("Copy path")
+                                .with_on_select_action(TerminalAction::ContextMenu(
+                                    ContextMenuAction::CopyUrl {
+                                        url_content: path.to_string_lossy().into(),
+                                    },
+                                ))
+                                .into_item(),
+                            MenuItemFields::new(show_in_file_explorer_menu_item_label)
+                                .with_on_select_action(TerminalAction::ShowInFileExplorer(
+                                    path.clone(),
+                                ))
+                                .into_item(),
+                        ];
+
+                        items
+                    })
+                    .unwrap_or_default()
+                }
+            },
             (
                 BlockListMenuSource::RegularTextRightClick { .. }
                 | BlockListMenuSource::RichContentTextRightClick { .. },
@@ -6841,21 +6670,6 @@ impl TerminalView {
                         .with_disabled(is_copy_commands_disabled)
                         .into_item(),
                 ];
-
-                if false {
-                    items.push(MenuItem::Separator);
-                    items.push(
-                        MenuItemFields::new("Save as workflow")
-                            .with_on_select_action(TerminalAction::ContextMenu(
-                                ContextMenuAction::OpenWorkflowModal,
-                            ))
-                            .with_key_shortcut_label(keybinding_name_to_display_string(
-                                "terminal:toggle_teams_modal",
-                                ctx,
-                            ))
-                            .into_item(),
-                    );
-                }
 
                 if is_single_selection {
                     let mut copy_output_menu_item = MenuItemFields::new("Copy output")
@@ -7185,7 +6999,7 @@ impl TerminalView {
 
         let is_editor_disabled = false;
 
-        // Section 1: Cut, Copy, Copy All, Paste, Share Session
+        // Cut, copy, and paste.
         let (all_current_input_text, selected_input_text) = self.input.read(ctx, |input, ctx| {
             input.editor().read(ctx, |editor, ctx| {
                 (editor.buffer_text(ctx), editor.selected_text(ctx))
@@ -7236,7 +7050,7 @@ impl TerminalView {
                 .into_item(),
         );
 
-        // Section 2: command search
+        // Command search.
         items.extend([
             MenuItem::Separator,
             MenuItemFields::new("Command search")
@@ -7251,19 +7065,7 @@ impl TerminalView {
                 .into_item(),
         ]);
 
-        // Section 3: Teams related
-        if false {
-            items.extend([
-                MenuItem::Separator,
-                MenuItemFields::new("Save as workflow")
-                    .with_on_select_action(TerminalAction::InputContextMenuItem(
-                        InputContextMenuAction::SaveAsWorkflow,
-                    ))
-                    .into_item(),
-            ]);
-        }
-
-        // Section 4: input hint text toggle
+        // Input hint text toggle.
         if !is_editor_disabled {
             let input_settings = InputSettings::as_ref(ctx);
             let inverse_action = if *input_settings.show_hint_text {
@@ -7280,7 +7082,7 @@ impl TerminalView {
                     .into_item(),
             );
         }
-        // Section 5: All Pane related
+        // Pane actions.
         let current_shell = model.shell_launch_state().available_shell();
         let pane_context_menu_items = self.pane_context_menu_items(current_shell, ctx);
         if !pane_context_menu_items.is_empty() {
@@ -7301,13 +7103,6 @@ impl TerminalView {
             items,
             ctx,
         );
-    }
-
-    fn open_workflow_modal(&mut self, ctx: &mut ViewContext<Self>) {
-        let selected_block_contents =
-            self.selected_block_contents_as_string(BlockEntity::Command, " &&\n", ctx);
-
-        self.open_workflow_modal_with_command(selected_block_contents, ctx);
     }
 
     fn open_block_filter_editor(
@@ -7346,32 +7141,6 @@ impl TerminalView {
         self.block_filter_editor.update(ctx, |block_filter, ctx| {
             block_filter.reset(ctx);
         });
-        ctx.notify();
-    }
-
-    fn open_workflow_modal_from_block(
-        &mut self,
-        block_index: BlockIndex,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        // Make the block for which we're showing the modal the only selected block.
-        self.reset_selection_to_single_block(block_index, ctx);
-        self.scroll_to_if_not_visible(block_index, ctx);
-
-        // Set the command in the modal to the command of the block.
-        if let Some(block) = self.model.lock().block_list().block_at(block_index) {
-            ctx.emit(Event::OpenWorkflowModalWithCommand(
-                block.command_to_string(),
-            ))
-        }
-    }
-
-    pub fn open_workflow_modal_with_existing(
-        &mut self,
-        workflow_id: SyncId,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        ctx.emit(Event::OpenWorkflowModalWithLocalWorkflow(workflow_id));
         ctx.notify();
     }
 
@@ -7678,15 +7447,8 @@ impl TerminalView {
                     // Clear the current block selection upon clicking on a rich content block
                     self.clear_selected_blocks(ctx);
 
-                    // Since rich content blocks cannot be selected, `redetermine_focus` has no way
-                    // of knowing whether the user just clicked on a rich content block. To allow
-                    // users to attach blocks as context and submit queries quickly, we only divert
-
+                    // Refocus terminal input when clicking an unselectable block.
                     self.focus_terminal(ctx);
-
-                    // As part of Code Mode V2, we're introducing left and right panels which might be focused
-                    // but we want to allow users to click to refocus to a terminal session
-                    // so if the terminal isn't focused and a user clicks into the terminal, we want to force focusing the input
                 }
             }
             BlockSelectAction::MouseUp {
@@ -7868,24 +7630,8 @@ impl TerminalView {
         ctx.notify();
 
         let settings = EditorSettings::as_ref(ctx);
-        let target = resolve_file_target(&path, settings, None);
+        let target = resolve_file_target(&path, settings);
 
-        ctx.emit(Event::OpenFileWithTarget {
-            path,
-            target,
-            line_col: line_and_column_num,
-        });
-    }
-
-    #[cfg(feature = "local_fs")]
-    fn open_file_path_with_target(
-        &mut self,
-        path: PathBuf,
-        target: FileTarget,
-        line_and_column_num: Option<LineAndColumnArg>,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        ctx.notify();
         ctx.emit(Event::OpenFileWithTarget {
             path,
             target,
@@ -7939,26 +7685,6 @@ impl TerminalView {
     fn middle_click_on_input(&mut self, ctx: &mut ViewContext<Self>) {
         self.focus_input_and_clear_selections(ctx);
         self.paste(true, ctx);
-    }
-
-    /// Tell the pane group to open a file within Warp.
-    fn open_file_in_warp(&mut self, path: PathBuf, ctx: &mut ViewContext<Self>) {
-        if let Some(session) = self
-            .active_block_session_id()
-            .and_then(|session_id| self.sessions.as_ref(ctx).get(session_id))
-        {
-            ctx.emit(Event::OpenFileInWarp { path, session })
-        }
-    }
-
-    #[cfg(feature = "local_fs")]
-    fn open_code_in_warp(
-        &mut self,
-        source: CodeSource,
-        layout: EditorLayout,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        ctx.emit(Event::OpenCodeInWarp { source, layout })
     }
 
     fn toggle_grid_secret(
@@ -8345,31 +8071,11 @@ impl TerminalView {
         ctx.emit(Event::ShowCommandSearch(Default::default()))
     }
 
-    fn save_as_workflow_from_input(&mut self, ctx: &mut ViewContext<Self>) {
-        let (all_current_input_text, selected_input_text) = self.input.read(ctx, |input, ctx| {
-            input.editor().read(ctx, |editor, ctx| {
-                (editor.buffer_text(ctx), editor.selected_text(ctx))
-            })
-        });
-
-        let command = if selected_input_text.is_empty() {
-            all_current_input_text
-        } else {
-            selected_input_text
-        };
-
-        self.open_workflow_modal_with_command(command, ctx);
-    }
-
     fn toggle_input_hint_text(&mut self, ctx: &mut ViewContext<Self>) {
         InputSettings::handle(ctx).update(ctx, |input_settings, ctx| {
             report_if_error!(input_settings.show_hint_text.toggle_and_save_value(ctx));
             *input_settings.show_hint_text
         });
-    }
-
-    fn open_workflow_modal_with_command(&mut self, command: String, ctx: &mut ViewContext<Self>) {
-        ctx.emit(Event::OpenWorkflowModalWithCommand(command));
     }
 
     fn copy_prompt(
@@ -8798,73 +8504,10 @@ impl TerminalView {
         ctx.notify();
     }
 
-    /// context, etc.). Never invoke `block_list_mut().clear_selection()` elsewhere on its own.
+    /// Clears terminal text selection and copies it when configured.
     fn clear_selected_text(&mut self, ctx: &mut ViewContext<Self>) {
-        self.clear_selected_text_except(None, ctx);
-    }
-
-    /// context, etc.). Never invoke `block_list_mut().clear_selection()` elsewhere on its own.
-    ///
-    /// Provides the option of keeping the existing text selection for one rich content view, whose
-    /// view ID must be passed in via `exempt_rich_content_view_id`. This is helpful for ensuring that
-    /// text selections don't simultaneously exist on unrelated views (i.e. a regular command block
-    /// and a suggested plan).
-    fn clear_selected_text_except(
-        &mut self,
-        exempt_rich_content_view_id: Option<EntityId>,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        // The below function clears all text selections within the underlying `TerminalModel`:
-        // - Text selection rendering on regular blocks is tied to the underlying model.
-        // - Text selection rendering on rich content blocks is **not** tied to the underlying model.
-        //
-        // Thus, not only is invoking `clear_selection()` on its own insufficient for clearing all
-        // on-screen text selections, but the invocation must also be followed by supplementary logic
-        // to clear visual text selections on rich content views.
-        //
-        // This also explains why we don't invoke this function unless we're attempting to clear
-        // **all** selected text; because rich content text copying will stop working otherwise.
-        if exempt_rich_content_view_id.is_none() {
-            self.model.lock().block_list_mut().clear_selection();
-        }
-
-        // except for the view with a matching view ID.
-
-        // Clear all selected text within rich content block view sub-hierarchies,
-        // except for the rich content block with a matching view ID.
-        for rich_content in self.rich_content_views.iter() {
-            match rich_content.metadata() {
-                Some(RichContentMetadata::EnvVarCollectionBlock {
-                    env_var_collection_block_handle,
-                    ..
-                }) => {
-                    if exempt_rich_content_view_id
-                        .is_some_and(|view_id| env_var_collection_block_handle.id() == view_id)
-                    {
-                        continue;
-                    }
-                    env_var_collection_block_handle.update(ctx, |env_var_collection_block, ctx| {
-                        env_var_collection_block.clear_selection(ctx);
-                    });
-                }
-                Some(RichContentMetadata::WarpifySuccessBlock { .. }) => {
-                    // TODO(Simon): We should be checking for WarpifySuccessBlocks here as well.
-                    // The `WarpifySuccessBlock` implements a `SelectableArea`.
-                }
-                _ => {}
-            }
-        }
-
-        // When this function is invoked because of an ongoing text selection within a nested
-        // rich content view component (i.e. `CodeEditorView`), setting `is_selecting` to false
-        // will prevent the selection from "spilling" into neighbouring blocks.
+        self.model.lock().block_list_mut().clear_selection();
         self.is_selecting = false;
-
-        // TODO(Simon): This doesn't work as intended for nested inline SelectableAreas.
-        // This includes inline action headers, requested commands, and env var collection blocks.
-        // The reasoning behind this is that `SelectableArea`s don't produce selected text until
-        // the selection is **complete**, but `clear_selected_text_except` is only invoked while
-        // nested selections are **ongoing**.
         self.maybe_copy_selection_to_clipboard(ctx);
     }
 
@@ -8906,26 +8549,6 @@ impl TerminalView {
         ctx.notify();
     }
 
-    /// Returns the last block's `EnvVarCollectionBlock` if it is uncompleted, scoped to the
-    /// terminal session.
-    fn active_env_var_collection_block(
-        &self,
-        ctx: &AppContext,
-    ) -> Option<&ViewHandle<EnvVarCollectionBlock>> {
-        self.rich_content_views.iter().find_map(|rich_content| {
-            if let Some(RichContentMetadata::EnvVarCollectionBlock {
-                env_var_collection_block_handle,
-            }) = rich_content.metadata()
-            {
-                return (!env_var_collection_block_handle
-                    .as_ref(ctx)
-                    .is_block_completed())
-                .then_some(env_var_collection_block_handle);
-            }
-            None
-        })
-    }
-
     /// Examines the local state of the [`TerminalView`] and chooses where best to assign focus.
     ///
     /// WARNING: this can steal focus even when the user is working in a separate terminal view!
@@ -8956,8 +8579,6 @@ impl TerminalView {
         };
         if should_focus_terminal {
             self.focus_terminal(ctx);
-        } else if let Some(block) = self.active_env_var_collection_block(ctx) {
-            ctx.focus(block);
         } else {
             self.focus_input_box(ctx);
         }
@@ -9299,6 +8920,10 @@ impl TerminalView {
             InputEvent::ShowCommandSearch(options) => {
                 ctx.emit(Event::ShowCommandSearch(options.clone()));
             }
+            InputEvent::OpenFile(path) => {
+                #[cfg(feature = "local_fs")]
+                self.open_file_path(path.clone(), None, ctx);
+            }
             InputEvent::CtrlD => {
                 ctx.emit(Event::CtrlD);
             }
@@ -9326,17 +8951,6 @@ impl TerminalView {
             InputEvent::EditorFocused => {
                 ctx.dispatch_typed_action(&PaneGroupAction::HandleFocusChange);
                 ctx.notify();
-            }
-            #[cfg(feature = "local_fs")]
-            InputEvent::OpenCodeInWarp { source, layout } => {
-                ctx.emit(Event::OpenCodeInWarp {
-                    source: source.clone(),
-                    layout: *layout,
-                });
-            }
-
-            InputEvent::OpenFilesPalette { source } => {
-                ctx.emit(Event::OpenFilesPalette { source: *source })
             }
 
             InputEvent::SubmitCLIAgentInput { text } => {
@@ -10682,13 +10296,6 @@ impl TerminalView {
             );
         }
 
-        if let Some(open_in_warp_banner) = &self.inline_banners_state.open_in_warp_banner {
-            inline_banners.insert(
-                open_in_warp_banner.id,
-                render_open_in_warp_banner(open_in_warp_banner, self.view_id, appearance),
-            );
-        }
-
         if let Some(vim_banner_state) = &self.inline_banners_state.vim_banner_state {
             inline_banners.insert(
                 vim_banner_state.id,
@@ -10964,24 +10571,7 @@ impl TerminalView {
         }
 
         if let Some(hovered_block_index) = self.hovered_block_index {
-            let block_list = model.block_list();
-
-            // Is this block the first visible item in the viewport? If so, the tool tips should
-            // render below their respective buttons or else they'll get cut off by the edge of the
-            // element.
-            let should_render_tooltip_below_button = self
-                .viewport_state(block_list, input_mode, app)
-                .iter()
-                .next()
-                .and_then(|item| item.block_index)
-                == Some(hovered_block_index);
-
-            element = element.with_hovered_index(
-                hovered_block_index,
-                model,
-                should_render_tooltip_below_button,
-                app,
-            );
+            element = element.with_hovered_index(hovered_block_index);
         }
 
         let total_height: Lines = model.block_list().block_heights().summary().height;
@@ -11372,7 +10962,6 @@ impl TerminalView {
                 }
             }
 
-            OpenWorkflowModal => self.open_workflow_modal(ctx),
             CopyBlockFilteredOutputs => self.context_menu_copy_filtered_block_outputs(ctx),
         }
     }
@@ -11391,7 +10980,6 @@ impl TerminalView {
             Paste => self.paste_in_input(ctx),
             ShowCommandSearch => self.command_search_from_input(ctx),
 
-            SaveAsWorkflow => self.save_as_workflow_from_input(ctx),
             ToggleInputHintText => self.toggle_input_hint_text(ctx),
         }
         self.close_context_menu(ctx, false);
@@ -11666,244 +11254,6 @@ impl TerminalView {
         self.input.update(ctx, |input, ctx| {
             input.replace_buffer_content(command, ctx);
         });
-    }
-
-    fn reset_focus_after_rich_block(&mut self, ctx: &mut ViewContext<Self>) {
-        self.redetermine_terminal_focus(ctx);
-        self.input.update(ctx, |input, ctx| {
-            input.editor().update(ctx, |editor, ctx| {
-                editor.clear_autosuggestion(ctx);
-            });
-        });
-    }
-
-    pub fn cancel_env_var_block(&mut self, ctx: &mut ViewContext<Self>) {
-        if let Some(block) = self.active_env_var_collection_block(ctx) {
-            block.update(ctx, |view, ctx| {
-                view.cancel(ctx);
-            });
-        }
-    }
-
-    fn add_env_var_block_to_blocklist(
-        &mut self,
-        collection_title: String,
-        command: String,
-        session_id: SessionId,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        let block_id = Uuid::new_v4().to_string();
-        let env_var_collection_block = ctx.add_typed_action_view(|ctx| {
-            EnvVarCollectionBlock::new(block_id.clone(), collection_title, command, ctx)
-        });
-        env_var_collection_block.update(ctx, |block, ctx| block.focus(ctx));
-
-        ctx.subscribe_to_view(&env_var_collection_block, move |me, block, event, ctx| {
-            let event = event.clone();
-            match event {
-                EnvVarCollectionBlockEvent::RanCommand(command) => {
-                    ctx.emit(Event::ExecuteCommand(ExecuteCommandEvent {
-                        command,
-                        session_id,
-                        workflow_id: None,
-                        workflow_command: None,
-                        should_add_command_to_history: false,
-                        source: CommandExecutionSource::EnvVarCollection {
-                            metadata: BlocklistEnvVarMetadata {
-                                block_id: block_id.clone(),
-                                should_hide_block: true,
-                            },
-                        },
-                    }));
-
-                    me.reset_focus_after_rich_block(ctx);
-                }
-                EnvVarCollectionBlockEvent::Cancelled => {
-                    // Send the escape code corresponding to ctrl-c, indicating the running command
-                    // should be terminated. Note that this will not revert already-run `export`s.
-                    me.keydown_on_terminal("\u{0003}", ctx);
-                    me.reset_focus_after_rich_block(ctx);
-                }
-                EnvVarCollectionBlockEvent::ToggledExpanded(block_id) => {
-                    me.model
-                        .lock()
-                        .block_list_mut()
-                        .toggle_visibility_of_block_for_env_var(&block_id);
-                    me.redetermine_global_focus(ctx);
-                    ctx.notify();
-                }
-                EnvVarCollectionBlockEvent::TextSelected => {
-                    me.clear_selected_text_except(Some(block.id()), ctx);
-                }
-            }
-
-            ctx.notify();
-        });
-
-        self.insert_rich_content(
-            None,
-            env_var_collection_block.clone(),
-            Some(RichContentMetadata::EnvVarCollectionBlock {
-                env_var_collection_block_handle: env_var_collection_block,
-            }),
-            RichContentInsertionPosition::Append {
-                insert_below_long_running_block: false,
-            },
-            ctx,
-        );
-    }
-
-    fn display_non_local_environment_variable_error(
-        &self,
-        window_id: WindowId,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
-            toast_stack.add_ephemeral_toast(
-                DismissibleToast::error(
-                    "Can not invoke environment variable subshell in a non-local session"
-                        .to_owned(),
-                ),
-                window_id,
-                ctx,
-            );
-        });
-    }
-
-    #[allow(unused_variables)]
-    fn get_shell_starter_local(&self, ctx: &mut ViewContext<Self>) -> Option<(String, ShellType)> {
-        #[cfg(feature = "local_tty")]
-        {
-            // TODO(CORE-2300): This appears to be used for invoking env vars.
-            // Before we close out CORE-2300, we should evaluate if we need to add
-            // shell info here.
-            let shell_starter = get_shell_starter(None, ctx)?;
-            let shell_path = match &shell_starter {
-                ShellStarter::Direct(direct_shell_starter)
-                | ShellStarter::MSYS2(direct_shell_starter) => direct_shell_starter
-                    .shell_path()
-                    .to_string_lossy()
-                    .to_string(),
-
-                ShellStarter::Wsl(wsl_shell_starter) => wsl_shell_starter.shell_path(),
-            };
-            Some((shell_path, shell_starter.shell_type()))
-        }
-
-        #[cfg(not(feature = "local_tty"))]
-        None
-    }
-
-    pub fn invoke_environment_variables(
-        &mut self,
-        env_var_collection: EnvVarCollection,
-        in_subshell: bool,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        let session_id = self.active_block_session_id();
-
-        if !in_subshell {
-            let Some(shell_type) = self.active_session_shell_type(ctx) else {
-                return;
-            };
-            self.invoke_env_vars_in_current_session(
-                env_var_collection.clone(),
-                shell_type,
-                session_id,
-                ctx,
-            );
-        } else {
-            let window_id = ctx.window_id();
-            let shell_session_info =
-                if self.active_session_is_local(ctx).unwrap_or(false) || !in_subshell {
-                    if let Some(shell_info) = self.get_shell_starter_local(ctx) {
-                        shell_info
-                    } else {
-                        // TODO(PR): This can fail for reasons besides being "non-local". We can also
-                        // not find a fallback shell.
-                        self.display_non_local_environment_variable_error(window_id, ctx);
-                        return;
-                    }
-                } else {
-                    self.display_non_local_environment_variable_error(window_id, ctx);
-                    return;
-                };
-
-            self.invoke_env_vars_in_subshell(
-                env_var_collection,
-                shell_session_info,
-                window_id,
-                ctx,
-            );
-        }
-    }
-
-    fn invoke_env_vars_in_current_session(
-        &mut self,
-        env_var_collection: EnvVarCollection,
-        shell_type: ShellType,
-        session_id: Option<SessionId>,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        if let Some(session_id) = session_id {
-            self.add_env_var_block_to_blocklist(
-                env_var_collection
-                    .title
-                    .clone()
-                    .unwrap_or("Untitled".to_owned()),
-                env_var_collection
-                    .vars
-                    .iter()
-                    .map(|var| var.get_initialization_string(shell_type))
-                    .collect_vec()
-                    .join(" "),
-                session_id,
-                ctx,
-            );
-        } else {
-            self.pending_env_var_collection = Some(env_var_collection)
-        }
-    }
-
-    fn set_and_execute_subshell_command(
-        &mut self,
-        shell_command: &str,
-        shell_type: ShellType,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        // Attempt to auto warpify the subshell when bootstrapped
-        self.pending_auto_bootstrap_shell_type = Some(shell_type);
-
-        self.input.update(ctx, |input, ctx| {
-            input.set_pending_command(shell_command, ctx);
-            input.execute_pending_command(ctx);
-        });
-    }
-
-    fn invoke_env_vars_in_subshell(
-        &mut self,
-        env_var_collection: EnvVarCollection,
-        shell_session_info: (String, ShellType),
-        window_id: WindowId,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        let (shell_path_string, shell_type) = shell_session_info;
-        if shell_type == ShellType::PowerShell {
-            ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
-                let toast =
-                    DismissibleToast::error("PowerShell subshells not supported".to_owned());
-                toast_stack.add_ephemeral_toast(toast, window_id, ctx);
-            });
-            return;
-        }
-
-        // Set the env vars before executing a subshell command so that it will be loaded on
-        // subshell start
-        self.env_vars = env_var_collection.vars;
-        self.model.lock().set_env_var_collection_name(Some(
-            env_var_collection.title.unwrap_or("Untitled".to_owned()),
-        ));
-        self.set_and_execute_subshell_command(&shell_path_string, shell_type, ctx);
     }
 
     #[cfg(feature = "integration_tests")]
@@ -12233,10 +11583,6 @@ impl TerminalView {
             .block_list_mut()
             .set_show_bootstrap_block(true);
     }
-
-    pub(super) fn toggle_file_tree(&mut self, ctx: &mut ViewContext<Self>) {
-        self.toggle_left_panel_file_tree(false, ctx);
-    }
 }
 
 impl Entity for TerminalView {
@@ -12401,10 +11747,6 @@ impl TypedActionView for TerminalView {
                 "Opened Warpify Settings",
                 WarpA11yRole::ButtonRole,
             )),
-            OpenFilesPalette { .. } => Custom(AccessibilityContent::new_without_help(
-                "Opened file search palette",
-                WarpA11yRole::ButtonRole,
-            )),
             InsertCommandCorrection { .. }
             | BlockListContextMenu(_)
             | CloseContextMenu
@@ -12434,7 +11776,6 @@ impl TypedActionView for TerminalView {
             | ToggleGridSecret { .. }
             | CopyGridSecret(_)
             | ShowInFileExplorer(_)
-            | OpenFileInWarp(_)
             | CtrlD
             | CtrlC
             | ClearSelections
@@ -12458,15 +11799,6 @@ impl TypedActionView for TerminalView {
             | SetMarkedText { .. }
             | ClearMarkedText => ActionAccessibilityContent::from_debug(),
 
-            #[cfg(feature = "local_fs")]
-            OpenCodeInWarp { .. } => ActionAccessibilityContent::from_debug(),
-            OpenInWarpBanner(action) => self.open_in_warp_banner_accessibility_content(*action),
-
-            PickRepoToOpen => Custom(AccessibilityContent::new_without_help(
-                "Use file picker to select a git repository".to_owned(),
-                WarpA11yRole::PopoverRole,
-            )),
-
             // Below are actions that are most likely irrelevant to users or are very noisy and the
             // debug version shouldn't be announced.
             Scroll { .. }
@@ -12484,17 +11816,12 @@ impl TypedActionView for TerminalView {
             | NotificationsDiscoveryBanner(_)
             | NotificationsErrorBanner(_)
             | LegacySSHBanner(_)
-            | OpenWorkflowModal
-            | OpenWorkflowModalForBlock(_)
-            | OpenWorkflowModalWithLocalWorkflow(_)
             | ToggleSnackbarInActivePane
             | HyperlinkClick { .. }
             | StartFileDropTarget
             | StopFileDropTarget
             | RunNativeShellCompletions { .. }
             | DeleteAttachment { .. }
-            | AddProjectAtCurrentDirectory
-            | DismissCodeToolbeltTooltip
             | OpenCLIAgentRichInput
             | ToggleSessionRecording
             | Osc52AllowBlockedClipboardOperation => Empty,
@@ -12700,33 +12027,7 @@ impl TypedActionView for TerminalView {
             ShowInFileExplorer(path) => {
                 ctx.open_file_path_in_explorer(path);
             }
-            OpenFileInWarp(path) => {
-                self.open_file_in_warp(path.clone(), ctx);
-            }
             #[cfg(feature = "local_fs")]
-            OpenCodeInWarp {
-                path,
-                layout,
-                line_col,
-            } => {
-                self.open_code_in_warp(
-                    CodeSource::Link {
-                        path: path.clone(),
-                        range_start: *line_col,
-                        range_end: None,
-                    },
-                    *layout,
-                    ctx,
-                );
-            }
-            OpenWorkflowModal => self.open_workflow_modal(ctx),
-
-            OpenWorkflowModalForBlock(block_index) => {
-                self.open_workflow_modal_from_block(*block_index, ctx)
-            }
-            OpenWorkflowModalWithLocalWorkflow(workflow_id) => {
-                self.open_workflow_modal_with_existing(workflow_id.clone(), ctx)
-            }
             OpenBlockListContextMenu => self.open_block_list_context_menu_via_keybinding(ctx),
 
             TriggerSubshellBootstrap => self.trigger_subshell_bootstrap(None, ctx),
@@ -12760,7 +12061,6 @@ impl TypedActionView for TerminalView {
             }
             InsertMostRecentCommandCorrection => self.insert_most_recent_command_correction(ctx),
             AliasExpansionBanner(action) => self.alias_expansion_banner_action(*action, ctx),
-            OpenInWarpBanner(action) => self.handle_open_in_warp_banner_action(*action, ctx),
             OpenBlockFilterEditor(block_index) => {
                 self.open_block_filter_editor(*block_index, OpenedFromClick::Yes, ctx)
             }
@@ -12834,36 +12134,6 @@ impl TypedActionView for TerminalView {
 
             ShowWarpifySettings => ctx.emit(Event::OpenSettings(SettingsSection::Warpify)),
             DeleteAttachment { index: _ } => {}
-
-            AddProjectAtCurrentDirectory => {
-                // Get the current working directory and add it as a project
-                if let Some(current_dir) = self.pwd() {
-                    let path = PathBuf::from(&current_dir);
-
-                    // Access the ProjectManagementModel and add the project
-                    ProjectManagementModel::handle(ctx).update(ctx, |project_model, ctx| {
-                        project_model.upsert_project(path, ctx);
-                    });
-                }
-            }
-
-            PickRepoToOpen => {
-                ctx.dispatch_typed_action(&WorkspaceAction::OpenRepository { path: None });
-            }
-            OpenFilesPalette { source } => ctx.emit(Event::OpenFilesPalette { source: *source }),
-            DismissCodeToolbeltTooltip => {
-                CodeSettings::handle(ctx).update(ctx, |settings, ctx| {
-                    if let Err(e) = settings
-                        .dismissed_code_toolbelt_new_feature_popup
-                        .set_value(true, ctx)
-                    {
-                        log::warn!(
-                            "Failed to mark code toolbelt new feature popup as dismissed: {e}"
-                        );
-                    }
-                });
-                ctx.notify();
-            }
 
             ToggleSessionRecording => {
                 self.pty_recorder.update(ctx, |recorder, ctx| {

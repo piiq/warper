@@ -20,7 +20,6 @@ integration_tests! {
     test_unescaped_prompt_bootstraps,
     test_unnecessary_resizes,
     test_removing_tabs_out_of_order,
-    test_suggestions_menu_positioning,
     test_open_and_close_theme_creator_modal,
     test_click_on_prompt_to_focus_input,
     test_text_input_on_block_list,
@@ -51,16 +50,9 @@ integration_tests! {
     test_restore_snapshot_with_deleted_cwd,
     test_session_restoration_with_multiple_shells,
     test_restore_snapshot_with_background_output,
-    test_restore_snapshot_with_markdown_file,
     test_restore_snapshot_with_settings_page,
-    // TODO(kevin): figure out why the file name doesn't match.
-    #[ignore]
-    test_restore_snapshot_with_code_file,
     test_multi_block_selections,
     test_input_focused_after_executing_command,
-    // TODO(alokedesai): Determine why this test doesn't reliably pass on CI.
-    #[cfg_attr(target_os="linux", ignore)]
-    test_with_launch_config,
     test_command_xray_hover,
     test_command_xray_for_partial_command,
     test_ctrl_r_multi_cursor,
@@ -86,12 +78,7 @@ integration_tests! {
     #[cfg(target_os="macos")]
     test_preview_config_dir_migration,
     #[ignore = "Flakes in CI"]
-    test_add_launch_config_to_warp_config,
-    #[ignore = "Flakes in CI"]
-    test_add_workflows_to_warp_config,
-    #[ignore = "Flakes in CI"]
     test_add_theme_to_warp_config,
-    test_loading_project_workflows,
     test_completions_as_you_type,
     test_completions_as_you_type_one_matching_entry_tab,
     test_completions_as_you_type_execute_on_enter,
@@ -101,13 +88,6 @@ integration_tests! {
     test_new_window_inherits_previous_session_directory,
     test_preferred_shell,
     test_open_new_tab_with_specific_shell_from_new_session_menu,
-    test_open_launch_config_from_add_tab_menu_legacy,
-    test_open_launch_config_with_custom_size,
-    test_launch_config_single_child_branch,
-    test_open_launch_config_in_active_window,
-    test_with_launch_config_with_active_tab_index,
-    test_with_launch_config_with_active_pane,
-    test_with_launch_config_with_no_active_pane,
     test_find_query_not_evaluated_on_terminal_mode_change,
     test_custom_open_completions_menu_binding,
 
@@ -147,8 +127,6 @@ integration_tests! {
 
     test_private_public_settings_routing_with_flag_enabled,
     test_private_settings_preloaded_and_not_leaked_to_toml,
-    test_history_command_is_linked_to_local_workflow,
-    test_up_arrow_history_enters_shift_tab_for_workflow,
 
     test_secret_is_obfuscated_on_copy,
     test_secret_tooltip_respects_safe_mode_setting,
@@ -167,8 +145,6 @@ integration_tests! {
     test_undo_close_grace_period_cleanup,
     test_closed_panes_cleared_on_rearrangement,
     test_tab_closes_when_last_visible_pane_closed,
-
-    test_open_in_warp_banner,
 
     // TODO(alokedesai): Fix this on the latest version of Bash.
     #[ignore]
@@ -201,19 +177,6 @@ integration_tests! {
     test_middle_click_paste,
 
     test_undo_close_stack_timeout_cleanup,
-
-    test_file_tree_opens_files_in_warp,
-    test_file_tree_open_in_new_pane,
-    test_file_tree_open_in_new_tab,
-    test_file_tree_keyboard_navigation,
-    test_file_tree_non_openable_files,
-    test_file_tree_nested_file_opening,
-
-    // Go to Line tests
-    test_goto_line_dialog_open_close,
-    test_goto_line_jumps_to_line,
-    test_goto_line_with_column,
-    test_goto_line_clamps_out_of_range,
 
     // Keyboard protocol tests
     test_keyboard_protocol_disabled_shift_enter,

@@ -16,7 +16,6 @@ use crate::{
 };
 
 use crate::context_chips::prompt::Prompt;
-use crate::editor::AutosuggestionLocation;
 
 use crate::settings::{AppEditorSettings, CLIAgentSettings, WarpPromptSeparator};
 
@@ -1161,11 +1160,7 @@ fn test_clear_buffer_clears_autosuggestion() {
             // Set a next command suggestion (empty input)
             view.input.update(ctx, |input, ctx| {
                 input.editor().update(ctx, |editor, ctx| {
-                    editor.set_autosuggestion(
-                        "git status",
-                        AutosuggestionLocation::EndOfBuffer,
-                        ctx,
-                    );
+                    editor.set_autosuggestion("git status", ctx);
                 });
             });
 

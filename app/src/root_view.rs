@@ -1,6 +1,5 @@
 use crate::appearance::Appearance;
 use crate::interval_timer::IntervalTimer;
-use crate::launch_configs::launch_config;
 use crate::persistence::SerializedBlockListItem;
 
 use crate::persistence::ModelEvent;
@@ -15,7 +14,6 @@ use crate::terminal::view::cell_size_and_padding;
 use crate::themes::theme::AnsiColorIdentifier;
 use crate::util::bindings::{self, is_binding_pty_compliant};
 use crate::window_settings::WindowSettings;
-use crate::workspace::metadata::LaunchConfigUiLocation;
 use crate::workspace::WorkspaceAction;
 use crate::workspace::{PaneViewLocator, Workspace};
 use crate::ChannelState;
@@ -130,17 +128,6 @@ pub struct OpenFromRestoredArg {
     pub app_state: Option<AppState>,
 }
 
-pub struct OpenLaunchConfigArg {
-    pub launch_config: launch_config::LaunchConfig,
-    pub ui_location: LaunchConfigUiLocation,
-
-    /// Tries to open the launch config into the active window, if any.
-    ///
-    /// Currently, this is only supported by single-window launch configs
-    /// and will open the window tabs into the existing window when true.
-    pub open_in_active_window: bool,
-}
-
 pub struct OpenPath {
     pub path: PathBuf,
 }
@@ -187,7 +174,6 @@ pub fn init(app: &mut AppContext) {
         "root_view:open_new_tab_insert_subshell_command_and_bootstrap_if_supported",
         open_new_tab_insert_subshell_command_and_bootstrap_if_supported,
     );
-    app.add_global_action("root_view:open_launch_config", open_launch_config);
     app.add_global_action("root_view:send_feedback", send_feedback);
     app.add_global_action("root_view:detach_tab_immediate", |arg, ctx| {
         let _ = detach_tab_with_transfer(arg, ctx);
@@ -232,12 +218,6 @@ pub fn init(app: &mut AppContext) {
     app.add_action(
         "root_view:open_settings_page_in_existing_window",
         RootView::open_settings_page_in_existing_window,
-    );
-
-    app.add_action("root_view:add_file_pane", RootView::add_file_pane);
-    app.add_global_action(
-        "root_view:open_new_with_file_notebook",
-        open_new_with_file_notebook,
     );
 
     app.register_fixed_bindings([
@@ -320,56 +300,6 @@ pub fn workspace_for_window(
 ) -> Option<ViewHandle<Workspace>> {
     ctx.views_of_type::<Workspace>(window_id)
         .and_then(|views| views.first().cloned())
-}
-
-fn open_launch_config(arg: &OpenLaunchConfigArg, ctx: &mut AppContext) {
-    let active_window_workspace = active_workspace(ctx);
-    if arg.launch_config.windows.is_empty() {
-        open_new(&(), ctx);
-    } else if arg.open_in_active_window
-        && arg.launch_config.windows.len() == 1
-        && active_window_workspace.is_some()
-    {
-        active_window_workspace
-            .expect("already checked if there is a workspace for the active window")
-            .update(ctx, |workspace, ctx| {
-                workspace.open_launch_config_window(arg.launch_config.windows[0].clone(), ctx)
-            });
-    } else {
-        let mut active_index = None;
-        for (idx, window_template) in arg.launch_config.windows.iter().enumerate() {
-            if arg
-                .launch_config
-                .active_window_index
-                .map(|window_idx| window_idx == idx)
-                .unwrap_or(false)
-            {
-                active_index = Some(idx);
-            } else {
-                open_new_with_workspace_source(
-                    NewWorkspaceSource::FromTemplate {
-                        window_template: window_template.clone(),
-                    },
-                    ctx,
-                );
-            }
-        }
-
-        if let Some(idx) = active_index {
-            let window_template = arg
-                .launch_config
-                .windows
-                .get(idx)
-                .expect("Window should exist at idx");
-
-            open_new_with_workspace_source(
-                NewWorkspaceSource::FromTemplate {
-                    window_template: window_template.clone(),
-                },
-                ctx,
-            );
-        }
-    }
 }
 
 fn send_feedback(_: &(), ctx: &mut AppContext) {
@@ -470,7 +400,6 @@ pub fn create_transferred_window(
                 NewWorkspaceSource::TransferredTab {
                     tab_color: info.transferred_tab.color,
                     custom_title: info.transferred_tab.custom_title.clone(),
-                    left_panel_open: info.transferred_tab.left_panel_open,
                     vertical_tabs_panel_open: info.transferred_tab.vertical_tabs_panel_open,
                     for_drag_preview: for_drag,
                 },
@@ -717,16 +646,6 @@ fn open_settings_page_in_new_window(section: &SettingsSection, ctx: &mut AppCont
     });
 }
 
-/// Opens a new window with a file-based notebook open.
-fn open_new_with_file_notebook(arg: &PathBuf, ctx: &mut AppContext) {
-    open_new_with_workspace_source(
-        NewWorkspaceSource::NotebookFromFilePath {
-            file_path: Some(arg.to_owned()),
-        },
-        ctx,
-    );
-}
-
 /// Creates a new window and returns its [`WindowId`] and root view's [`ViewHandle`].
 pub(crate) fn open_new_window_get_handles(
     shell: Option<AvailableShell>,
@@ -770,7 +689,7 @@ fn open_new_tab_insert_subshell_command_and_bootstrap_if_supported(
         Some(root_view_handle) => {
             root_view_handle.update(ctx, |root_view, ctx| {
                 root_view.workspace.update(ctx, |workspace, ctx| {
-                    workspace.add_terminal_tab(false /* hide_homepage */, ctx);
+                    workspace.add_terminal_tab(ctx);
                 });
             });
             root_view_handle
@@ -1077,18 +996,12 @@ pub enum NewWorkspaceSource {
         previous_active_window: Option<WindowId>,
         shell: Option<AvailableShell>,
     },
-    FromTemplate {
-        window_template: launch_config::WindowTemplate,
-    },
     Restored {
         window_snapshot: WindowSnapshot,
         block_lists: Arc<HashMap<PaneUuid, Vec<SerializedBlockListItem>>>,
     },
     Session {
         options: Box<NewTerminalOptions>,
-    },
-    NotebookFromFilePath {
-        file_path: Option<PathBuf>,
     },
 
     /// A tab is being transferred from another window via the transferable views framework.
@@ -1099,35 +1012,11 @@ pub enum NewWorkspaceSource {
         tab_color: Option<AnsiColorIdentifier>,
         /// Custom title from the source tab
         custom_title: Option<String>,
-        /// Whether the left panel was open in the source tab
-        left_panel_open: bool,
-        /// Captured from the source window so detached tabs inherit the panel state.
+        /// Whether the source window's vertical tabs panel was open.
         vertical_tabs_panel_open: bool,
         /// Whether this transferred tab window is currently being used as a drag preview.
         for_drag_preview: bool,
     },
-}
-
-impl NewWorkspaceSource {
-    pub fn has_horizontal_split(&self) -> bool {
-        match self {
-            NewWorkspaceSource::Restored {
-                window_snapshot, ..
-            } => {
-                if window_snapshot.tabs.is_empty() {
-                    false
-                } else {
-                    let active_index = window_snapshot.active_tab_index;
-                    let active_tab = window_snapshot
-                        .tabs
-                        .get(active_index)
-                        .unwrap_or(&window_snapshot.tabs[0]);
-                    active_tab.root.has_horizontal_split()
-                }
-            }
-            _ => false,
-        }
-    }
 }
 
 /// Args needed to construct a `Workspace`.
@@ -1241,16 +1130,6 @@ impl RootView {
             ctx.windows().show_window_and_focus_app(window_id);
             ctx.notify();
         });
-        true
-    }
-
-    pub fn add_file_pane(&mut self, path: &PathBuf, ctx: &mut ViewContext<Self>) -> bool {
-        self.workspace.update(ctx, |workspace, ctx| {
-            workspace.add_tab_for_file_notebook(Some(path.to_owned()), ctx);
-        });
-        let window_id = ctx.window_id();
-        ctx.windows().show_window_and_focus_app(window_id);
-        ctx.notify();
         true
     }
 

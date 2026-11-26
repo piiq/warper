@@ -179,12 +179,9 @@ impl SearchItemIcon for BindingGroup {
             Self::Settings => Icon::Gear,
             Self::Close => Icon::X,
             Self::Navigation => Icon::Navigation,
-            Self::Workflow => Icon::Workflow,
-            Self::Notebooks => Icon::Notebook,
             Self::Folders => Icon::Folder,
             Self::KeyboardShortcuts => Icon::Keyboard,
             Self::Notifications => Icon::Bell,
-            Self::EnvVarCollection => Icon::EnvVarCollection,
             Self::Terminal => Icon::Terminal,
         }
     }
@@ -198,10 +195,6 @@ impl SearchItemIcon for BindingGroup {
             | Self::Folders
             | Self::Terminal
             | Self::Notifications => appearance.theme().foreground().into_solid(),
-
-            Self::Workflow | Self::Notebooks | Self::EnvVarCollection => {
-                appearance.theme().foreground().into_solid()
-            }
         }
     }
 }

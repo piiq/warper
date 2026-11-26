@@ -5,7 +5,6 @@ use crate::{
     experiments,
     network::NetworkStatus,
     resource_center::TipsCompleted,
-    search::files::model::FileSearchModel,
     settings::PrivacySettings,
     settings_view::keybindings::KeybindingChangedNotifier,
     suggestions::ignored_suggestions_model::IgnoredSuggestionsModel,
@@ -15,14 +14,10 @@ use crate::{
     test_util::settings::initialize_settings_for_tests,
     undo_close::UndoCloseStack,
     warp_managed_paths_watcher::WarpManagedPathsWatcher,
-    workflows::local_workflows::LocalWorkflows,
-    workspace::{
-        sync_inputs::SyncedInputState, ActiveSession, OneTimeModalModel, WorkspaceRegistry,
-    },
+    workspace::{sync_inputs::SyncedInputState, ActiveSession, WorkspaceRegistry},
     GlobalResourceHandles, GlobalResourceHandlesProvider,
 };
 #[cfg(feature = "local_fs")]
-use repo_metadata::RepoMetadataModel;
 use repo_metadata::{repositories::DetectedRepositories, watcher::DirectoryWatcher};
 use std::{collections::HashMap, path::PathBuf};
 use watcher::HomeDirectoryWatcher;
@@ -51,7 +46,6 @@ fn initialize_app(app: &mut App) {
     app.add_singleton_model(|_| Appearance::mock());
     app.add_singleton_model(PrivacySettings::mock);
     app.add_singleton_model(|_ctx| SyncedInputState::mock());
-    app.add_singleton_model(LocalWorkflows::new);
     app.add_singleton_model(|_| Prompt::mock());
     app.add_singleton_model(|_| ResizableData::default());
     app.add_singleton_model(|_| ActiveSession::default());
@@ -62,18 +56,14 @@ fn initialize_app(app: &mut App) {
     app.add_singleton_model(|_| CLIAgentSessionsModel::new());
 
     #[cfg(feature = "local_fs")]
-    app.add_singleton_model(RepoMetadataModel::new);
-
-    app.add_singleton_model(FileSearchModel::new);
     app.add_singleton_model(|_| crate::git_status::status_update::GitStatusUpdateModel::new());
 
     crate::terminal::available_shells::register(app);
     app.update(experiments::init);
     AltScreenReporting::register(app);
 
-    app.add_singleton_model(|ctx| PersistedWorkspace::new(vec![], HashMap::new(), None, ctx));
+    app.add_singleton_model(|ctx| PersistedWorkspace::new(vec![], None, ctx));
 
-    app.add_singleton_model(OneTimeModalModel::new);
     app.add_singleton_model(|_| WorkspaceRegistry::new());
     app.add_singleton_model(UndoCloseStack::new);
     app.add_singleton_model(|_| IgnoredSuggestionsModel::new(vec![]));
@@ -194,7 +184,10 @@ impl pane::PaneContent for PreAttachReturnsFalsePane {
     }
 
     fn snapshot(&self, _app: &AppContext) -> LeafContents {
-        LeafContents::GetStarted
+        LeafContents::Settings(crate::app_state::SettingsPaneSnapshot::Local {
+            current_page: crate::settings_view::SettingsSection::Appearance,
+            search_query: None,
+        })
     }
 
     fn has_application_focus(&self, _ctx: &mut ViewContext<PaneGroup>) -> bool {
@@ -352,7 +345,7 @@ fn test_update_session_visibility() {
 
 #[test]
 fn test_initial_widths_are_computed_correctly() {
-    use launch_config::PaneTemplateType::*;
+    use template::PaneTemplateType::*;
 
     App::test((), |mut app| async move {
         initialize_app(&mut app);
@@ -389,21 +382,21 @@ fn test_initial_widths_are_computed_correctly() {
         //  |      |      |     |
         //  ---------------------
         let template = PaneBranchTemplate {
-            split_direction: launch_config::SplitDirection::Vertical,
+            split_direction: template::SplitDirection::Vertical,
             panes: vec![
                 leaf_pane!(),
                 PaneBranchTemplate {
-                    split_direction: launch_config::SplitDirection::Horizontal,
+                    split_direction: template::SplitDirection::Horizontal,
                     panes: vec![
                         leaf_pane!(),
                         PaneBranchTemplate {
-                            split_direction: launch_config::SplitDirection::Vertical,
+                            split_direction: template::SplitDirection::Vertical,
                             panes: vec![leaf_pane!(), leaf_pane!()],
                         },
                     ],
                 },
                 PaneBranchTemplate {
-                    split_direction: launch_config::SplitDirection::Horizontal,
+                    split_direction: template::SplitDirection::Horizontal,
                     panes: vec![leaf_pane!(), leaf_pane!(), leaf_pane!()],
                 },
             ],
@@ -626,7 +619,7 @@ fn test_pane_focus_does_not_have_an_infinite_event_loop() {
         // focus.
         let mock_options = MockOptions {
             layout: PanesLayout::Template(PaneTemplateType::PaneBranchTemplate {
-                split_direction: crate::launch_configs::launch_config::SplitDirection::Horizontal,
+                split_direction: crate::tab_configs::template::SplitDirection::Horizontal,
                 panes: vec![
                     PaneTemplateType::PaneTemplate {
                         is_focused: Some(true),
@@ -752,7 +745,7 @@ fn test_focused_pane_is_synchronized_with_application_focus() {
         // Create a pane group with two terminal panes, so that we can move
         // focus and observe the effects.
         let panes_layout = PanesLayout::Template(PaneTemplateType::PaneBranchTemplate {
-            split_direction: crate::launch_configs::launch_config::SplitDirection::Horizontal,
+            split_direction: crate::tab_configs::template::SplitDirection::Horizontal,
             panes: vec![
                 PaneTemplateType::PaneTemplate {
                     is_focused: Some(true),

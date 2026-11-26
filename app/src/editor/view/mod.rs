@@ -81,6 +81,7 @@ use num_traits::SaturatingSub;
 use parking_lot::Mutex;
 use pathfinder_geometry::vector::Vector2F;
 
+use crate::editor::NavigationKey;
 use std::collections::HashMap;
 use std::{borrow::Cow, rc::Rc};
 use std::{
@@ -92,7 +93,6 @@ use std::{
 };
 use string_offset::{ByteOffset, CharOffset};
 use warp_completer::completer::Description;
-use warp_editor::editor::NavigationKey;
 use warpui::actions::StandardAction;
 use warpui::clipboard::ClipboardContent;
 use warpui::elements::{CornerRadius, Hoverable, DEFAULT_UI_LINE_HEIGHT_RATIO};
@@ -118,21 +118,6 @@ const CURSOR_BLINK_INTERVAL: Duration = Duration::from_millis(500);
 const DEFAULT_TAB_SIZE: usize = 4;
 
 pub const ACCEPT_AUTOSUGGESTION_KEYBINDING_NAME: &str = "editor_view:insert_autosuggestion";
-
-#[derive(Clone, Copy)]
-pub enum AutosuggestionLocation {
-    EndOfBuffer,
-    Inline(usize),
-}
-
-impl fmt::Display for AutosuggestionLocation {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            AutosuggestionLocation::EndOfBuffer => write!(f, "EndOfBuffer"),
-            AutosuggestionLocation::Inline(_) => write!(f, "Inline"),
-        }
-    }
-}
 
 pub const SELECT_UP_ACTION_NAME: &str = "editor_view:select_up";
 pub const SELECT_DOWN_ACTION_NAME: &str = "editor_view:select_down";
@@ -1662,7 +1647,7 @@ impl From<&EditorView> for ScrollState {
 }
 
 pub struct AutosuggestionState {
-    /// Snapshot of the buffer at the time the autosuggestions was set.
+    /// Snapshot of the buffer at the time the autosuggestion was set.
     pub buffer_snapshot: String,
 
     /// The text that was set as the autosuggestion.
@@ -1671,12 +1656,6 @@ pub struct AutosuggestionState {
     /// The current autosuggestion within the editor. This differs from the original autosuggestion
     /// text if the user starts typing a character that matches the autosuggestion.
     pub current_autosuggestion_text: Option<String>,
-
-    /// Optionally, the autosuggestion might exist somewhere besides the very end of the Editor. This
-    /// is the case for Notebooks, which support inlined autosuggestions. The location refers to a logical row
-    /// number in the editor where the autosuggestion should be rendered. By default, this should be
-    /// the end of the buffer.
-    pub location: AutosuggestionLocation,
 }
 
 impl AutosuggestionState {
@@ -2996,31 +2975,22 @@ impl EditorView {
     /// Set an autosuggestion that is rendered natively within the editor as "ghosted" text. This
     /// autosuggestion will continue to be displayed as long as the text in the editor stays the
     /// same or a user inserts a prefix of autosuggestion text.
-    pub fn set_autosuggestion(
-        &mut self,
-        text: impl Into<String>,
-        location: AutosuggestionLocation,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        let buffer_snapshot = self.autosuggestion_basis(location, ctx);
+    pub fn set_autosuggestion(&mut self, text: impl Into<String>, ctx: &mut ViewContext<Self>) {
+        let buffer_text = self.buffer_text(ctx);
+        let text = text.into();
+        let full_suggestion = format!("{buffer_text}{text}");
 
-        if let Some(buffer_text) = buffer_snapshot {
-            let text = text.into();
-            let full_suggestion = format!("{buffer_text}{text}");
+        self.autosuggestion_state = Some(Arc::new(AutosuggestionState {
+            buffer_snapshot: buffer_text,
+            original_autosuggestion_text: text.clone(),
+            current_autosuggestion_text: Some(text),
+        }));
 
-            self.autosuggestion_state = Some(Arc::new(AutosuggestionState {
-                buffer_snapshot: buffer_text,
-                original_autosuggestion_text: text.clone(),
-                current_autosuggestion_text: Some(text),
-                location,
-            }));
+        self.autosuggestion_ignore_view.update(ctx, |view, _ctx| {
+            view.set_current_autosuggestion(Some(full_suggestion));
+        });
 
-            self.autosuggestion_ignore_view.update(ctx, |view, _ctx| {
-                view.set_current_autosuggestion(Some(full_suggestion));
-            });
-
-            ctx.notify();
-        }
+        ctx.notify();
     }
 
     /// Set placeholder text that appears when buffer matches the given prefix.
@@ -4939,7 +4909,6 @@ impl EditorView {
                     .original_autosuggestion_text
                     .clone(),
                 current_autosuggestion_text: Some(remaining_autosuggestion.to_owned()),
-                location: current_autosuggestion_state.location,
             };
             self.autosuggestion_state = Some(Arc::new(new_autosuggestion_state));
         }
@@ -5671,54 +5640,10 @@ impl EditorView {
                 == buffer.max_point().row
     }
 
-    /// If the autosuggestion is location-less (e.g., the input view), the autosuggestion beginning is the
-    /// very end of the buffer. If the autosuggestion has a location (e.g., notebooks), it's
-    /// the end of the line that is the basis for the autosuggestion.
-    pub fn single_cursor_at_autosuggestion_beginning(&mut self, ctx: &AppContext) -> bool {
-        if let Some(location) = self.autosuggestion_location() {
-            match location {
-                AutosuggestionLocation::EndOfBuffer => {
-                    self.single_cursor_at_buffer_end(true /* respect_line_cap */, ctx)
-                }
-                AutosuggestionLocation::Inline(line_ix) => {
-                    if self.editor_model.as_ref(ctx).is_single_cursor_only(ctx) {
-                        let buffer = self.editor_model.as_ref(ctx).buffer(ctx);
-                        let line_length = buffer
-                            .line_len(line_ix as u32)
-                            .expect("line should contain a length");
-                        let cursor = self
-                            .first_selection(ctx)
-                            .end()
-                            .to_point(buffer)
-                            .expect("selection anchor should convert to point");
-                        cursor.row == line_ix as u32 && cursor.column == line_length
-                    } else {
-                        false
-                    }
-                }
-            }
-        } else {
-            false
-        }
-    }
-
-    /// Returns the line number where the single cursor exists. If there's more than one selection
-    /// or the selection is more than just a cursor, returns None.
-    pub fn single_cursor_line_index(&self, ctx: &AppContext) -> Option<u32> {
-        let model = self.editor_model.as_ref(ctx);
-        if model.selections(ctx).len() == 1 {
-            let selection = model.first_selection(ctx);
-            let buffer = model.buffer(ctx);
-            selection.is_cursor_only(buffer).then(|| {
-                let cursor = selection.end();
-                cursor
-                    .to_point(buffer)
-                    .expect("cursor should convert to point")
-                    .row
-            })
-        } else {
-            None
-        }
+    /// Returns whether a single cursor is at the buffer end with an autosuggestion set.
+    pub fn single_cursor_at_autosuggestion_beginning(&self, ctx: &AppContext) -> bool {
+        self.autosuggestion_state.is_some()
+            && self.single_cursor_at_buffer_end(true /* respect_line_cap */, ctx)
     }
 
     pub fn move_up(&mut self, ctx: &mut ViewContext<Self>) {
@@ -6408,12 +6333,6 @@ impl EditorView {
             .and_then(|state| state.current_autosuggestion_text.as_deref())
     }
 
-    pub fn autosuggestion_location(&self) -> Option<AutosuggestionLocation> {
-        self.autosuggestion_state
-            .as_ref()
-            .map(|state| state.location)
-    }
-
     fn next_blink_epoch(&mut self) -> usize {
         self.blink_epoch += 1;
         self.blink_epoch
@@ -6545,22 +6464,6 @@ impl EditorView {
         }
     }
 
-    /// Returns an option around the string that represents the current state of whatever content
-    /// was used to generate the autosuggestion. Either the entire buffer OR one line of it.
-    fn autosuggestion_basis(
-        &self,
-        location: AutosuggestionLocation,
-        ctx: &mut ViewContext<Self>,
-    ) -> Option<String> {
-        match location {
-            AutosuggestionLocation::EndOfBuffer => Some(self.buffer_text(ctx)),
-            AutosuggestionLocation::Inline(line_ix) => {
-                let buffer = self.model().as_ref(ctx).buffer(ctx);
-                buffer.line(line_ix as u32).ok()
-            }
-        }
-    }
-
     /// Update autosuggestion state based on the result of an edit. First check if the buffer text
     /// when the autosuggestion was initially inserted is still in the buffer. If so, remove the
     /// characters from the end of the buffer that weren't in the buffer at the time the
@@ -6569,16 +6472,7 @@ impl EditorView {
     /// prefix that is already inserted in the buffer.
     fn update_autosuggestion_state(&mut self, ctx: &mut ViewContext<EditorView>) {
         if let Some(autosuggestion_state) = self.autosuggestion_state.take() {
-            // Retrieve the current state of the buffer. If the autosuggestion is location-less,
-            // the buffer is the entire buffer text. If the autosuggestion belongs to a line,
-            // the buffer is just that line
-            let autosuggestion_basis =
-                self.autosuggestion_basis(autosuggestion_state.location, ctx);
-            if autosuggestion_basis.is_none() {
-                return;
-            }
-            let current_buffer_text_for_autosuggestion =
-                autosuggestion_basis.expect("autosuggestion basis should exist");
+            let current_buffer_text_for_autosuggestion = self.buffer_text(ctx);
 
             // Ensure the buffer text at the time the autosuggestion was sent is still in the
             // buffer.
@@ -6615,7 +6509,6 @@ impl EditorView {
                             .original_autosuggestion_text
                             .clone(),
                         current_autosuggestion_text: Some(new_autosuggestion_text.to_owned()),
-                        location: autosuggestion_state.location,
                     };
                     self.autosuggestion_state = Some(Arc::new(new_autosuggestion_state));
                     return;
@@ -6628,7 +6521,6 @@ impl EditorView {
                     .original_autosuggestion_text
                     .clone(),
                 current_autosuggestion_text: None,
-                location: autosuggestion_state.location,
             }))
         }
     }

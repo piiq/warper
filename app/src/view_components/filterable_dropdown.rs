@@ -2,6 +2,7 @@ use super::dropdown::{
     DropdownAction, DropdownItem, MenuHeaderTextFormatter, DROPDOWN_PADDING, TOP_MENU_BAR_HEIGHT,
     TOP_MENU_BAR_MAX_WIDTH,
 };
+use crate::editor::NavigationKey;
 use crate::{
     appearance::Appearance,
     editor::{
@@ -11,7 +12,6 @@ use crate::{
     menu::{Event as MenuEvent, Menu, MenuItem, MenuVariant},
     ui_components::icons,
 };
-use warp_editor::editor::NavigationKey;
 use warpui::{
     elements::{
         Align, Border, ChildAnchor, ChildView, Clipped, ConstrainedBox, Container, CornerRadius,

@@ -141,21 +141,6 @@ pub enum WorkerCommand {
         /// Socket name for the minidump server.
         socket_name: std::path::PathBuf,
     },
-
-    /// Run a headless ripgrep search worker.
-    #[clap(hide = true)]
-    RipgrepSearch {
-        #[clap(flatten)]
-        parent: ParentOpts,
-        #[clap(long = "ignore-case")]
-        ignore_case: bool,
-        #[clap(long = "multiline")]
-        multiline: bool,
-        /// Search pattern.
-        pattern: String,
-        /// Paths to search.
-        paths: Vec<std::path::PathBuf>,
-    },
 }
 
 /// A subcommand of the main Warp application. This includes all [`WorkerCommand`]s as well as app-specific debugging tools.
@@ -249,15 +234,6 @@ pub fn installation_detection_server_subcommand() -> String {
     <Args as CommandFactory>::command()
         .find_subcommand("installation-detection-server")
         .expect("installation-detection-server subcommand not found")
-        .get_name()
-        .to_string()
-}
-
-/// Returns the subcommand name to use for starting the ripgrep search worker.
-pub fn ripgrep_search_subcommand() -> String {
-    <Args as CommandFactory>::command()
-        .find_subcommand("ripgrep-search")
-        .expect("ripgrep-search subcommand not found")
         .get_name()
         .to_string()
 }

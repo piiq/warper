@@ -156,10 +156,6 @@ impl TerminalView {
                 });
             }
 
-            UseAgentToolbarEvent::ToggleFileExplorer(_) => {
-                self.toggle_file_tree(ctx);
-            }
-
             UseAgentToolbarEvent::OpenRichInput => {
                 if self.has_active_cli_agent_input_session(ctx) {
                     self.close_cli_agent_rich_input_and_disable_auto_toggle(ctx);
@@ -571,7 +567,7 @@ impl TerminalView {
 ///
 /// Shows shell integration status and third-party CLI agent controls.
 /// For CLI agent commands (e.g., Claude Code, Gemini CLI, Codex), displays a specialized
-/// footer with file attachment, file explorer, rich input, and plugin controls.
+/// footer with file attachment, rich input, and plugin controls.
 pub struct UseAgentToolbar {
     terminal_view_id: EntityId,
     terminal_model: Arc<FairMutex<TerminalModel>>,
@@ -643,10 +639,6 @@ impl UseAgentToolbar {
             }
             AgentInputFooterEvent::InsertIntoCLIRichInput(text) => {
                 ctx.emit(UseAgentToolbarEvent::InsertIntoRichInput(text.clone()));
-            }
-
-            AgentInputFooterEvent::ToggleFileExplorer(agent) => {
-                ctx.emit(UseAgentToolbarEvent::ToggleFileExplorer(*agent));
             }
 
             AgentInputFooterEvent::OpenRichInput => {
@@ -723,8 +715,6 @@ pub enum UseAgentToolbarEvent {
     WriteToPty(String),
     /// Insert text into CLI agent rich input.
     InsertIntoRichInput(String),
-    /// Toggle the file explorer (from CLI agent view).
-    ToggleFileExplorer(CLIAgent),
     /// Open the rich input editor for composing a prompt.
     OpenRichInput,
     /// Hide the rich input editor (same as Escape).

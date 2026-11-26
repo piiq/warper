@@ -4,10 +4,8 @@ use chrono::NaiveDateTime;
 use diesel::prelude::*;
 
 use super::schema::{
-    app, blocks, code_pane_tabs, code_panes, commands, env_var_collection_panes, folders,
-    ignored_suggestions, notebook_panes, notebooks, pane_branches, pane_leaves, pane_nodes, panels,
-    projects, server_experiments, settings_panes, tabs, terminal_panes, welcome_panes, windows,
-    workflow_panes, workflows, workspace_language_server, workspace_metadata,
+    app, blocks, commands, ignored_suggestions, pane_branches, pane_leaves, pane_nodes,
+    server_experiments, settings_panes, tabs, terminal_panes, windows, workspace_metadata,
 };
 
 #[derive(Insertable)]
@@ -32,50 +30,6 @@ pub struct Window {
     pub vertical_tabs_panel_open: Option<bool>,
 }
 
-#[derive(Insertable, Queryable)]
-pub struct Workflow {
-    pub id: i32,
-    pub data: String,
-}
-
-/// A type representing a `Workflow` that is newly created. We purposefully
-/// do not include the `id` here since it is unset.
-#[derive(Insertable)]
-#[diesel(table_name = workflows)]
-pub struct NewWorkflow {
-    pub data: String,
-}
-
-#[derive(Identifiable, Insertable, Queryable)]
-pub struct Notebook {
-    pub id: i32,
-    pub title: Option<String>,
-    pub data: Option<String>,
-}
-
-#[derive(Insertable)]
-#[diesel(table_name = notebooks)]
-pub struct NewNotebook {
-    pub title: Option<String>,
-    pub data: Option<String>,
-}
-
-#[derive(Insertable, Identifiable, Queryable)]
-pub struct Folder {
-    pub id: i32,
-    pub name: String,
-    pub is_open: bool,
-    pub is_warp_pack: bool,
-}
-
-#[derive(Insertable)]
-#[diesel(table_name = folders)]
-pub struct NewFolder {
-    pub name: String,
-    pub is_open: bool,
-    pub is_warp_pack: bool,
-}
-
 #[derive(Clone, Identifiable, Queryable, AsChangeset)]
 #[diesel(table_name = workspace_metadata)]
 pub struct WorkspaceMetadata {
@@ -94,45 +48,6 @@ pub struct NewWorkspaceMetadata {
     pub modified_ts: Option<NaiveDateTime>,
     pub queried_ts: Option<NaiveDateTime>,
 }
-
-#[derive(Clone, Identifiable, Insertable, Queryable, AsChangeset)]
-#[diesel(table_name = workspace_language_server)]
-pub struct WorkspaceLanguageServer {
-    pub id: i32,
-    pub workspace_id: i32,
-    pub language_server_name: String,
-    pub enabled: String,
-}
-
-#[derive(Clone, Insertable, AsChangeset)]
-#[diesel(table_name = workspace_language_server)]
-pub struct NewWorkspaceLanguageServer {
-    pub workspace_id: i32,
-    pub language_server_name: String,
-    pub enabled: String,
-}
-
-#[derive(Default, Clone, Debug, Insertable, Queryable, AsChangeset)]
-#[diesel(table_name = projects)]
-pub struct Project {
-    pub path: String,
-    pub added_ts: NaiveDateTime,
-    pub last_opened_ts: Option<NaiveDateTime>,
-}
-
-impl Project {
-    pub fn last_used_at(&self) -> NaiveDateTime {
-        self.last_opened_ts.unwrap_or(self.added_ts)
-    }
-}
-
-impl PartialEq for Project {
-    fn eq(&self, other: &Self) -> bool {
-        self.path == other.path
-    }
-}
-
-impl Eq for Project {}
 
 #[derive(Insertable)]
 #[diesel(table_name = windows)]
@@ -200,70 +115,12 @@ pub struct TerminalPane {
 }
 
 #[derive(Identifiable, Queryable, Selectable)]
-#[diesel(table_name = notebook_panes)]
-#[diesel(primary_key(id))]
-pub struct NotebookPane {
-    pub id: i32,
-    // This is hardcoded in the database, and not used in the app, but Diesel requires it so that
-    // fields are in the same order as the table's columns.
-    pub kind: String,
-    pub notebook_id: Option<String>,
-    pub local_path: Option<Vec<u8>>,
-}
-
-#[derive(Identifiable, Queryable, Selectable)]
-#[diesel(table_name = env_var_collection_panes)]
-#[diesel(primary_key(id))]
-pub struct EnvVarCollectionPane {
-    pub id: i32,
-    pub kind: String,
-    pub env_var_collection_id: Option<String>,
-}
-
-#[derive(Identifiable, Queryable, Selectable)]
-#[diesel(table_name = workflow_panes)]
-#[diesel(primary_key(id))]
-pub struct WorkflowPane {
-    pub id: i32,
-    pub kind: String,
-    pub workflow_id: Option<String>,
-}
-
-#[derive(Identifiable, Queryable, Selectable)]
-#[diesel(table_name = code_panes)]
-#[diesel(primary_key(id))]
-pub struct CodePane {
-    pub id: i32,
-    pub active_tab_index: i32,
-    pub source_data: Option<String>,
-}
-
-#[derive(Identifiable, Queryable, Selectable)]
-#[diesel(table_name = code_pane_tabs)]
-#[diesel(primary_key(id))]
-pub struct CodePaneTab {
-    pub id: i32,
-    pub code_pane_id: i32,
-    pub tab_index: i32,
-    pub local_path: Option<Vec<u8>>,
-}
-
-#[derive(Identifiable, Queryable, Selectable)]
 #[diesel(table_name = settings_panes)]
 #[diesel(primary_key(id))]
 pub struct SettingsPane {
     pub id: i32,
     pub kind: String,
     pub current_page: String,
-}
-
-#[derive(Identifiable, Queryable, Selectable)]
-#[diesel(table_name = welcome_panes)]
-#[diesel(primary_key(id))]
-pub struct WelcomePane {
-    pub id: i32,
-    pub kind: String,
-    pub startup_directory: Option<String>,
 }
 
 /// Subset of the [`terminal_panes`] table needed to retrieve per-session block lists.
@@ -310,29 +167,8 @@ pub struct NewPane {
 /// The [`pane_leaves::kind`] value for terminal panes.
 pub const TERMINAL_PANE_KIND: &str = "terminal";
 
-/// The [`pane_leaves::kind`] value for notebook panes.
-pub const NOTEBOOK_PANE_KIND: &str = "notebook";
-
-/// The [`pane_leaves::kind`] value for EVC panes.
-pub const ENV_VAR_COLLECTION_PANE_KIND: &str = "env_var_collection";
-
-/// The [`pane_leaves::kind`] value for code panes.
-pub const CODE_PANE_KIND: &str = "code";
-
-/// The [`pane_leaves::kind`] value for workflow panes.
-pub const WORKFLOW_PANE_KIND: &str = "workflow";
-
 /// The [`pane_leaves::kind`] value for settings panes.
 pub const SETTINGS_PANE_KIND: &str = "settings";
-
-/// The [`pane_leaves::kind`] value for code review panes.
-pub const CODE_REVIEW_PANE_KIND: &str = "code_review";
-
-/// The [`pane_leaves::kind`] value for the welcome pane.
-pub const WELCOME_PANE_KIND: &str = "welcome";
-
-/// The [`pane_leaves::kind`] value for the get-started pane.
-pub const GET_STARTED_PANE_KIND: &str = "get_started";
 
 #[derive(Insertable)]
 #[diesel(table_name = terminal_panes)]
@@ -346,55 +182,10 @@ pub struct NewTerminalPane {
 }
 
 #[derive(Insertable)]
-#[diesel(table_name = notebook_panes)]
-pub struct NewNotebookPane {
-    pub id: i32,
-    pub notebook_id: Option<String>,
-    pub local_path: Option<Vec<u8>>,
-}
-
-#[derive(Insertable)]
-#[diesel(table_name = env_var_collection_panes)]
-pub struct NewEnvVarCollectionPane {
-    pub id: i32,
-    pub env_var_collection_id: Option<String>,
-}
-
-#[derive(Insertable)]
-#[diesel(table_name = workflow_panes)]
-pub struct NewWorkflowPane {
-    pub id: i32,
-    pub workflow_id: Option<String>,
-}
-
-#[derive(Insertable)]
-#[diesel(table_name = code_panes)]
-pub struct NewCodePane {
-    pub id: i32,
-    pub active_tab_index: i32,
-    pub source_data: Option<String>,
-}
-
-#[derive(Insertable)]
-#[diesel(table_name = code_pane_tabs)]
-pub struct NewCodePaneTab {
-    pub code_pane_id: i32,
-    pub tab_index: i32,
-    pub local_path: Option<Vec<u8>>,
-}
-
-#[derive(Insertable)]
 #[diesel(table_name = settings_panes)]
 pub struct NewSettingsPane {
     pub id: i32,
     pub current_page: String,
-}
-
-#[derive(Insertable)]
-#[diesel(table_name = welcome_panes)]
-pub struct NewWelcomePane {
-    pub id: i32,
-    pub startup_directory: Option<String>,
 }
 
 #[derive(Insertable)]
@@ -527,21 +318,4 @@ pub struct NewServerExperiment {
 pub struct NewIgnoredSuggestion {
     pub suggestion: String,
     pub suggestion_type: String,
-}
-
-#[derive(Insertable)]
-#[diesel(table_name = panels)]
-pub struct NewPanel {
-    pub tab_id: i32,
-    pub left_panel: Option<String>,
-    pub right_panel: Option<String>,
-}
-
-#[derive(Identifiable, Queryable, Selectable)]
-#[diesel(table_name = panels)]
-pub struct Panel {
-    pub id: i32,
-    pub tab_id: i32,
-    pub left_panel: Option<String>,
-    pub right_panel: Option<String>,
 }

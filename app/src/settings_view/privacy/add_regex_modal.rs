@@ -1,11 +1,11 @@
 use crate::editor::Event as EditorEvent;
+use crate::editor::NavigationKey;
 use crate::modal::{Modal, ModalViewState};
 use crate::{
     appearance::Appearance,
     editor::{EditorView, PropagateAndNoOpNavigationKeys, SingleLineEditorOptions, TextOptions},
 };
 use regex::Regex;
-use warp_editor::editor::NavigationKey;
 use warpui::elements::{CrossAxisAlignment, Expanded, MainAxisSize};
 use warpui::{
     elements::{ChildView, Container, Empty, Flex, MouseStateHandle, ParentElement, Text},

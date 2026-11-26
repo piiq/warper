@@ -1,8 +1,11 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use warp_util::path::LineAndColumnArg;
 
-use super::generate_editor_command;
+use super::{
+    generate_editor_command, resolve_external_editor, settings::EditorChoice, Editor,
+    ResolvedEditor,
+};
 
 #[test]
 fn test_editor_missing_no_line_col() {
@@ -310,4 +313,92 @@ fn test_editor_try_from_unsupported_editors() {
     assert!(Editor::try_from("emacs").is_err());
     assert!(Editor::try_from("nano").is_err());
     assert!(Editor::try_from("unknown-editor").is_err());
+}
+
+#[test]
+fn environment_editor_selection_routes_known_editors_to_their_application() {
+    assert_eq!(
+        resolve_external_editor(
+            EditorChoice::EnvEditor,
+            Some("code"),
+            Path::new("/tmp/example.rs"),
+            None
+        ),
+        ResolvedEditor::Application(Some(Editor::VSCode)),
+    );
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn editor_command_reports_nonzero_exit_status() {
+    let mut child = command::r#async::Command::new("/bin/sh")
+        .args(["-c", "exit 7"])
+        .spawn()
+        .unwrap();
+    let error = super::wait_for_editor(child.status()).await.unwrap_err();
+    assert_eq!(error.to_string(), "exit status: 7");
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn editor_command_accepts_successful_exit() {
+    let mut child = command::r#async::Command::new("/bin/sh")
+        .args(["-c", "exit 0"])
+        .spawn()
+        .unwrap();
+    super::wait_for_editor(child.status()).await.unwrap();
+}
+
+#[test]
+fn environment_editor_selection_routes_terminal_editors_to_a_command() {
+    let line_col = Some(LineAndColumnArg {
+        line_num: 12,
+        column_num: Some(3),
+    });
+    assert_eq!(
+        resolve_external_editor(
+            EditorChoice::EnvEditor,
+            Some("nvim"),
+            Path::new("/tmp/my file.rs"),
+            line_col
+        ),
+        ResolvedEditor::TerminalCommand("nvim +12:3 '/tmp/my file.rs'".to_owned()),
+    );
+}
+
+#[test]
+fn unset_environment_editor_uses_the_system_default() {
+    for environment_editor in [None, Some(""), Some("  ")] {
+        assert_eq!(
+            resolve_external_editor(
+                EditorChoice::EnvEditor,
+                environment_editor,
+                Path::new("/tmp/example.rs"),
+                None
+            ),
+            ResolvedEditor::Application(None),
+        );
+    }
+}
+
+#[test]
+fn explicit_editor_selection_takes_precedence_over_environment_editor() {
+    assert_eq!(
+        resolve_external_editor(
+            EditorChoice::ExternalEditor(Editor::VSCode),
+            Some("nvim"),
+            Path::new("/tmp/example.rs"),
+            None
+        ),
+        ResolvedEditor::Application(Some(Editor::VSCode)),
+    );
+    assert_eq!(
+        resolve_external_editor(
+            EditorChoice::SystemDefault,
+            Some("nvim"),
+            Path::new("/tmp/example.rs"),
+            None
+        ),
+        ResolvedEditor::Application(None),
+    );
 }

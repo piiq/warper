@@ -33,8 +33,6 @@ pub(crate) enum IconWithStatusVariant {
         icon: WarpIcon,
         icon_color: WarpThemeFill,
     },
-    /// A pre-built icon element on an overlay background.
-    NeutralElement { icon_element: Box<dyn Element> },
     /// A CLI agent icon on the agent's brand color background.
     CLIAgent {
         agent: CLIAgent,
@@ -54,19 +52,6 @@ pub(crate) fn render_icon_with_status(
     match variant {
         IconWithStatusVariant::Neutral { icon, icon_color } => {
             let inner = ConstrainedBox::new(icon.to_warpui_icon(icon_color).finish())
-                .with_width(sizing.icon_size)
-                .with_height(sizing.icon_size)
-                .finish();
-            Container::new(inner)
-                .with_uniform_padding(sizing.padding)
-                .with_background(internal_colors::fg_overlay_2(theme))
-                .with_corner_radius(CornerRadius::with_all(Radius::Pixels(
-                    (sizing.icon_size + sizing.padding * 2.) / 2.,
-                )))
-                .finish()
-        }
-        IconWithStatusVariant::NeutralElement { icon_element } => {
-            let inner = ConstrainedBox::new(icon_element)
                 .with_width(sizing.icon_size)
                 .with_height(sizing.icon_size)
                 .finish();

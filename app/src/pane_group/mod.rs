@@ -1,11 +1,4 @@
-#[cfg(feature = "local_fs")]
-use crate::code::editor_management::CodeSource;
-use crate::code::view::CodeViewAction;
-use crate::env_vars::EnvVarCollectionType;
-use crate::notebooks::file::FileNotebookView;
 use crate::pane_group::focus_state::PaneGroupFocusEvent;
-use crate::pane_group::pane::get_started_pane::GetStartedPane;
-use crate::pane_group::pane::welcome_pane::WelcomePane;
 use crate::pane_group::pane::ActionOrigin;
 use crate::persistence::SerializedBlockListItem;
 use crate::quit_warning::UnsavedStateSummary;
@@ -20,7 +13,6 @@ use crate::util::links::USER_DOCS_URL;
 #[cfg(feature = "local_fs")]
 use crate::util::openable_file_type::FileTarget;
 use crate::view_components::ToastFlavor;
-use crate::workflows::workflow::Workflow;
 
 use std::any::Any;
 use std::collections::HashMap;
@@ -41,7 +33,6 @@ use typed_path::TypedPath;
 use uuid::Uuid;
 use warp_core::command::ExitCode;
 use warp_core::context_flag::ContextFlag;
-use warp_core::HostId;
 use warp_util::path::convert_wsl_to_windows_host_path;
 #[cfg(feature = "local_fs")]
 use warp_util::path::LineAndColumnArg;
@@ -58,43 +49,34 @@ use warpui::{
 };
 use warpui::{SingletonEntity, ViewContext};
 
-#[cfg(feature = "local_fs")]
-use crate::app_state::CodePaneSnapShot;
 use crate::app_state::{
-    self, BranchSnapshot, LeafContents, LeafSnapshot, NotebookPaneSnapshot, PaneNodeSnapshot,
-    PaneUuid, SettingsPaneSnapshot, TerminalPaneSnapshot,
+    self, BranchSnapshot, LeafContents, LeafSnapshot, PaneNodeSnapshot, PaneUuid,
+    SettingsPaneSnapshot, TerminalPaneSnapshot,
 };
 use crate::appearance::Appearance;
 use crate::banner::{Banner, BannerEvent, BannerState, BannerTextContent, DismissalType};
 use crate::channel::{Channel, ChannelState};
 use crate::cmd_or_ctrl_shift;
-use crate::code::view::CodeView;
 use crate::features::FeatureFlag;
-use crate::launch_configs::launch_config::{self, PaneMode, PaneTemplateType};
 use crate::persistence::ModelEvent;
 use crate::report_if_error;
 use crate::resource_center::{
     mark_feature_used_and_write_to_user_defaults, Tip, TipAction, TipsCompleted,
 };
 use crate::session_management::SessionNavigationData;
+use crate::tab_configs::template::{self, PaneMode, PaneTemplateType};
 use crate::terminal::general_settings::{GeneralSettings, GeneralSettingsChangedEvent};
 #[cfg(feature = "local_tty")]
 use crate::terminal::local_tty;
-use crate::terminal::model::session::Session;
 use crate::terminal::session_settings::NewSessionSource;
 use crate::terminal::session_settings::SessionSettings;
 use crate::terminal::view::ssh_file_upload::FileUploadId;
-use crate::terminal::view::{
-    BlockNotification, ExecuteCommandEvent, LeftPanelTargetView, SyncEvent, TerminalViewState,
-};
+use crate::terminal::view::{BlockNotification, ExecuteCommandEvent, SyncEvent, TerminalViewState};
 use crate::terminal::ShellLaunchData;
 use crate::workspace::metadata::PaletteSource;
 use settings::Setting as _;
-use warp_server_client::ids::SyncId;
 
-use crate::code::active_file::ActiveFileModel;
 use crate::util::bindings::{is_binding_pty_compliant, CustomAction};
-use crate::workflows::{WorkflowSelectionSource, WorkflowSource, WorkflowType};
 
 use crate::palette::PaletteMode;
 use crate::terminal::{TerminalManager, TerminalModel, TerminalView};
@@ -103,7 +85,6 @@ use crate::workspace::{self, CommandSearchOptions, PaneViewLocator, TabBarLocati
 pub mod focus_state;
 pub mod pane;
 pub mod tree;
-pub mod working_directories;
 
 use focus_state::PaneGroupFocusState;
 
@@ -111,8 +92,6 @@ use focus_state::PaneGroupFocusState;
 #[path = "mod_tests.rs"]
 mod tests;
 
-pub use pane::code_pane::CodePane;
-pub use pane::file_pane::FilePane;
 pub use pane::settings_pane::SettingsPane;
 pub use pane::terminal_pane::TerminalPane;
 pub use pane::PaneHeaderAction;
@@ -122,7 +101,6 @@ pub use pane::{
     PaneId, PaneView, TerminalPaneId,
 };
 pub use tree::{Direction, PaneData, PaneFlex, PaneNode, SplitDirection};
-pub use working_directories::{WorkingDirectoriesEvent, WorkingDirectoriesModel};
 
 use self::pane::{DetachType, PaneViewEvent};
 
@@ -395,9 +373,6 @@ pub enum Event {
     Exited {
         add_to_undo_stack: bool,
     },
-    LeftPanelToggled {
-        is_open: bool,
-    },
     ExecuteCommand(ExecuteCommandEvent),
     PaneTitleUpdated,
     SendNotification {
@@ -413,52 +388,12 @@ pub enum Event {
     /// Event used to propagate a state change for one of the terminal views
     /// inside this pane group.
     TerminalViewStateChanged,
-    // Tell the workspace to open the workflow modal.
-    OpenWorkflowModalWithCommand(String),
-    // Tell the workspace to open the workflow for edit.
-    OpenLocalWorkflowForEdit(SyncId),
-    // Tell the workspace to open the workflow modal with an unsaved workflow.
-    OpenWorkflowModalWithTemporary(Box<Workflow>),
     OpenPromptEditor,
 
     OpenCLIAgentToolbarEditor,
-    /// tell the workspace to open a file within Warp.
-    OpenFileInWarp {
-        /// The file path to open.
-        path: PathBuf,
-        /// The session that the path was opened from.
-        session: Arc<Session>,
-    },
-    #[cfg(feature = "local_fs")]
-    OpenCodeInWarp {
-        source: CodeSource,
-        layout: crate::util::file::external_editor::settings::EditorLayout,
-        line_col: Option<LineAndColumnArg>,
-    },
-    #[cfg(feature = "local_fs")]
-    PreviewCodeInWarp {
-        source: CodeSource,
-    },
 
-    /// Tell the workspace to run a workflow in the active tab's active session.
-    RunWorkflow {
-        workflow: Arc<WorkflowType>,
-        workflow_source: WorkflowSource,
-        workflow_selection_source: WorkflowSelectionSource,
-        argument_override: Option<HashMap<String, String>>,
-    },
-    /// Invoke env var from pane
-    InvokeEnvVarCollection {
-        env_var_collection: Arc<EnvVarCollectionType>,
-        in_subshell: bool,
-    },
     /// Dirty the workspace so the tab indicator shows.
     MaximizePaneToggled,
-    /// A remote session resolved the repo root for a session in this pane group.
-    RemoteRepoNavigated {
-        host_id: HostId,
-        indexed_path: String,
-    },
     /// Refresh the workspace-level active session state.
     ActiveSessionChanged,
     FocusPaneGroup,
@@ -529,29 +464,11 @@ pub enum Event {
     },
     OpenThemeChooser,
 
-    OpenFilesPalette {
-        source: PaletteSource,
-    },
-    ToggleLeftPanel {
-        target_view: LeftPanelTargetView,
-        force_open: bool,
-    },
     #[cfg(feature = "local_fs")]
     OpenFileWithTarget {
         path: PathBuf,
         target: FileTarget,
         line_col: Option<LineAndColumnArg>,
-    },
-    /// File was renamed in the file tree
-    #[cfg(feature = "local_fs")]
-    FileRenamed {
-        old_path: PathBuf,
-        new_path: PathBuf,
-    },
-    /// File was deleted in the file tree
-    #[cfg(feature = "local_fs")]
-    FileDeleted {
-        path: PathBuf,
     },
 
     RepoChanged,
@@ -563,10 +480,6 @@ pub enum Event {
         path: PathBuf,
     },
 
-    /// Request to open LSP logs in a terminal pane
-    OpenLspLogs {
-        log_path: PathBuf,
-    },
     OpenPluginInstructionsPane(crate::terminal::CLIAgent, PluginModalKind),
 }
 
@@ -592,8 +505,6 @@ pub struct NewTerminalOptions {
     pub initial_directory: Option<PathBuf>,
     /// Additional environment variables to set in the terminal shell process.
     pub env_vars: HashMap<OsString, OsString>,
-    /// If true, do not show the Code Mode homepage UX.
-    pub hide_homepage: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -622,12 +533,6 @@ impl NewTerminalOptions {
     /// the initial directory is cleared.
     pub fn with_initial_directory_opt(mut self, path: Option<PathBuf>) -> Self {
         self.initial_directory = path;
-        self
-    }
-
-    /// Returns new options with the homepage hidden.
-    pub fn with_homepage_hidden(mut self) -> Self {
-        self.hide_homepage = true;
         self
     }
 }
@@ -668,14 +573,6 @@ pub struct PaneGroup {
 
     dragged_border: Option<DraggedBorder>,
     user_default_shell_changed_banner: ViewHandle<Banner<PaneGroupAction>>,
-
-    /// Model that tracks the currently active file.
-    active_file_model: ModelHandle<ActiveFileModel>,
-
-    /// If the left panel is open for this pane group
-    pub left_panel_open: bool,
-    /// If the right panel is open for this pane group
-    /// If the right panel is maximized
 
     /// Tab-level custom title set via the rename-tab flow.
     custom_title: Option<String>,
@@ -807,20 +704,6 @@ impl PaneGroup {
         }
     }
 
-    /// Executes the provided callback for each CodeView contained within
-    /// this pane group.
-    pub fn for_all_code_panes(
-        &mut self,
-        mut callback: impl FnMut(&mut CodeView, &mut ViewContext<CodeView>),
-        ctx: &mut ViewContext<Self>,
-    ) {
-        for pane_id in self.pane_contents.keys() {
-            if let Some(code_view) = self.code_view_from_pane_id(*pane_id, ctx) {
-                code_view.update(ctx, &mut callback);
-            }
-        }
-    }
-
     pub fn terminal_pane_ids(&self) -> impl Iterator<Item = PaneId> + '_ {
         self.pane_contents.keys().filter_map(|pane_id| {
             if pane_id.is_terminal_pane() {
@@ -836,17 +719,6 @@ impl PaneGroup {
         self.pane_contents
             .keys()
             .any(|pane_id| pane_id.is_terminal_pane())
-    }
-
-    /// Returns true if this pane group contains any code panes.
-    pub fn has_code_panes(&self) -> bool {
-        self.pane_contents
-            .keys()
-            .any(|pane_id| pane_id.is_code_pane())
-    }
-
-    pub fn active_file_model(&self) -> &ModelHandle<ActiveFileModel> {
-        &self.active_file_model
     }
 
     /// Returns true iff one of the terminal panes in this group is being shared.
@@ -1109,11 +981,11 @@ impl PaneGroup {
                 let num_children = panes.len() as f32;
                 let total_divider_size = tree::get_divider_thickness() * (num_children - 1.);
                 let view_size = match split_direction {
-                    launch_config::SplitDirection::Vertical => vec2f(
+                    template::SplitDirection::Vertical => vec2f(
                         view_size.x(),
                         (view_size.y() - total_divider_size) / num_children,
                     ),
-                    launch_config::SplitDirection::Horizontal => vec2f(
+                    template::SplitDirection::Horizontal => vec2f(
                         (view_size.x() - total_divider_size) / num_children,
                         view_size.y(),
                     ),
@@ -1287,73 +1159,6 @@ impl PaneGroup {
 
                 Ok((PaneData::new(pane_id), focus))
             }
-            LeafContents::Notebook(snapshot) => {
-                let pane: Box<dyn AnyPaneContent + 'static> = match snapshot {
-                    NotebookPaneSnapshot::LocalNotebook { .. } => {
-                        return Err(anyhow::anyhow!(
-                            "Cloud notebook pane restoration was removed by WARPER-001"
-                        ));
-                    }
-                    NotebookPaneSnapshot::LocalFileNotebook { path } => Box::new(FilePane::new(
-                        path,
-                        None,
-                        #[cfg(feature = "local_fs")]
-                        None,
-                        ctx,
-                    )),
-                };
-
-                let pane_id = pane.as_pane().id();
-                pane_contents.insert(pane_id, pane);
-                let focus = InitialFocus {
-                    focused_pane: leaf.is_focused.then_some(pane_id),
-                    active_session: None,
-                };
-
-                Ok((PaneData::new(pane_id), focus))
-            }
-            #[cfg(feature = "local_fs")]
-            LeafContents::Code(snapshot) => {
-                let CodePaneSnapShot::Local {
-                    tabs,
-                    active_tab_index,
-                    source,
-                } = snapshot;
-
-                let Some(source) = source else {
-                    return Err(anyhow::anyhow!(
-                        "Skipping code pane with non-restorable source"
-                    ));
-                };
-
-                let code_view = ctx.add_typed_action_view(move |ctx| {
-                    CodeView::restore(&tabs, active_tab_index, source, ctx)
-                });
-                let pane = CodePane::from_view(code_view, ctx);
-                let pane_id = pane.id();
-                pane_contents.insert(pane_id, Box::new(pane));
-                let focus = InitialFocus {
-                    focused_pane: leaf.is_focused.then_some(pane_id),
-                    active_session: None,
-                };
-                Ok((PaneData::new(pane_id), focus))
-            }
-            #[cfg(not(feature = "local_fs"))]
-            LeafContents::Code(_) => Err(anyhow::anyhow!(
-                "Code pane restoration not supported on this platform"
-            )),
-            LeafContents::EnvVarCollection(snapshot) => {
-                let _ = snapshot;
-                Err(anyhow::anyhow!(
-                    "Cloud environment variable collection pane restoration was removed by WARPER-001"
-                ))
-            }
-            LeafContents::Workflow(snapshot) => {
-                let _ = snapshot;
-                Err(anyhow::anyhow!(
-                    "Cloud workflow pane restoration was removed by WARPER-001"
-                ))
-            }
             LeafContents::Settings(snapshot) => {
                 let pane: Box<dyn AnyPaneContent + 'static> = match snapshot {
                     SettingsPaneSnapshot::Local {
@@ -1374,37 +1179,6 @@ impl PaneGroup {
                     active_session: None,
                 };
                 Ok((PaneData::new(pane_id), focus))
-            }
-
-            LeafContents::GetStarted => {
-                if !FeatureFlag::GetStartedTab.is_enabled() {
-                    Err(anyhow::anyhow!("GetStarted pane not supported"))
-                } else {
-                    let pane: Box<dyn AnyPaneContent + 'static> =
-                        Box::new(GetStartedPane::new(ctx));
-                    let pane_id = pane.as_pane().id();
-                    pane_contents.insert(pane_id, pane);
-                    let focus = InitialFocus {
-                        focused_pane: leaf.is_focused.then_some(pane_id),
-                        active_session: None,
-                    };
-                    Ok((PaneData::new(pane_id), focus))
-                }
-            }
-            LeafContents::Welcome { startup_directory } => {
-                if !FeatureFlag::WelcomeTab.is_enabled() {
-                    Err(anyhow::anyhow!("Welcome pane not supported"))
-                } else {
-                    let pane: Box<dyn AnyPaneContent + 'static> =
-                        Box::new(WelcomePane::new(startup_directory, ctx));
-                    let pane_id = pane.as_pane().id();
-                    pane_contents.insert(pane_id, pane);
-                    let focus = InitialFocus {
-                        focused_pane: leaf.is_focused.then_some(pane_id),
-                        active_session: None,
-                    };
-                    Ok((PaneData::new(pane_id), focus))
-                }
             }
         };
 
@@ -1527,46 +1301,10 @@ impl PaneGroup {
         self.panes_of::<TerminalPane>()
             .any(|pane| pane.terminal_view(ctx).id() == terminal_view_id)
     }
-    /// Iterate over the code editors in this pane group.
-    pub fn code_panes<'a>(
-        &'a self,
-        app: &'a AppContext,
-    ) -> impl Iterator<Item = (PaneId, ViewHandle<CodeView>)> + 'a {
-        self.panes_of::<CodePane>()
-            .map(move |pane| (pane.id(), pane.file_view(app)))
-    }
-
-    pub fn has_active_code_pane_with_unsaved_changes(&self, ctx: &AppContext) -> bool {
-        self.focused_pane_id(ctx).is_code_pane()
-            && self
-                .pane_contents
-                .get(&self.focused_pane_id(ctx))
-                .and_then(|content| content.as_any().downcast_ref::<CodePane>())
-                .map(|pane| {
-                    pane.file_view(ctx)
-                        .as_ref(ctx)
-                        .active_tab_has_unsaved_changes(ctx)
-                })
-                .unwrap_or(false)
-    }
 
     /// Returns the selected text from the focused pane, or `None` if there is no selection or the selection is empty.
     pub fn selected_text_from_focused_pane(&self, ctx: &AppContext) -> Option<String> {
         let focused_pane_id = self.focused_pane_id(ctx);
-
-        #[cfg(feature = "local_fs")]
-        {
-            // If the focused pane is a code pane, return the selected text from the code view.
-            if focused_pane_id.is_code_pane() {
-                let text = self
-                    .downcast_pane_by_id::<CodePane>(focused_pane_id)
-                    .and_then(|pane| pane.file_view(ctx).as_ref(ctx).selected_text(ctx));
-                // If the text is not empty and does not contain a newline, return early.
-                if text.as_ref().is_some_and(|t| !t.is_empty()) {
-                    return text;
-                }
-            }
-        }
 
         // Extract selected text from supported local pane types.
         let text =
@@ -1752,8 +1490,6 @@ impl PaneGroup {
             me.discard_pane(*pane_id, ctx);
         });
 
-        let active_file_model = ctx.add_model(|_| ActiveFileModel::new());
-
         let mut pane_group = Self {
             tips_completed,
             user_default_shell_unsupported_banner_model_handle,
@@ -1764,8 +1500,6 @@ impl PaneGroup {
             pane_contents,
             dragged_border: None,
             user_default_shell_changed_banner,
-            active_file_model,
-            left_panel_open: false,
             custom_title: None,
         };
 
@@ -2083,14 +1817,6 @@ impl PaneGroup {
         }
     }
 
-    pub fn set_left_panel_open(&mut self, is_open: bool, ctx: &mut ViewContext<Self>) {
-        if self.left_panel_open != is_open {
-            self.left_panel_open = is_open;
-            ctx.emit(Event::LeftPanelToggled { is_open });
-        }
-        ctx.notify();
-    }
-
     pub fn focus_first_pane(&mut self, ctx: &mut ViewContext<Self>) -> bool {
         if let Some(first) = self.panes.visible_pane_ids().first().copied() {
             return self.focus_pane_and_record_in_history(first, ctx);
@@ -2183,27 +1909,6 @@ impl PaneGroup {
         ctx.emit(Event::TerminalViewStateChanged);
         ctx.emit(Event::AppStateChanged);
         pane_content
-    }
-
-    pub fn code_pane_by_id(&self, pane_id: PaneId) -> Option<&CodePane> {
-        self.downcast_pane_by_id(pane_id)
-    }
-
-    /// Removes an editor tab from a code pane for moving to another location.
-    /// Returns the removed tab as a CodePane if the operation succeeds.
-    pub fn remove_editor_tab_for_move(
-        &mut self,
-        pane_id: PaneId,
-        editor_tab_index: usize,
-        ctx: &mut ViewContext<Self>,
-    ) -> Option<Box<dyn AnyPaneContent>> {
-        self.code_pane_by_id(pane_id)
-            .and_then(|pane| {
-                pane.file_view(ctx).update(ctx, |file_view, ctx| {
-                    file_view.remove_tab_for_move(editor_tab_index, ctx)
-                })
-            })
-            .map(|p| Box::new(p) as Box<dyn AnyPaneContent>)
     }
 
     /// The generic pane at `index`, if it exists.
@@ -2475,61 +2180,6 @@ impl PaneGroup {
         original_pane_id
     }
 
-    #[cfg(feature = "local_fs")]
-    fn replace_file_pane_with_code_pane(
-        &mut self,
-        file_pane_id: PaneId,
-        path: std::path::PathBuf,
-        source: Option<crate::code::editor_management::CodeSource>,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        use crate::code::editor_management::CodeSource;
-        use crate::pane_group::CodePane;
-
-        // Use the provided source if available.
-        let source = source.unwrap_or(CodeSource::Link {
-            path,
-            range_start: None,
-            range_end: None,
-        });
-
-        let code_pane = CodePane::new(source, None, ctx);
-        let success = self.replace_pane(file_pane_id, code_pane, false, ctx);
-
-        if !success {
-            log::error!("Failed to replace file pane {file_pane_id:?} with code pane");
-        }
-    }
-
-    #[cfg(feature = "local_fs")]
-    fn replace_code_pane_with_file_pane(
-        &mut self,
-        code_pane_id: PaneId,
-        path: std::path::PathBuf,
-        source: Option<crate::code::editor_management::CodeSource>,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        // Get the active session to pass to the FilePane, if any
-        let session = self.active_session_view(ctx).and_then(|view| {
-            // Use the active session if it's local
-            let view_ref = view.as_ref(ctx);
-            if view_ref.active_session_is_local(ctx) == Some(true) {
-                view_ref
-                    .active_block_session_id()
-                    .and_then(|session_id| view_ref.sessions_model().as_ref(ctx).get(session_id))
-            } else {
-                None
-            }
-        });
-
-        let file_pane = FilePane::new(Some(path), session, source, ctx);
-        let success = self.replace_pane(code_pane_id, file_pane, false, ctx);
-
-        if !success {
-            log::error!("Failed to replace code pane {code_pane_id:?} with file pane");
-        }
-    }
-
     /// Handle a common pane event, such as splitting off another pane.
     fn handle_pane_event(
         &mut self,
@@ -2542,11 +2192,7 @@ impl PaneGroup {
             PaneEvent::CloseAndFocus { pane_to_focus } => {
                 self.close_pane_and_focus(pane_id, *pane_to_focus, ctx);
             }
-            // Pane-splitting events always create a new terminal pane, regardless of the original
-            // pane's type. This makes it easy to get a terminal session next to a non-terminal
-            // pane like a notebook. Once it's possible to open the same notebook more than once,
-            // we may revisit this so that splitting from a terminal pane starts a new session, but
-            // splitting from a notebook pane reopens the notebook side-by-side.
+            // Pane-splitting events create a new terminal pane.
             PaneEvent::SplitLeft(chosen_shell) => {
                 self.insert_terminal_pane(Direction::Left, pane_id, chosen_shell.clone(), ctx);
             }
@@ -2571,25 +2217,8 @@ impl PaneGroup {
             }
 
             PaneEvent::ClearHoveredTabIndex => ctx.emit(Event::ClearHoveredTabIndex),
-            #[cfg(feature = "local_fs")]
-            PaneEvent::ReplaceWithCodePane { path, source } => {
-                self.replace_file_pane_with_code_pane(pane_id, path.clone(), source.clone(), ctx);
-            }
-            #[cfg(feature = "local_fs")]
-            PaneEvent::ReplaceWithFilePane { path, source } => {
-                self.replace_code_pane_with_file_pane(pane_id, path.clone(), source.clone(), ctx);
-            }
             PaneEvent::RepoChanged => {
                 ctx.emit(Event::RepoChanged);
-            }
-            PaneEvent::RemoteRepoNavigated {
-                host_id,
-                indexed_path,
-            } => {
-                ctx.emit(Event::RemoteRepoNavigated {
-                    host_id: host_id.clone(),
-                    indexed_path: indexed_path.clone(),
-                });
             }
         }
     }
@@ -2644,19 +2273,7 @@ impl PaneGroup {
     }
 
     fn close_active_pane_with_confirmation(&mut self, ctx: &mut ViewContext<Self>) {
-        if self.focused_pane_id(ctx).is_code_pane() {
-            // If focused on a CodePane, close its active editor tab (optionally, the entire pane if it only has 1 tab).
-            if let Some(code_view) = self.code_view_from_pane_id(self.focused_pane_id(ctx), ctx) {
-                code_view.update(ctx, |view, ctx| {
-                    let index = view.active_tab_index();
-                    view.handle_action(&CodeViewAction::RemoveTabAtIndex { index }, ctx);
-                });
-            } else {
-                self.close_pane_with_confirmation(self.focused_pane_id(ctx), ctx);
-            }
-        } else {
-            self.close_pane_with_confirmation(self.focused_pane_id(ctx), ctx);
-        }
+        self.close_pane_with_confirmation(self.focused_pane_id(ctx), ctx);
     }
 
     pub fn add_pane_as_hidden(
@@ -2915,7 +2532,7 @@ impl PaneGroup {
     /// Choose a new active session pane, to handle the current one closing.
     ///
     /// This returns the most-recently-focused terminal pane in the pane navigation history. If
-    /// there isn't one (for example, because the tab was created from a launch configuration and
+    /// there isn't one (for example, because the tab was created from a tab config and
     /// some panes haven't been focused yet), it will instead search for the closest terminal pane
     /// to the previous active session, first to the left/up and then to the right/down.
     fn choose_active_session(&self, closing_session_pane: PaneId) -> Option<TerminalPaneId> {
@@ -2934,7 +2551,7 @@ impl PaneGroup {
         }
 
         // In most cases, the next active session will be in `pane_history`. However, if the pane
-        // group was created from a launch configuration or restored session, it might have
+        // group was created from a tab config or restored session, it might have
         // terminal panes that haven't been focused yet and therefore aren't in `pane_history`. In
         // that case, we fall back to searching by position.
         let pane_ids = self.panes.visible_pane_ids();
@@ -3567,10 +3184,6 @@ impl PaneGroup {
         self.panes.len()
     }
 
-    pub fn has_horizontal_split(&self) -> bool {
-        self.panes.has_horizontal_split()
-    }
-
     pub fn try_navigate_next(&mut self, ctx: &mut ViewContext<Self>) -> bool {
         let pane_ids = self.panes.visible_pane_ids();
         if pane_ids.len() <= 1 {
@@ -3759,18 +3372,6 @@ impl PaneGroup {
             .map(|session| session.terminal_view(ctx))
     }
 
-    /// Given a pane ID, retrieve its backing code view, if the pane is a code pane.
-    pub fn code_view_from_pane_id(
-        &self,
-        pane_id: impl Into<PaneId>,
-        ctx: &AppContext,
-    ) -> Option<ViewHandle<CodeView>> {
-        self.pane_contents
-            .get(&pane_id.into())
-            .and_then(|contents| contents.as_any().downcast_ref::<CodePane>())
-            .map(|pane| pane.file_view(ctx))
-    }
-
     fn update_pane_history(&mut self, new_pane: PaneId) {
         self.pane_history.retain(|&x| x != new_pane);
         self.pane_history.push(new_pane);
@@ -3887,22 +3488,6 @@ impl PaneGroup {
         }
     }
 
-    /// Detach all panes and clean up associated state when closing a tab.
-    /// This should be called instead of `detach_panes` when the pane group is being destroyed.
-    pub fn detach_panes_for_close(
-        &self,
-        working_directories_model: &ModelHandle<WorkingDirectoriesModel>,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        self.detach_panes(ctx);
-
-        // Clean up any state associated with this pane group (global search views, etc.)
-        let pane_group_id = ctx.view_id();
-        working_directories_model.update(ctx, |model, ctx| {
-            model.remove_pane_group(pane_group_id, ctx);
-        });
-    }
-
     /// Reattach all panes to this group. This is called when a closed tab is restored.
     pub fn reattach_panes(&mut self, ctx: &mut ViewContext<Self>) {
         for pane in self.pane_contents.values() {
@@ -3974,76 +3559,12 @@ impl PaneGroup {
             .collect()
     }
 
-    pub fn code_views(&self, ctx: &AppContext) -> Vec<ViewHandle<CodeView>> {
-        self.panes_of::<CodePane>()
-            .map(|p| p.file_view(ctx))
-            .collect()
-    }
-
-    pub fn file_notebook_views(&self, ctx: &AppContext) -> Vec<ViewHandle<FileNotebookView>> {
-        self.panes_of::<FilePane>()
-            .map(|p| p.file_view(ctx))
-            .collect()
-    }
-
-    /// Get all terminal CWDs for this pane group.
-    /// This is used by the Workspace to refresh the active directories model.
-    pub fn terminal_view_working_directories<'a>(
-        &'a self,
-        ctx: &'a AppContext,
-    ) -> impl Iterator<Item = (EntityId, Option<String>)> + 'a {
-        self.terminal_views(ctx).into_iter().map(|terminal_view| {
-            let terminal_id = terminal_view.id();
-            let cwd = terminal_view.as_ref(ctx).pwd_if_local(ctx);
-            (terminal_id, cwd)
-        })
-    }
-
-    /// Get all code CWDs for this pane group.
-    /// This is used by the Workspace to refresh the active directories model.
-    pub fn code_view_local_paths<'a>(
-        &'a self,
-        ctx: &'a AppContext,
-    ) -> impl Iterator<Item = (EntityId, Option<String>)> + 'a {
-        self.code_views(ctx).into_iter().map(move |code_view| {
-            let id = code_view.id();
-            let local_path = code_view
-                .as_ref(ctx)
-                .local_path(ctx)
-                .map(|p| p.display().to_string());
-            (id, local_path)
-        })
-    }
-
-    pub fn file_notebook_local_paths<'a>(
-        &'a self,
-        ctx: &'a AppContext,
-    ) -> impl Iterator<Item = (EntityId, Option<String>)> + 'a {
-        self.file_notebook_views(ctx)
-            .into_iter()
-            .map(move |file_view| {
-                let id = file_view.id();
-                let local_path = file_view
-                    .as_ref(ctx)
-                    .local_path()
-                    .map(|p| p.display().to_string());
-                (id, local_path)
-            })
-    }
-
     /// Close overlays whose state is managed by this pane group or its terminal panes. Does not
     /// change what element is focused.
     pub fn close_overlays(&mut self, ctx: &mut ViewContext<Self>) {
         self.for_all_terminal_panes(
             |terminal_view, ctx| {
                 terminal_view.close_overlays(ctx);
-            },
-            ctx,
-        );
-
-        self.for_all_code_panes(
-            |code_view, ctx| {
-                code_view.close_overlays(ctx);
             },
             ctx,
         );

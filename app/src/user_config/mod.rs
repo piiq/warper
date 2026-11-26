@@ -4,12 +4,8 @@ pub mod util;
 mod imp;
 
 use crate::tab_configs::{TabConfig, TabConfigError};
+use crate::themes::theme::ThemeKind;
 use crate::themes::theme::WarpThemeConfig;
-use crate::{
-    launch_configs::launch_config::LaunchConfig, themes::theme::ThemeKind,
-    workflows::workflow::Workflow,
-};
-use lazy_static::lazy_static;
 #[cfg(feature = "local_fs")]
 use std::path::Path;
 use std::path::PathBuf;
@@ -18,45 +14,11 @@ use warpui::{Entity, ModelContext, SingletonEntity};
 
 #[cfg(test)]
 pub(crate) use imp::load_tab_configs;
-#[cfg(feature = "local_fs")]
-pub use imp::load_workflows;
-pub use imp::{load_launch_configs, load_theme_configs};
-
-lazy_static! {
-    pub static ref LAUNCH_CONFIG_COMMENT: String = format!(
-        "# Warper Launch Configuration
-#
-#
-# Use this to start a certain configuration of windows, tabs, and panes.
-# Open the launch configuration palette to access and open any launch configuration.
-#
-# This file defines your launch configuration.
-# More on how to do so here:
-# https://github.com/piiq/warper#readme
-#
-# All launch configurations are stored under {}.
-# Edit them anytime!
-#
-# You can also add commands that run on-start for your launch configurations like so:
-# ---
-# name: Example with Command
-# windows:
-#  - tabs:
-#      - layout:
-#          cwd: /Users/warp-user/project
-#          commands:
-#            - exec: code .
-",
-        warp_core::paths::home_relative_path(&crate::user_config::launch_configs_dir())
-    );
-}
+pub use imp::load_theme_configs;
 
 #[derive(Clone)]
 pub enum WarpConfigUpdateEvent {
     Themes,
-    #[cfg_attr(not(feature = "local_fs"), expect(dead_code))]
-    LocalUserWorkflows,
-    LaunchConfigs,
     #[cfg_attr(not(feature = "local_fs"), allow(dead_code))]
     TabConfigs,
     /// Emitted when one or more tab config files failed to parse.
@@ -72,20 +34,16 @@ pub enum WarpConfigUpdateEvent {
     SettingsErrorsCleared,
 }
 
-/// Singleton model containing user configurable file entities like themes, launch configs, and
-/// workflows.
+/// Singleton model containing user-configurable themes and tab configs.
 ///
 /// Emits events when entities are changed, which are detected via filesystem
-/// watchers on the user's `data_dir()` (themes, workflows, launch configs,
-/// tab configs, etc.) and, on platforms where it differs, `config_local_dir()`
+/// watchers on the user's `data_dir()` (themes and tab configs) and, on platforms where it differs, `config_local_dir()`
 /// (`settings.toml`, `keybindings.yaml`, `user_preferences.json`).
 #[derive(Default)]
 pub struct WarpConfig {
-    launch_configs: Vec<LaunchConfig>,
     tab_configs: Vec<TabConfig>,
     tab_config_errors: Vec<TabConfigError>,
     theme_config: WarpThemeConfig,
-    local_user_workflows: Vec<Workflow>,
 }
 
 /// Platform-independent parts of WarpConfig.
@@ -101,33 +59,12 @@ impl WarpConfig {
         }
     }
 
-    pub fn launch_configs(&self) -> &Vec<LaunchConfig> {
-        &self.launch_configs
-    }
-
     pub fn tab_configs(&self) -> &Vec<TabConfig> {
         &self.tab_configs
     }
 
     pub fn theme_config(&self) -> &WarpThemeConfig {
         &self.theme_config
-    }
-
-    pub fn local_user_workflows(&self) -> &Vec<Workflow> {
-        &self.local_user_workflows
-    }
-
-    /// Saving the newly created launch configuration to the WarpConfig that we currently
-    /// have.
-    pub fn append_launch_config(
-        &mut self,
-        launch_config: &LaunchConfig,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        if !self.launch_configs.contains(launch_config) {
-            self.launch_configs.push(launch_config.to_owned());
-            ctx.emit(WarpConfigUpdateEvent::LaunchConfigs);
-        }
     }
 
     pub fn update_theme_config(
@@ -171,17 +108,6 @@ fn base_dir() -> PathBuf {
 /// Returns the path to the directory containing the user's custom themes.
 pub fn themes_dir() -> PathBuf {
     warp_core::paths::themes_dir()
-}
-
-/// Returns the path to the directory containing the user's custom workflows.
-pub fn workflows_dir() -> PathBuf {
-    crate::workflows::local_workflows::workflows_dir(base_dir())
-}
-
-/// Returns the path to the directory containing the user's launch
-/// configurations.
-pub fn launch_configs_dir() -> PathBuf {
-    base_dir().join("launch_configurations")
 }
 
 /// Returns the path to the directory containing the user's tab configs.
@@ -346,27 +272,6 @@ pub(crate) fn sanitize_toml_base_name(base_name: &str) -> String {
         "worktree".to_string()
     } else {
         sanitized
-    }
-}
-
-/// Returns a path for a new worktree tab config that does not yet exist in `dir`.
-/// Uses the branch name to create a descriptive filename like `worktree_my-branch.toml`.
-///
-/// The caller is expected to pass a branch name that has already been validated
-/// (alphanumeric, hyphens, underscores only) so no sanitization is performed here.
-#[cfg(feature = "local_fs")]
-pub(crate) fn find_unused_worktree_config_path(dir: &Path, branch_name: &str) -> PathBuf {
-    let base = dir.join(format!("worktree_{branch_name}.toml"));
-    if !base.exists() {
-        return base;
-    }
-    let mut n = 1u32;
-    loop {
-        let candidate = dir.join(format!("worktree_{branch_name}_{n}.toml"));
-        if !candidate.exists() {
-            return candidate;
-        }
-        n = n.saturating_add(1);
     }
 }
 

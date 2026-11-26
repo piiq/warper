@@ -31,7 +31,6 @@ pub const MAC_MENUS_CONTEXT: DescriptionContext = DescriptionContext::Custom("ma
 #[repr(isize)]
 pub enum CustomAction {
     NewTab,
-    NewFile,
     ShowAboutWarp,
     ShowSettings,
     ConfigureKeybindings,
@@ -52,9 +51,7 @@ pub enum CustomAction {
     ClearEditor,
     Find,
     SelectAll,
-    Workflows,
     HistorySearch,
-    SaveCurrentConfig,
     History,
     IncreaseFontSize,
     DecreaseFontSize,
@@ -87,9 +84,6 @@ pub enum CustomAction {
     CloseOtherTabs,
     CloseTabsRight,
     ToggleMaximizePane,
-    LaunchConfigPalette,
-    FilesPalette,
-    TriggerWelcomeBlock,
     CommandSearch,
     ToggleResourceCenter,
     ToggleKeybindingsPage,
@@ -106,11 +100,7 @@ pub enum CustomAction {
     WindowsPaste,
     #[cfg(windows)]
     WindowsCopy,
-    ToggleProjectExplorer,
-    OpenRepository,
     NewTerminalTab,
-    GoToLine,
-    ToggleGlobalSearch,
 }
 
 lazy_static! {
@@ -259,7 +249,6 @@ pub fn custom_tag_to_keystroke(custom: CustomTag) -> Option<Keystroke> {
         CustomAction::Find => Keystroke::parse(cmd_or_ctrl_shift("f")).ok(),
         CustomAction::SelectAll => Keystroke::parse("cmdorctrl-a").ok(),
         CustomAction::CommandSearch => Keystroke::parse("ctrl-r").ok(),
-        CustomAction::Workflows => Keystroke::parse("ctrl-shift-R").ok(),
         CustomAction::History => Keystroke::parse("up").ok(),
         CustomAction::IncreaseFontSize => Keystroke::parse("shift-cmdorctrl-+").ok(),
         CustomAction::DecreaseFontSize => Keystroke::parse("shift-cmdorctrl-_").ok(),
@@ -321,19 +310,16 @@ pub fn custom_tag_to_keystroke(custom: CustomTag) -> Option<Keystroke> {
             }
         }
         CustomAction::NavigationPalette => mac_only_keystroke("cmd-shift-P"),
-        CustomAction::LaunchConfigPalette => mac_only_keystroke("ctrl-cmd-l"),
-        CustomAction::FilesPalette => Keystroke::parse(cmd_or_ctrl_shift("o")).ok(),
         CustomAction::ClearBlocks => Keystroke::parse(cmd_or_ctrl_shift("k")).ok(),
         CustomAction::SelectBlockAbove => Keystroke::parse("cmdorctrl-up").ok(),
         CustomAction::SelectBlockBelow => Keystroke::parse("cmdorctrl-down").ok(),
-        // Set this to mac-only. On Linux this conflicts with the binding to save a workflow.
         CustomAction::CreateBlockPermalink => mac_only_keystroke("cmd-shift-S"),
         CustomAction::ToggleBookmarkBlock => Keystroke::parse(cmd_or_ctrl_shift("b")).ok(),
         CustomAction::CopyBlockOutput => Keystroke::parse("cmdorctrl-alt-shift-C").ok(),
         // Set this to mac-only. On Linux this conflicts with the general binding to copy.
         CustomAction::CopyBlockCommand => mac_only_keystroke("cmd-shift-C"),
         // Set this to mac-only. On Linux this conflicts with the cmd-enter keybindings
-        // (used for actions on the input suggestions menu, and for accepting passive code diffs).
+        // (used for actions on the input suggestions menu).
         CustomAction::ToggleMaximizePane => mac_only_keystroke("cmd-shift-enter"),
         // Note: The base character '/' is used instead of '?' as mac registers keybindings
         // differently compared to the app which saves the resulting character used with shift
@@ -364,31 +350,7 @@ pub fn custom_tag_to_keystroke(custom: CustomTag) -> Option<Keystroke> {
         CustomAction::CloseWindow => mac_only_keystroke("cmd-shift-W"),
         CustomAction::CloseCurrentSession => Keystroke::parse(cmd_or_ctrl_shift("w")).ok(),
 
-        CustomAction::ToggleProjectExplorer => {
-            if OperatingSystem::get().is_mac() {
-                Keystroke::parse("ctrl-2").ok()
-            } else {
-                Keystroke::parse("ctrl-shift-2").ok()
-            }
-        }
-        CustomAction::OpenRepository => {
-            if OperatingSystem::get().is_mac() {
-                Keystroke::parse("cmd-shift-O").ok()
-            } else {
-                Keystroke::parse("alt-shift-O").ok()
-            }
-        }
-        CustomAction::GoToLine => Keystroke::parse("ctrl-g").ok(),
-        CustomAction::ToggleGlobalSearch => {
-            if OperatingSystem::get().is_mac() {
-                Keystroke::parse("ctrl-3").ok()
-            } else {
-                Keystroke::parse("alt-3").ok()
-            }
-        }
-
         CustomAction::NewTerminalTab
-        | CustomAction::NewFile
         | CustomAction::ShowAboutWarp
         | CustomAction::SplitPaneLeft
         | CustomAction::SelectAllBlocks
@@ -399,8 +361,6 @@ pub fn custom_tag_to_keystroke(custom: CustomTag) -> Option<Keystroke> {
         | CustomAction::CloseOtherTabs
         | CustomAction::CloseTabsRight
         | CustomAction::ShowAppearance
-        | CustomAction::SaveCurrentConfig
-        | CustomAction::TriggerWelcomeBlock
         | CustomAction::HistorySearch
         | CustomAction::DisableSyncTerminalInputs
         | CustomAction::ToggleSyncAllTerminalInputsInAllTabs => None,
@@ -739,12 +699,9 @@ pub enum BindingGroup {
     Settings,
     Close,
     Navigation,
-    Workflow,
-    Notebooks,
     Folders,
     KeyboardShortcuts,
     Notifications,
-    EnvVarCollection,
     Terminal,
 }
 
@@ -754,13 +711,10 @@ impl BindingGroup {
         match self {
             Self::Settings => "settings",
             Self::Navigation => "navigation",
-            Self::Workflow => "workflows",
-            Self::Notebooks => "notebooks",
             Self::Folders => "folders",
             Self::KeyboardShortcuts => "keyboard_shortcuts",
             Self::Close => "close",
             Self::Notifications => "notifications",
-            Self::EnvVarCollection => "env_var_collections",
             Self::Terminal => "terminal",
         }
     }

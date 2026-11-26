@@ -74,9 +74,8 @@ pub(super) enum DirectoryColorAddPickerEvent {
 impl DirectoryColorAddPicker {
     pub(super) fn new(ctx: &mut ViewContext<Self>) -> Self {
         ctx.subscribe_to_model(&PersistedWorkspace::handle(ctx), |me, _, event, ctx| {
-            if let PersistedWorkspaceEvent::WorkspaceAdded { .. } = event {
-                me.refresh_items(ctx);
-            }
+            let PersistedWorkspaceEvent::WorkspaceAdded { .. } = event;
+            me.refresh_items(ctx);
         });
 
         ctx.subscribe_to_model(&TabSettings::handle(ctx), |me, _, event, ctx| {

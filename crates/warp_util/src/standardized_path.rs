@@ -213,7 +213,7 @@ impl StandardizedPath {
     /// for the current OS.
     ///
     /// **Use this only when the path is known to originate from the local
-    /// filesystem** (e.g. from [`LocalRepoMetadataModel`], [`Repository`],
+    /// filesystem** (e.g. from [`Repository`],
     /// [`DetectedRepositories`], or any path that was constructed via
     /// [`from_local_canonicalized`](Self::from_local_canonicalized) /
     /// [`try_from_local`](Self::try_from_local)). For those paths the

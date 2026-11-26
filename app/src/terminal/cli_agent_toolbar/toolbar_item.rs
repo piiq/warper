@@ -28,7 +28,6 @@ pub enum AgentToolbarItemKind {
     ContextChip(ContextChipKind),
 
     // CLI agent only
-    FileExplorer,
     RichInput,
 
     // Renamed from ImageAttach; alias preserves existing user toolbar configs.
@@ -46,7 +45,6 @@ impl AgentToolbarItemKind {
 
             Self::FileAttach => "Attach File",
 
-            Self::FileExplorer => "File Explorer",
             Self::RichInput => "Rich Input",
             Self::Settings => "Settings",
         }
@@ -58,7 +56,6 @@ impl AgentToolbarItemKind {
 
             Self::FileAttach => Some(Icon::Plus),
 
-            Self::FileExplorer => Some(Icon::FileCopy),
             Self::RichInput => Some(Icon::TextInput),
             Self::Settings => Some(Icon::Settings),
         }
@@ -81,7 +78,6 @@ impl AgentToolbarItemKind {
             Self::FileAttach,
             Self::ContextChip(ContextChipKind::GitDiffStats),
         ];
-        items.push(Self::FileExplorer);
         if FeatureFlag::CLIAgentRichInput.is_enabled() {
             items.push(Self::RichInput);
         }
@@ -103,12 +99,7 @@ impl AgentToolbarItemKind {
             .into_iter()
             .map(Self::ContextChip)
             .collect();
-        items.extend([
-            Self::FileExplorer,
-            Self::RichInput,
-            Self::FileAttach,
-            Self::Settings,
-        ]);
+        items.extend([Self::RichInput, Self::FileAttach, Self::Settings]);
         items
     }
 
