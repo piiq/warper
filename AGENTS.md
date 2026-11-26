@@ -2,7 +2,8 @@
 
 ## Product scope
 
-- Keep terminal sessions, shell integration, blocks, command history, tabs, panes, session restoration, themes, keybindings, local workflows, launch configs, file editing, and third-party CLI-agent integration working.
+- Keep terminal sessions, shell integration, blocks, command history, tabs, panes, session restoration, themes, keybindings, tab configs, and third-party CLI-agent integration working.
+- Built-in file editing, the file explorer, notebooks, repository file search, workflows, environment collections, and launch configs are removed under [WARPER-017](specs/WARPER-017/PRODUCT.md). Preserve tab configs, their worktree helpers, and external file opening.
 - Built-in AI, model providers, MCP management, agent orchestration, and the diff review viewer/editor are removed. Git diff statistics remain passive terminal metadata.
 - Accounts, billing, hosted Warp Drive, teams, session sharing, Oz, telemetry uploads, hosted crash reporting, Warp autoupdate, and remote feature-flag fetching are removed.
 - User requests set development priorities and the scope of upstream ports.
@@ -13,10 +14,10 @@
 - `app/src/terminal/`: terminal views, sessions, shell integration, and third-party CLI-agent support.
 - `app/src/workspace/` and `app/src/pane_group/`: windows, tabs, panes, and layout.
 - `app/src/settings/` and `app/src/settings_view/`: local settings and their UI.
-- `app/src/code/`: file editing and language-server integration.
+- `app/src/tab_configs/`: terminal tab templates, parameter pickers, and Git worktree creation.
 - `app/src/git_status/`: repository statistics used by terminal chips and branch selection.
 - `crates/warpui/`, `crates/warpui_core/`, and `crates/warpui_extras/`: UI framework and rendering.
-- `crates/editor/`: text buffers and editing.
+- `app/src/editor/`: terminal input buffers and editing.
 - `crates/persistence/`: SQLite schema and migrations.
 - `crates/integration/`: integration tests using the Builder/TestStep framework.
 - `specs/`: current requirements and archived design history. Follow the current index in [specs/README.md](specs/README.md).
@@ -52,6 +53,7 @@ Run checks that exercise the changed behavior, including compilation, relevant t
 ## Specs and collaboration
 
 - Create specs or design documents when the user requests or approves them.
+- Number new specs in chronological order. Later specs take precedence where requirements conflict; keep earlier specs unchanged when adding new requirements.
 - Keep product requirements current as implementation changes. Use `specs/README.md` to identify current requirements.
 - Use neutral branch names such as `fix/...` and `feat/...`.
 - Write the PR title as the squash commit subject and the description as its body. Describe the problem, resulting behavior, and relevant validation. Use that title and description when squash-merging.

@@ -13,8 +13,9 @@ Warper is maintained for `piiq`'s everyday terminal use. Current product directi
 - [WARPER-014](WARPER-014/PRODUCT.md): alternate-screen background behavior.
 - [WARPER-015](WARPER-015/PRODUCT.md): remove built-in AI while retaining third-party CLI-agent integration.
 - [WARPER-016](WARPER-016/PRODUCT.md): remove built-in diff review while retaining passive terminal diff statistics.
+- [WARPER-017](WARPER-017/PRODUCT.md): remove editor, explorer, notebooks, file search, workflows, environment collections, and launch configs; retain tab configs and external file opening.
 
-WARPER-015 and WARPER-016 supersede earlier requirements for built-in AI and diff inspection. Historical specifications do not authorize restoring removed features.
+Specifications are numbered in chronological order. Later specifications take precedence where requirements conflict. Keep earlier specifications unchanged when adding new requirements. Historical specifications do not authorize restoring removed features.
 
 ## Historical material
 

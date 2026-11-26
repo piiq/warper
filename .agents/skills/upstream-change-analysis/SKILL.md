@@ -70,9 +70,9 @@ A security claim needs the affected local dependency or code path, reachable inp
 
 For an implementation request, apply the selected upstream changes to the current Warper code, adapt them where needed, and run the relevant checks. An audit request ends with the porting report.
 
-Identify the behavior that must remain correct before implementing a port. For process spawning, pane/session creation, shell startup, file editing, or persistence changes, state the invariant the change relies on and check the affected creation and restoration flows.
+Identify the behavior that must remain correct before implementing a port. For process spawning, pane/session creation, shell startup, external file opening, or persistence changes, state the invariant the change relies on and check the affected creation and restoration flows.
 
-Choose validation for the paths touched. Terminal/session changes may need coverage for new tabs, split panes, launch configs, cross-tab sequencing, and startup directories. Persistence changes need the relevant restore, migration, and new-object checks. A security fix needs the failure case and a benign retained workflow.
+Choose validation for the paths touched. Terminal/session changes may need coverage for new tabs, split panes, tab configs, cross-tab sequencing, and startup directories. Persistence changes need the relevant restore, migration, and new-object checks. A security fix needs the failure case and a benign retained workflow.
 
 Use a regression test that fails before the fix when practical. Prefer a focused local port when the upstream patch mixes the useful change with unrelated work. Report required validation that cannot run in the current environment. Keep current terminal data and user configuration usable.
 

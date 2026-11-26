@@ -33,7 +33,7 @@ Warper keeps Warp's terminal and third-party CLI-agent integration. Built-in AI 
 
 ### Terminal
 
-Native Rust app with blocks, panes, tabs, session restoration, command history, shell integration, command palette, themes, keybindings, launch configs, local workflows, and a background image picker.
+Native Rust app with blocks, panes, tabs, session restoration, command history, shell integration, command palette, themes, keybindings, tab configs, Git worktree helpers, external file opening, and a background image picker.
 
 ### Third-party CLI agents
 
@@ -47,6 +47,8 @@ If a feature needs an account, a server, a billing entitlement, a team object, a
 
 - Built-in AI, Agent Mode, model providers, API-key management, MCP servers, skills discovery, AI indexing, and agent orchestration
 - Built-in diff review, its viewer/editor, review comments, and toolbar indicator. Passive Git statistics remain in terminal input.
+- Built-in file editor, file explorer, notebooks, Markdown file previews, repository file search, and language-server management
+- Saved-command workflows, workflow aliases, named environment-variable collections, and multiwindow launch configs. Terminal tab configs remain supported.
 - Accounts, sign-up, sign-in, SSO, anonymous cloud users, subscriptions
 - Billing, plans, credits, usage limits, upgrade prompts
 - Warp Drive, team drives, shared-with-me, cloud trash
