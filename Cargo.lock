@@ -9500,7 +9500,7 @@ dependencies = [
 
 [[package]]
 name = "warp"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "addr",
  "aho-corasick",
