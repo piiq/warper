@@ -318,7 +318,10 @@ impl SingletonEntity for History {}
 
 impl History {
     pub fn new(persisted_commands: Vec<PersistedCommand>) -> Self {
-        log::debug!("Creating new History model with persisted commands {persisted_commands:?}");
+        log::debug!(
+            "Creating history model from {} persisted commands",
+            persisted_commands.len()
+        );
         let mut persisted_commands_summary =
             HashMap::<ShellHost, HashMap<String, CommandHistorySummary>>::new();
 
@@ -363,10 +366,7 @@ impl History {
     /// directly from disk or via an in-band command.
     pub fn init_session(&mut self, session: Arc<Session>, ctx: &mut ModelContext<Self>) {
         if self.session_start_indices.contains_key(&session.id()) {
-            log::debug!(
-                "In init_session but history was already initialized for session {:?}",
-                session.id()
-            );
+            log::debug!("History was already initialized for this terminal session");
         } else {
             let session_clone = session.clone();
             let is_kaspersky_running = Self::is_kaspersky_running(ctx);
@@ -412,9 +412,8 @@ impl History {
 
         let session_id = session.id();
         log::debug!(
-            "Setting shell history for shell {:?} and session id {:?}",
-            host.shell_type.name(),
-            session_id
+            "Loading {:?} shell history for a terminal session",
+            host.shell_type.name()
         );
 
         self.session_id_to_shell_host
@@ -558,7 +557,7 @@ impl History {
             for (idx, &entry) in self
                 .commands(session_id)
                 .unwrap_or_else(|| {
-                    log::warn!("History commands are empty for session {session_id:?}");
+                    log::warn!("History commands are empty for this terminal session");
                     Vec::new()
                 })
                 .iter()
@@ -705,20 +704,20 @@ impl History {
             return None;
         };
         let Some(session_start_index) = self.session_start_indices.get(&session_id) else {
-            log::warn!("Session start index for session {session_id:?} is None.");
+            log::warn!("Session start index is missing for this terminal session.");
             return None;
         };
         let Some(skip_indices) = self.session_skip_indices.get(&session_id) else {
-            log::warn!("Skip indices for session {session_id:?} are empty.");
+            log::warn!("Skip indices are missing for this terminal session.");
             return None;
         };
 
         let Some(histfile_commands) = self.history_file_commands.get(shell_host) else {
-            log::warn!("Histfile commands for session {session_id:?} are empty.");
+            log::warn!("History file commands are missing for this terminal session.");
             return None;
         };
         let Some(session_commands) = self.session_commands.get(shell_host) else {
-            log::warn!("Session commands for session {session_id:?} are empty.");
+            log::warn!("Session commands are missing for this terminal session.");
             return None;
         };
         let commands: Vec<T> = histfile_commands

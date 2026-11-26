@@ -2373,10 +2373,7 @@ impl ansi::Handler for TerminalModel {
     }
 
     fn exit_shell(&mut self, data: ExitShellValue) {
-        log::info!(
-            "Received ExitShell hook from shell for session_id: {:?}",
-            data.session_id
-        );
+        log::info!("Received ExitShell hook from shell");
         self.event_proxy.send_terminal_event(Event::ExitShell {
             session_id: data.session_id,
         });

@@ -5537,7 +5537,7 @@ impl TerminalView {
         let session_id = bootstrap_event.session_id;
         let Some(session) = self.sessions.as_ref(ctx).get(session_id) else {
             log::error!(
-                "Could not find session {session_id:?} in sessions model after \
+                "Could not find the terminal session in the sessions model after \
                          being notified that the session had bootstrapped!"
             );
             return;
@@ -9873,7 +9873,7 @@ impl TerminalView {
 
         let session_id = self.active_block_session_id()?;
         let Some(session) = self.sessions.as_ref(ctx).get(session_id) else {
-            log::warn!("Expected to have session for session ID {session_id:?}, but doesn't exist");
+            log::warn!("The active terminal session is missing from the sessions model");
             return None;
         };
         if !session.is_local() {

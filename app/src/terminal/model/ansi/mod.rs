@@ -616,9 +616,8 @@ impl<'a, H: Handler + 'a, W: io::Write> Performer<'a, H, W> {
 
         if !self.handler.is_registered_session(session_id) {
             log::warn!(
-                "Rejected DCS hook '{}' with unrecognized session_id {}",
-                hook.name(),
-                session_id.as_u64()
+                "Rejected DCS hook '{}' with unrecognized session_id",
+                hook.name()
             );
             return false;
         }
