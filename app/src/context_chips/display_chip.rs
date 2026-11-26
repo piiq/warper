@@ -1,7 +1,6 @@
 use std::borrow::Cow;
 use std::sync::Arc;
 
-use crate::code::editor::{add_color, remove_color};
 use crate::context_chips::git_branch_on_click::GitBranchOnClickValue;
 use crate::context_chips::node_version_popup::{NodeVersionPopupEvent, NodeVersionPopupView};
 use crate::context_chips::spacing;
@@ -9,6 +8,7 @@ use crate::git_status::metadata::DiffStats;
 use crate::terminal::cli_agent_sessions::CLIAgentSessionsModel;
 use crate::terminal::input::{MenuPositioning, MenuPositioningProvider};
 use crate::terminal::model_events::ModelEventDispatcher;
+use crate::themes::theme::AnsiColorIdentifier;
 use crate::ui_components::blended_colors;
 use crate::ui_components::icons::Icon;
 use crate::util::truncation::truncate_from_beginning;
@@ -639,8 +639,8 @@ impl DisplayChip {
                                 ctx.notify();
                             }
                             DirectoryType::TextFile => {
-                                // For text files, secondary action is open in code editor
-                                ctx.emit(PromptDisplayChipEvent::OpenTextFileInCodeEditor(
+                                // Open text files in the configured external application.
+                                ctx.emit(PromptDisplayChipEvent::OpenFile(
                                     directory_item.name.clone(),
                                 ));
                                 me.close_working_directory_menu(ctx);
@@ -1394,9 +1394,7 @@ pub enum PromptChipShellCommand {
 
 pub enum PromptDisplayChipEvent {
     OpenFile(String),
-    OpenTextFileInCodeEditor(String),
     ToggleMenu { open: bool },
-    OpenCommandPaletteFiles,
     TryExecuteCommand(PromptChipShellCommand),
 }
 
@@ -1629,3 +1627,15 @@ pub fn udi_icon_size(appearance: &Appearance, app: &AppContext) -> f32 {
 #[cfg(test)]
 #[path = "display_chip_test.rs"]
 mod tests;
+
+pub(crate) fn add_color(appearance: &Appearance) -> ColorU {
+    AnsiColorIdentifier::Green
+        .to_ansi_color(&appearance.theme().terminal_colors().normal)
+        .into()
+}
+
+pub(crate) fn remove_color(appearance: &Appearance) -> ColorU {
+    AnsiColorIdentifier::Red
+        .to_ansi_color(&appearance.theme().terminal_colors().normal)
+        .into()
+}

@@ -1,7 +1,5 @@
 mod items;
 pub use items::Items;
-use warp_core::context_flag::ContextFlag;
-use warp_core::features::FeatureFlag;
 
 use crate::appearance::Appearance;
 use crate::search::command_palette::FilterChipRenderer;
@@ -80,14 +78,7 @@ impl ZeroState {
     ) -> impl Iterator<Item = QueryFilter> {
         let mut valid_filters = vec![];
 
-        if FeatureFlag::CommandPaletteFileSearch.is_enabled() {
-            valid_filters.push(QueryFilter::Files);
-        }
         valid_filters.extend([QueryFilter::Actions, QueryFilter::Sessions]);
-
-        if ContextFlag::LaunchConfigurations.is_enabled() {
-            valid_filters.push(QueryFilter::LaunchConfigurations);
-        }
 
         let _ = window_id;
         valid_filters.into_iter()

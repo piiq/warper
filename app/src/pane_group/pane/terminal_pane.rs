@@ -1,6 +1,4 @@
 //! Implementation of terminal panes.
-#[cfg(feature = "local_fs")]
-use crate::pane_group::CodeSource;
 use std::sync::mpsc::SyncSender;
 
 use warpui::{
@@ -251,8 +249,7 @@ impl PaneContent for TerminalPane {
     }
 }
 
-/// Attaches a terminal view to the pane group by subscribing to its events
-/// and setting the file tree code model.
+/// Attaches a terminal view to the pane group by subscribing to its events.
 fn attach_terminal_view(
     terminal_view: &ViewHandle<TerminalView>,
     terminal_pane_id: TerminalPaneId,
@@ -402,51 +399,12 @@ fn handle_terminal_view_event(
             Event::TerminalViewStateChanged => {
                 ctx.emit(pane_group::Event::TerminalViewStateChanged);
             }
-            Event::OpenWorkflowModalWithCommand(command) => {
-                ctx.emit(pane_group::Event::OpenWorkflowModalWithCommand(
-                    command.clone(),
-                ));
-            }
-            Event::OpenWorkflowModalWithLocalWorkflow(workflow_id) => {
-                ctx.emit(pane_group::Event::OpenLocalWorkflowForEdit(
-                    workflow_id.clone(),
-                ));
-            }
-            Event::OpenWorkflowModalWithTemporary(workflow) => {
-                ctx.emit(pane_group::Event::OpenWorkflowModalWithTemporary(
-                    workflow.clone(),
-                ));
-            }
             Event::OpenPromptEditor => {
                 ctx.emit(pane_group::Event::OpenPromptEditor);
             }
 
             Event::OpenCLIAgentToolbarEditor => {
                 ctx.emit(pane_group::Event::OpenCLIAgentToolbarEditor);
-            }
-            Event::OpenFileInWarp { path, session } => {
-                ctx.emit(pane_group::Event::OpenFileInWarp {
-                    path: path.clone(),
-                    session: session.clone(),
-                });
-            }
-            #[cfg(feature = "local_fs")]
-            Event::PreviewCodeInWarp { source } => {
-                ctx.emit(pane_group::Event::PreviewCodeInWarp {
-                    source: source.clone(),
-                });
-            }
-            #[cfg(feature = "local_fs")]
-            Event::OpenCodeInWarp { source, layout } => {
-                ctx.emit(pane_group::Event::OpenCodeInWarp {
-                    source: source.clone(),
-                    layout: *layout,
-                    line_col: if let CodeSource::Link { range_start, .. } = source {
-                        *range_start
-                    } else {
-                        None
-                    },
-                });
             }
 
             Event::FocusSession => {
@@ -530,31 +488,6 @@ fn handle_terminal_view_event(
             }
             Event::OpenThemeChooser => {
                 ctx.emit(pane_group::Event::OpenThemeChooser);
-            }
-
-            Event::OpenFilesPalette { source } => {
-                ctx.emit(pane_group::Event::OpenFilesPalette { source: *source })
-            }
-
-            #[cfg(feature = "local_fs")]
-            Event::FileRenamed { old_path, new_path } => {
-                ctx.emit(pane_group::Event::FileRenamed {
-                    old_path: old_path.clone(),
-                    new_path: new_path.clone(),
-                });
-            }
-            #[cfg(feature = "local_fs")]
-            Event::FileDeleted { path } => {
-                ctx.emit(pane_group::Event::FileDeleted { path: path.clone() });
-            }
-            Event::ToggleLeftPanel {
-                target_view,
-                force_open,
-            } => {
-                ctx.emit(pane_group::Event::ToggleLeftPanel {
-                    target_view: *target_view,
-                    force_open: *force_open,
-                });
             }
 
             _ => {}

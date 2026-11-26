@@ -1,6 +1,5 @@
 #![allow(deprecated)]
 
-use instant::Instant;
 use std::slice;
 use std::{fmt::Write, path::Path};
 
@@ -250,9 +249,13 @@ impl<'a> Editor {
         line_column_number: Option<LineAndColumnArg>,
         full_path: &Path,
         ctx: &mut AppContext,
-    ) -> bool {
+    ) {
         let Some(application_bundle_info) = self.application_bundle_info(ctx) else {
-            return false;
+            show_open_error(
+                format!("Could not find {self}. Choose an external editor in Settings > Features."),
+                ctx,
+            );
+            return;
         };
 
         let (executable, arguments) =
@@ -271,33 +274,7 @@ impl<'a> Editor {
             _ => executable.command(application_bundle_info),
         };
 
-        match command.args(arguments).spawn() {
-            Ok(mut child) => {
-                ctx.background_executor()
-                    .spawn(async move {
-                        let now = Instant::now();
-                        match child.status().await {
-                            Ok(exit_code) => {
-                                log::debug!(
-                                    "process exited after {}ms with exit code: {}",
-                                    now.elapsed().as_millis(),
-                                    exit_code
-                                );
-                            }
-                            Err(err) => {
-                                log::error!("unable to await process {err:?}");
-                            }
-                        };
-                    })
-                    .detach();
-                log::info!("Successfully launched {self:?}.");
-                true
-            }
-            Err(e) => {
-                log::error!("Error launching {self:?} {e:?}");
-                false
-            }
-        }
+        launch_editor_command(command.args(arguments), self.to_string(), ctx)
     }
 
     // Given the line column number and the path, format into "path:line:column".
@@ -340,12 +317,13 @@ pub fn open_file_path_with_line_and_col(
         };
 
         if let Some(editor) = editor {
-            if editor.open(line_column_number, full_path, ctx) {
-                return;
-            }
+            editor.open(line_column_number, full_path, ctx);
+            return;
         }
     }
-    ctx.open_file_path(full_path);
+    let mut command = Command::new("/usr/bin/open");
+    command.arg(full_path);
+    launch_editor_command(&mut command, "the default application".to_string(), ctx);
 }
 
 // Get the Mac default app for opening the file path.

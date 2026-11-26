@@ -1,47 +1,22 @@
 use std::fs;
-use std::io;
-use std::io::Write;
 use std::path::Path;
 
-use anyhow::{anyhow, Result};
-use itertools::Itertools;
 use repo_metadata::RepositoryUpdate;
 use warpui::{ModelContext, SingletonEntity};
 
 use crate::features::FeatureFlag;
-use crate::launch_configs::launch_config::LaunchConfig;
 use crate::tab_configs::{TabConfig, TabConfigError};
 use crate::themes::theme::WarpThemeConfig;
 use crate::warp_managed_paths_watcher::{
     repository_update_touches_path, repository_update_touches_prefix, WarpManagedPathsWatcher,
     WarpManagedPathsWatcherEvent,
 };
-use crate::workflows::workflow::Workflow;
 
-use super::util::{
-    for_each_dir_entry, has_name, is_config_file, parse_multi_launch_config_dir_entry,
-    parse_multi_workflow_dir_entry, parse_single_theme_dir_entry, parse_tab_config_dir_entry,
-};
-use super::{
-    launch_configs_dir, tab_configs_dir, themes_dir, workflows_dir, WarpConfigUpdateEvent,
-    LAUNCH_CONFIG_COMMENT,
-};
+use super::util::{for_each_dir_entry, parse_single_theme_dir_entry, parse_tab_config_dir_entry};
+use super::{tab_configs_dir, themes_dir, WarpConfigUpdateEvent};
 
 impl super::WarpConfig {
     pub fn new(ctx: &mut ModelContext<Self>) -> Self {
-        // Load launch configs, and workflows from disk asynchronously on a background
-        // thread.
-        //
-        // Themes are required during initialization by `Settings`, so we load this synchronously
-        // on startup. We should investigate the possibility of offloading theme loading to a
-        // background thread in the future.
-        let _ = ctx.spawn(
-            async move { load_launch_configs(&launch_configs_dir()) },
-            |me, launch_configs, ctx| {
-                me.launch_configs = launch_configs;
-                ctx.emit(WarpConfigUpdateEvent::LaunchConfigs);
-            },
-        );
         if FeatureFlag::TabConfigs.is_enabled() {
             let _ = ctx.spawn(
                 async move { load_tab_configs(&tab_configs_dir()) },
@@ -55,13 +30,6 @@ impl super::WarpConfig {
                 },
             );
         }
-        let _ = ctx.spawn(
-            async move { load_workflows(&workflows_dir()) },
-            |me, user_workflows, ctx| {
-                me.local_user_workflows = user_workflows;
-                ctx.emit(WarpConfigUpdateEvent::LocalUserWorkflows);
-            },
-        );
         ctx.subscribe_to_model(
             &WarpManagedPathsWatcher::handle(ctx),
             Self::handle_warp_managed_paths_event,
@@ -91,28 +59,6 @@ impl super::WarpConfig {
             );
         }
 
-        if update_touches_dir(update, &workflows_dir()) {
-            let workflow_dir = workflows_dir();
-            let _ = ctx.spawn(
-                async move { load_workflows(&workflow_dir) },
-                |me, workflows, ctx| {
-                    me.local_user_workflows = workflows;
-                    ctx.emit(WarpConfigUpdateEvent::LocalUserWorkflows);
-                },
-            );
-        }
-
-        if update_touches_dir(update, &launch_configs_dir()) {
-            let launch_config_dir = launch_configs_dir();
-            let _ = ctx.spawn(
-                async move { load_launch_configs(&launch_config_dir) },
-                |me, launch_configs, ctx| {
-                    me.launch_configs = launch_configs;
-                    ctx.emit(WarpConfigUpdateEvent::LaunchConfigs);
-                },
-            );
-        }
-
         if FeatureFlag::TabConfigs.is_enabled() && update_touches_dir(update, &tab_configs_dir()) {
             let tab_config_dir = tab_configs_dir();
             let _ = ctx.spawn(
@@ -134,35 +80,6 @@ impl super::WarpConfig {
             ctx.emit(WarpConfigUpdateEvent::Settings);
         }
     }
-
-    /// This method takes a file name candidate (appends .yaml if missing) and a LaunchConfig as
-    /// arguments. It saves the file and returns the filename used if successful.
-    #[cfg(feature = "local_fs")]
-    pub fn save_new_launch_config(
-        file_name: String,
-        launch_config: LaunchConfig,
-    ) -> Result<String> {
-        let file_name = if is_config_file(&file_name) {
-            file_name.trim().into()
-        } else {
-            format!("{file_name}.yaml")
-        };
-
-        if !has_name(file_name.trim()) {
-            return Err(anyhow!("File name is empty"));
-        };
-
-        let path = crate::user_config::launch_configs_dir().join(&file_name);
-        if path.exists() {
-            return Err(anyhow!("File already exists"));
-        };
-
-        let file = crate::util::file::create_file(path)?;
-        let mut writer = io::BufWriter::new(file);
-        writer.write_all(LAUNCH_CONFIG_COMMENT.as_bytes())?;
-        serde_yaml::to_writer(writer, &launch_config)?;
-        Ok(file_name)
-    }
 }
 
 pub fn load_theme_configs(theme_path: &Path) -> WarpThemeConfig {
@@ -171,24 +88,6 @@ pub fn load_theme_configs(theme_path: &Path) -> WarpThemeConfig {
         .into_iter()
         .for_each(|(theme_name, theme)| theme_configs.add_new_theme(theme_name, theme));
     theme_configs
-}
-
-/// Loads all workflows relative to the `workflow_path`.  A YAML file might
-/// contain multiple workflows.
-pub fn load_workflows(workflow_path: &Path) -> Vec<Workflow> {
-    for_each_dir_entry(workflow_path, parse_multi_workflow_dir_entry)
-        .into_iter()
-        .flatten()
-        .collect_vec()
-}
-
-/// Loads all launch configs relative to the `launch_config_path`. Each workflow is assumed to be in an
-/// individual YAML file.
-pub fn load_launch_configs(launch_config_path: &Path) -> Vec<LaunchConfig> {
-    for_each_dir_entry(launch_config_path, parse_multi_launch_config_dir_entry)
-        .into_iter()
-        .flatten()
-        .collect_vec()
 }
 
 /// Loads all tab configs from `tab_config_path`. Each tab config is an individual TOML file.

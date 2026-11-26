@@ -12,8 +12,6 @@ use repo_metadata::repositories::DetectedRepositories;
 use repo_metadata::watcher::DirectoryWatcher;
 #[cfg(feature = "local_fs")]
 use repo_metadata::CanonicalizedPath;
-#[cfg(feature = "local_fs")]
-use repo_metadata::RepoMetadataModel;
 use std::collections::HashMap;
 #[cfg(feature = "local_fs")]
 use tempfile::TempDir;
@@ -35,13 +33,11 @@ use crate::terminal::cli_agent_sessions::CLIAgentSessionsModel;
 use crate::test_util::settings::initialize_settings_for_tests;
 use crate::undo_close::UndoCloseSettings;
 use crate::warp_managed_paths_watcher::WarpManagedPathsWatcher;
-use crate::workflows::local_workflows::LocalWorkflows;
-use crate::workspace::OneTimeModalModel;
 use crate::{experiments, workspace, GlobalResourceHandlesProvider};
 
+use crate::editor::NavigationKey;
 use pane_group::{SplitPaneState, TerminalPaneId};
 use terminal::view::ActiveSessionState;
-use warp_editor::editor::NavigationKey;
 use warpui::AddSingletonModel;
 use warpui::{platform::WindowStyle, App, ViewHandle};
 
@@ -61,7 +57,6 @@ fn initialize_app(app: &mut App) {
     app.add_singleton_model(|_| KeybindingChangedNotifier::new());
     app.add_singleton_model(|_ctx| SyncedInputState::mock());
     app.add_singleton_model(|_| ResizableData::default());
-    app.add_singleton_model(LocalWorkflows::new);
     app.add_singleton_model(UndoCloseStack::new);
     app.add_singleton_model(|_| ActiveSession::default());
     app.add_singleton_model(|_| WorkspaceToastStack);
@@ -77,15 +72,11 @@ fn initialize_app(app: &mut App) {
 
     app.add_singleton_model(|_| GPUState::new());
 
-    app.add_singleton_model(OneTimeModalModel::new);
     let global_resource_handles = GlobalResourceHandles::mock(app);
     app.add_singleton_model(|_| GlobalResourceHandlesProvider::new(global_resource_handles));
     app.add_singleton_model(DefaultTerminal::new);
     app.add_singleton_model(|_| IgnoredSuggestionsModel::new(vec![]));
     app.add_singleton_model(|_| crate::git_status::status_update::GitStatusUpdateModel::new());
-    #[cfg(feature = "local_fs")]
-    app.add_singleton_model(RepoMetadataModel::new);
-    app.add_singleton_model(search::files::model::FileSearchModel::new);
 
     #[cfg(windows)]
     {
@@ -101,7 +92,7 @@ fn initialize_app(app: &mut App) {
 
     app.update(experiments::init);
 
-    app.add_singleton_model(|ctx| PersistedWorkspace::new(vec![], HashMap::new(), None, ctx));
+    app.add_singleton_model(|ctx| PersistedWorkspace::new(vec![], None, ctx));
 
     app.add_singleton_model(|_| History::new(vec![]));
 
@@ -154,7 +145,6 @@ fn transferred_tab_workspace(
             NewWorkspaceSource::TransferredTab {
                 tab_color: None,
                 custom_title: None,
-                left_panel_open: false,
                 vertical_tabs_panel_open,
                 for_drag_preview: false,
             },
@@ -502,7 +492,7 @@ fn test_tab_renaming_editor_selections() {
 
         // Add second tab and rename both of them to prepare for the test
         workspace.update(&mut app, |workspace, ctx| {
-            workspace.add_terminal_tab(false, ctx);
+            workspace.add_terminal_tab(ctx);
             workspace.rename_tab_internal(0, "short_title", ctx);
             let selected_text = workspace
                 .tab_rename_editor
@@ -536,7 +526,7 @@ fn test_tab_renaming_editor_reset() {
         let workspace = mock_workspace(&mut app);
 
         workspace.update(&mut app, |workspace, ctx| {
-            workspace.add_terminal_tab(false, ctx);
+            workspace.add_terminal_tab(ctx);
             workspace.rename_tab_internal(0, "short_title", ctx);
             workspace.rename_tab_internal(1, "very_long_title_this_is", ctx);
 
@@ -561,7 +551,7 @@ fn test_set_active_tab_name() {
         let workspace = mock_workspace(&mut app);
 
         workspace.update(&mut app, |workspace, ctx| {
-            workspace.add_terminal_tab(false, ctx);
+            workspace.add_terminal_tab(ctx);
 
             workspace.handle_action(
                 &WorkspaceAction::SetActiveTabName("  Backend API  ".to_string()),
@@ -653,7 +643,7 @@ fn test_workspace_sessions_retrieves_tabs() {
                 .any(|x| { x.pane_view_locator().pane_id == pane_id }));
 
             // Add a tab and check if workspace_sessions finds the second session from the new tab.
-            workspace.add_terminal_tab(false, ctx);
+            workspace.add_terminal_tab(ctx);
             let new_pane_id = workspace
                 .get_pane_group_view(1)
                 .map(|tab| tab.read(ctx, |tab, _ctx| tab.pane_id_by_index(0).unwrap()))
@@ -757,7 +747,7 @@ fn test_terminal_model_isnt_leaked() {
 
         let terminal_model = workspace.update(&mut app, |workspace, ctx| {
             // Add another tab so that the workspace isn't destroyed when we close the tab.
-            workspace.add_terminal_tab(false, ctx);
+            workspace.add_terminal_tab(ctx);
 
             // Get a weak reference to the model.
             let model = workspace.get_active_session_terminal_model(ctx).unwrap();
@@ -825,7 +815,7 @@ fn test_switch_focus_panels() {
             );
         });
 
-        // Shift focus from resource center to left panel (terminal).
+        // Shift focus from the resource center to the terminal.
         workspace.update(&mut app, |view, ctx| {
             view.handle_action(&WorkspaceAction::FocusLeftPanel, ctx);
         });
@@ -856,265 +846,6 @@ fn test_switch_focus_panels() {
                 workspace.is_self_or_child_focused(ctx),
                 "Expected terminal to be focused"
             );
-        });
-    });
-}
-
-fn set_left_panel_visibility_across_tabs(is_enabled: bool, ctx: &mut ViewContext<Workspace>) {
-    WindowSettings::handle(ctx).update(ctx, |window_settings, ctx| {
-        window_settings
-            .left_panel_visibility_across_tabs
-            .set_value(is_enabled, ctx)
-            .expect("Failed to update left_panel_visibility_across_tabs setting");
-    });
-}
-
-fn add_get_started_tab(workspace: &mut Workspace, ctx: &mut ViewContext<Workspace>) {
-    workspace.add_tab_with_pane_layout(
-        PanesLayout::Snapshot(Box::new(PaneNodeSnapshot::Leaf(LeafSnapshot {
-            is_focused: true,
-            custom_vertical_tabs_title: None,
-            contents: LeafContents::GetStarted,
-        }))),
-        Arc::new(HashMap::<PaneUuid, Vec<SerializedBlockListItem>>::new()),
-        None,
-        ctx,
-    );
-}
-
-fn find_terminal_tab_index(workspace: &Workspace, ctx: &AppContext) -> usize {
-    workspace
-        .tabs
-        .iter()
-        .position(|tab| tab.pane_group.as_ref(ctx).has_terminal_panes())
-        .expect("Expected a terminal tab")
-}
-
-fn find_non_following_tab_index(workspace: &Workspace, ctx: &AppContext) -> usize {
-    workspace
-        .tabs
-        .iter()
-        .position(|tab| {
-            !Workspace::should_enable_file_tree_and_global_search_for_pane_group(
-                tab.pane_group.as_ref(ctx),
-            )
-        })
-        .expect("Expected a non-following tab")
-}
-
-#[test]
-fn test_left_panel_window_scoped_reconciles_between_terminal_tabs_when_enabled() {
-    App::test((), |mut app| async move {
-        initialize_app(&mut app);
-
-        let workspace = mock_workspace(&mut app);
-
-        workspace.update(&mut app, |workspace, ctx| {
-            set_left_panel_visibility_across_tabs(true, ctx);
-
-            workspace.add_terminal_tab(false, ctx);
-
-            workspace.activate_tab(0, ctx);
-            assert!(
-                !workspace
-                    .active_tab_pane_group()
-                    .as_ref(ctx)
-                    .left_panel_open
-            );
-            assert!(!workspace.left_panel_open);
-
-            workspace.open_left_panel(ctx);
-            assert!(
-                workspace
-                    .active_tab_pane_group()
-                    .as_ref(ctx)
-                    .left_panel_open
-            );
-            assert!(workspace.left_panel_open);
-
-            workspace.activate_tab(1, ctx);
-            assert!(
-                workspace
-                    .active_tab_pane_group()
-                    .as_ref(ctx)
-                    .left_panel_open
-            );
-
-            workspace.close_left_panel(ctx);
-            assert!(
-                !workspace
-                    .active_tab_pane_group()
-                    .as_ref(ctx)
-                    .left_panel_open
-            );
-            assert!(!workspace.left_panel_open);
-
-            workspace.activate_tab(0, ctx);
-            assert!(
-                !workspace
-                    .active_tab_pane_group()
-                    .as_ref(ctx)
-                    .left_panel_open
-            );
-        });
-    });
-}
-
-#[test]
-fn test_left_panel_window_scoped_non_following_tab_does_not_reconcile_but_updates_window_state() {
-    let _get_started_guard = FeatureFlag::GetStartedTab.override_enabled(true);
-
-    App::test((), |mut app| async move {
-        initialize_app(&mut app);
-
-        let workspace = mock_workspace(&mut app);
-
-        workspace.update(&mut app, |workspace, ctx| {
-            set_left_panel_visibility_across_tabs(true, ctx);
-
-            // Establish window-scoped desired state = open on a terminal tab.
-            workspace.open_left_panel(ctx);
-            assert!(workspace.left_panel_open);
-
-            // Create a non-following tab (e.g. Get Started), which should not auto-open even though
-            // the window state is open.
-            add_get_started_tab(workspace, ctx);
-            let non_following_tab_index = find_non_following_tab_index(workspace, ctx);
-            workspace.activate_tab(non_following_tab_index, ctx);
-
-            assert!(
-                !workspace
-                    .active_tab_pane_group()
-                    .as_ref(ctx)
-                    .left_panel_open
-            );
-            assert!(workspace.left_panel_open);
-
-            // User actions in the non-following tab still update window state.
-            workspace.open_left_panel(ctx);
-            assert!(
-                workspace
-                    .active_tab_pane_group()
-                    .as_ref(ctx)
-                    .left_panel_open
-            );
-            assert!(workspace.left_panel_open);
-
-            workspace.close_left_panel(ctx);
-            assert!(
-                !workspace
-                    .active_tab_pane_group()
-                    .as_ref(ctx)
-                    .left_panel_open
-            );
-            assert!(!workspace.left_panel_open);
-
-            // The window state should reconcile back onto following tabs.
-            let terminal_tab_index = find_terminal_tab_index(workspace, ctx);
-            workspace.activate_tab(terminal_tab_index, ctx);
-            assert!(
-                !workspace
-                    .active_tab_pane_group()
-                    .as_ref(ctx)
-                    .left_panel_open
-            );
-
-            // But toggling the window state from a following tab should not auto-open the
-            // non-following tab.
-            workspace.open_left_panel(ctx);
-            assert!(workspace.left_panel_open);
-
-            workspace.activate_tab(non_following_tab_index, ctx);
-            assert!(
-                !workspace
-                    .active_tab_pane_group()
-                    .as_ref(ctx)
-                    .left_panel_open
-            );
-            assert!(workspace.left_panel_open);
-        });
-    });
-}
-
-#[test]
-fn test_left_panel_window_scoped_disabled_keeps_per_tab_state() {
-    App::test((), |mut app| async move {
-        initialize_app(&mut app);
-
-        let workspace = mock_workspace(&mut app);
-
-        workspace.update(&mut app, |workspace, ctx| {
-            set_left_panel_visibility_across_tabs(false, ctx);
-
-            workspace.add_terminal_tab(false, ctx);
-
-            // Open left panel on tab 0.
-            workspace.activate_tab(0, ctx);
-            workspace.open_left_panel(ctx);
-            assert!(
-                workspace
-                    .active_tab_pane_group()
-                    .as_ref(ctx)
-                    .left_panel_open
-            );
-
-            // With window scoping disabled, switching tabs should not reconcile the open state.
-            workspace.activate_tab(1, ctx);
-            assert!(
-                !workspace
-                    .active_tab_pane_group()
-                    .as_ref(ctx)
-                    .left_panel_open
-            );
-
-            // Each tab can be toggled independently.
-            workspace.open_left_panel(ctx);
-            assert!(
-                workspace
-                    .active_tab_pane_group()
-                    .as_ref(ctx)
-                    .left_panel_open
-            );
-
-            workspace.activate_tab(0, ctx);
-            assert!(
-                workspace
-                    .active_tab_pane_group()
-                    .as_ref(ctx)
-                    .left_panel_open
-            );
-        });
-    });
-}
-
-#[test]
-fn test_restoring_maximized_review_panel_preserves_terminal_without_panel() {
-    App::test((), |mut app| async move {
-        initialize_app(&mut app);
-        let workspace = mock_workspace(&mut app);
-        let mut snapshot = workspace.update(&mut app, |workspace, ctx| {
-            workspace.snapshot(ctx.window_id(), false, ctx)
-        });
-        snapshot.tabs[0].right_panel = Some(crate::app_state::RightPanelSnapshot {
-            pane_group_id: "old-pane-group".to_string(),
-            width: 600,
-            is_maximized: true,
-        });
-        let tab_count = snapshot.tabs.len();
-
-        let restored = restored_workspace(&mut app, snapshot);
-        restored.update(&mut app, |workspace, ctx| {
-            assert_eq!(workspace.tab_count(), tab_count);
-            assert!(workspace
-                .active_tab_pane_group()
-                .as_ref(ctx)
-                .active_session_view(ctx)
-                .is_some());
-            assert!(workspace
-                .snapshot(ctx.window_id(), false, ctx)
-                .tabs
-                .iter()
-                .all(|tab| tab.right_panel.is_none()));
         });
     });
 }

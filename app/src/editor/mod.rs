@@ -1,16 +1,28 @@
+//! Text input for terminals, CLI-agent prompts, and application controls.
+
 pub mod accept_autosuggestion_keybinding_view;
 pub mod autosuggestion_ignore_view;
 mod soft_wrap;
 mod view;
 
-/// Consumers of the editor should only interface with the view.
-/// They should _not_ be able to interface with the internal
-/// details of the editor (e.g. the [`Buffer`]).
 pub use view::*;
 pub use warpui::text::point::Point;
 
 use std::{cmp, ops::Range};
 use warpui::AppContext;
+
+/// A navigation key propagated from text input to its parent view.
+#[derive(Debug, Clone, Copy)]
+pub enum NavigationKey {
+    Tab,
+    ShiftTab,
+    Up,
+    Down,
+    PageUp,
+    PageDown,
+    Left,
+    Right,
+}
 
 pub fn init(app: &mut AppContext) {
     view::init(app);

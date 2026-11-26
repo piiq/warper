@@ -1652,23 +1652,6 @@ impl BlockList {
         );
     }
 
-    pub fn toggle_visibility_of_block_for_env_var(&mut self, block_id: &str) {
-        let block_id = block_id.to_owned();
-        self.update_blocks_and_sumtree(
-            None,
-            None,
-            move |block| match block.env_var_metadata() {
-                Some(metadata) if metadata.block_id == block_id => {
-                    let mut updated_metadata = metadata.clone();
-                    updated_metadata.should_hide_block = !metadata.should_hide_block;
-                    block.set_env_var_metadata(updated_metadata);
-                }
-                _ => (),
-            },
-            |_| {},
-        );
-    }
-
     pub fn set_show_bootstrap_block(&mut self, show_bootstrap_block: bool) {
         self.show_warp_bootstrap_block = show_bootstrap_block;
         self.update_blocks_and_sumtree(
@@ -2296,9 +2279,6 @@ impl BlockList {
                 command_finished_to_precmd_delay: None,
                 block_type: BlockType::Restored,
                 num_secrets_obfuscated: self.active_block().num_secrets_obfuscated(),
-                // We don't track if a restored block was a cloud workflow execution.
-                cloud_workflow_id: None,
-                cloud_env_var_collection_id: None,
             }));
 
         // Set the completed_ts to the saved completed_ts _after_ `finish`ing the block (which would have set its own completed_ts).
@@ -2364,8 +2344,6 @@ impl BlockList {
                 command_finished_to_precmd_delay: delay,
                 block_type,
                 num_secrets_obfuscated: finished_block.num_secrets_obfuscated(),
-                cloud_workflow_id: finished_block.cloud_workflow_state(),
-                cloud_env_var_collection_id: finished_block.cloud_env_var_collection_state(),
             }));
     }
 
@@ -2391,9 +2369,6 @@ impl BlockList {
                         command_finished_to_precmd_delay: None,
                         block_type,
                         num_secrets_obfuscated: num_secrets_obfuscated.unwrap_or_default(),
-                        // Background blocks are not tracked as cloud workflow executions.
-                        cloud_workflow_id: None,
-                        cloud_env_var_collection_id: None,
                     },
                 ));
             }
@@ -2610,7 +2585,9 @@ impl BlockList {
 
 impl ansi::Handler for BlockList {
     fn set_title(&mut self, _: Option<String>) {
-        log::error!("Handler method BlockList::set_title should never be called. This should be handled by TerminalModel.");
+        log::error!(
+            "Handler method BlockList::set_title should never be called. This should be handled by TerminalModel."
+        );
     }
 
     fn set_cursor_style(&mut self, style: Option<CursorStyle>) {
@@ -2898,11 +2875,15 @@ impl ansi::Handler for BlockList {
     }
 
     fn push_title(&mut self) {
-        log::error!("Handler method BlockList::push_title should never be called. This should be handled by TerminalModel.");
+        log::error!(
+            "Handler method BlockList::push_title should never be called. This should be handled by TerminalModel."
+        );
     }
 
     fn pop_title(&mut self) {
-        log::error!("Handler method BlockList::pop_title should never be called. This should be handled by TerminalModel.");
+        log::error!(
+            "Handler method BlockList::pop_title should never be called. This should be handled by TerminalModel."
+        );
     }
 
     fn text_area_size_pixels<W: io::Write>(&mut self, writer: &mut W) {

@@ -484,7 +484,7 @@ impl AvailableShells {
     ///    so it is fine to return a Custom here.
     ///
     /// See [`AvailableShell::get_valid_shell_path_and_type`] for more information on how
-    /// we generate these launch configs in the other direction.
+    /// we generate shell launch data in the other direction.
     pub fn get_from_shell_launch_data(&self, config: &ShellLaunchData) -> Option<AvailableShell> {
         self.shells
             .iter()

@@ -11,10 +11,7 @@ use crate::{
         },
         BackingView, Direction, PaneDragDropLocation, PaneId, TabBarHoverIndex,
     },
-    settings::CodeSettings,
     tab::tab_position_id,
-    terminal::view::TerminalAction,
-    view_components::{FeaturePopup, NewFeaturePopupEvent, NewFeaturePopupLabel},
     workspace::{TabBarLocation, VerticalTabsPaneDropTargetData},
 };
 
@@ -26,14 +23,13 @@ use pathfinder_geometry::{
     rect::RectF,
     vector::{vec2f, Vector2F},
 };
-use warp_core::settings::Setting;
 use warpui::{
     elements::{
         AcceptedByDropTarget, Align, Border, ChildAnchor, Clipped, ConstrainedBox, Container,
-        CornerRadius, CrossAxisAlignment, Dismiss, Draggable, DraggableState, Empty, Flex,
-        Hoverable, Icon, MainAxisAlignment, MainAxisSize, MouseStateHandle, OffsetPositioning,
-        ParentAnchor, ParentElement, ParentOffsetBounds, PositionedElementAnchor,
-        PositionedElementOffsetBounds, Radius, SavePosition, Shrinkable, Stack, Text,
+        CornerRadius, CrossAxisAlignment, Draggable, DraggableState, Empty, Flex, Hoverable, Icon,
+        MainAxisAlignment, MainAxisSize, MouseStateHandle, OffsetPositioning, ParentAnchor,
+        ParentElement, ParentOffsetBounds, PositionedElementAnchor, PositionedElementOffsetBounds,
+        Radius, SavePosition, Shrinkable, Stack, Text,
     },
     presenter::ChildView,
     AppContext, Element, Entity, EntityId, ModelHandle, SingletonEntity, TypedActionView, View,
@@ -65,7 +61,7 @@ pub enum Event<A: ActionPayload, B: ActionPayload> {
         target_id: PaneId,
         direction: Direction,
     },
-    /// A pane or file tab was dragged over the workspace tab bar.
+    /// A pane was dragged over the workspace tab bar.
     DraggedOverTabBar {
         origin: ActionOrigin,
         tab_hover_index: TabBarHoverIndex,
@@ -76,7 +72,7 @@ pub enum Event<A: ActionPayload, B: ActionPayload> {
     PaneDraggedOutsideTabBarOrPaneGroup,
     /// This header was dropped, signaling the end of the move
     PaneDroppedWithinPaneGroup,
-    /// A pane or file tab was dropped on the workspace tab bar.
+    /// A pane was dropped on the workspace tab bar.
     DroppedOnTabBar {
         origin: ActionOrigin,
     },
@@ -129,7 +125,6 @@ pub struct PaneHeader<P: BackingView> {
     toolbelt_buttons: Vec<ToolbeltButton>,
     open_overlay: OpenOverlay,
     is_visible_in_pane_group: bool, // If this pane header is being dragged along the tab bar, then it is not visible in the pane group
-    toolbelt_feature_popup: ViewHandle<FeaturePopup>,
 }
 
 impl<P: BackingView> PaneHeader<P> {
@@ -141,15 +136,6 @@ impl<P: BackingView> PaneHeader<P> {
         let overflow_menu = ctx.add_typed_action_view(|_| Menu::new());
         ctx.subscribe_to_view(&overflow_menu, move |me, _, event, ctx| {
             me.handle_overflow_menu_action(event, ctx);
-        });
-
-        let toolbelt_feature_popup = ctx.add_view(|_| {
-            FeaturePopup::new_feature(NewFeaturePopupLabel::FromString(
-                "Open files and review code diffs".to_string(),
-            ))
-        });
-        ctx.subscribe_to_view(&toolbelt_feature_popup, move |me, _, event, ctx| {
-            me.handle_toolbelt_feature_popup_event(event, ctx);
         });
 
         ctx.subscribe_to_model(&pane_configuration, Self::handle_pane_state_event);
@@ -164,7 +150,6 @@ impl<P: BackingView> PaneHeader<P> {
             open_overlay: Default::default(),
             toolbelt_buttons: Default::default(),
             is_visible_in_pane_group: true,
-            toolbelt_feature_popup,
         }
     }
 
@@ -226,24 +211,6 @@ impl<P: BackingView> PaneHeader<P> {
             });
             ctx.emit(Event::PaneHeaderOverflowMenuToggled(false));
             ctx.notify();
-        }
-    }
-
-    fn handle_toolbelt_feature_popup_event(
-        &mut self,
-        event: &NewFeaturePopupEvent,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        match event {
-            NewFeaturePopupEvent::Dismissed => {
-                // Update the setting to mark the popup as dismissed
-                CodeSettings::handle(ctx).update(ctx, |settings, ctx| {
-                    let _ = settings
-                        .dismissed_code_toolbelt_new_feature_popup
-                        .set_value(true, ctx);
-                });
-                ctx.notify();
-            }
         }
     }
 
@@ -386,39 +353,7 @@ impl<P: BackingView> PaneHeader<P> {
                 .finish(),
             );
         }
-        let container = Container::new(flex.finish()).with_margin_left(2.).finish();
-
-        // Create Stack with the container as the first child
-        let mut stack = Stack::new().with_child(container);
-
-        // Check if tooltip has been dismissed already.
-        // We should only trigger this if we are in a git repository,
-        // but the pane header will only render if we are already in one.
-        let should_show_tooltip = false;
-
-        if should_show_tooltip {
-            // Position the FeaturePopup tooltip below the header
-            stack.add_positioned_overlay_child(
-                Dismiss::new(ChildView::new(&self.toolbelt_feature_popup).finish())
-                    .on_dismiss(|ctx, _app| {
-                        ctx.dispatch_typed_action(
-                            PaneHeaderAction::<TerminalAction, TerminalAction>::CustomAction(
-                                TerminalAction::DismissCodeToolbeltTooltip,
-                            ),
-                        );
-                        ctx.notify();
-                    })
-                    .finish(),
-                OffsetPositioning::offset_from_parent(
-                    vec2f(0., 4.),
-                    ParentOffsetBounds::WindowByPosition,
-                    ParentAnchor::BottomLeft,
-                    ChildAnchor::TopLeft,
-                ),
-            );
-        }
-
-        stack.finish()
+        Container::new(flex.finish()).with_margin_left(2.).finish()
     }
 }
 

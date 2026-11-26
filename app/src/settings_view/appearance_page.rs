@@ -18,9 +18,7 @@ use crate::context_chips::renderer::ChipDragState;
 use crate::context_chips::{
     prompt::Prompt, renderer::Renderer as ContextChipRenderer, ChipAvailability,
 };
-use crate::editor::{
-    EditOrigin, Event as EditorEvent, InteractionState, SingleLineEditorOptions, TextOptions,
-};
+use crate::editor::{EditOrigin, Event as EditorEvent, SingleLineEditorOptions, TextOptions};
 use crate::gpu_state::{GPUState, GPUStateEvent};
 use crate::prompt::editor_modal::OpenSource as PromptEditorOpenSource;
 use crate::settings::{
@@ -100,7 +98,6 @@ use crate::ui_components::icons::Icon;
 use crate::view_components::action_button::{ActionButton, ButtonSize, NakedTheme};
 
 const FONT_SIZE_INPUT_BOX_WIDTH: f32 = 80.;
-const NOTEBOOK_FONT_SIZE_INPUT_BOX_WIDTH: f32 = 50.;
 const FONT_FAMILY_DROPDOWN_WIDTH: f32 = 225.;
 const FONT_WEIGHT_DROPDOWN_WIDTH: f32 = 100.;
 const LINE_HEIGHT_INPUT_BOX_WIDTH: f32 = 80.;
@@ -380,7 +377,6 @@ pub enum AppearancePageAction {
     SetNewWindowsCustomRows,
     SetFontSize,
     SetFontWeight(Weight),
-    SetNotebookFontSize,
     SetLineHeight,
     SetOpacity(f32),
     SetBlur(f32),
@@ -409,7 +405,6 @@ pub enum AppearancePageAction {
     ToggleOpenWindowsAtCustomSize,
     ToggleDimInactivePanes,
     ToggleAllAvailableFonts,
-    ToggleMatchNotebookToMonospaceFontSize,
 
     ToggleTabIndicators,
     TogglePreserveActiveTabColor,
@@ -417,7 +412,6 @@ pub enum AppearancePageAction {
     ToggleUseLatestUserPromptAsConversationTitleInTabNames,
     ToggleLigatureRendering,
     ToggleBlurTexture,
-    ToggleLeftPanelVisibility,
     SetEnforceMinimumContrast(EnforceMinimumContrast),
     ToggleFocusPaneOnHover,
     ToggleInputMode,
@@ -439,7 +433,6 @@ pub struct AppearanceSettingsPageView {
     window_id: WindowId,
     font_size_editor: ViewHandle<EditorView>,
     line_height_editor: ViewHandle<EditorView>,
-    notebook_font_size_editor: ViewHandle<EditorView>,
     new_window_columns_editor: ViewHandle<EditorView>,
     valid_new_window_columns: bool,
     new_window_rows_editor: ViewHandle<EditorView>,
@@ -492,15 +485,6 @@ impl TypedActionView for AppearanceSettingsPageView {
             SetNewWindowsCustomRows => self.update_new_windows_num_rows(true, ctx),
             SetFontSize => self.set_font_size(ctx),
             SetFontWeight(value) => self.set_font_weight(*value, ctx),
-            ToggleMatchNotebookToMonospaceFontSize => {
-                FontSettings::handle(ctx).update(ctx, |font_settings, ctx| {
-                    report_if_error!(font_settings
-                        .match_notebook_to_monospace_font_size
-                        .toggle_and_save_value(ctx));
-                });
-            }
-
-            SetNotebookFontSize => self.set_notebook_font_size(ctx),
             SetLineHeight => self.set_line_height_ratio(ctx),
             SetOpacity(value) => self.set_opacity(*value, true, ctx),
             SetBlur(value) => self.set_blur(*value, true, ctx),
@@ -532,7 +516,6 @@ impl TypedActionView for AppearanceSettingsPageView {
             ToggleAllAvailableFonts => self.toggle_all_available_fonts(ctx),
             ToggleDimInactivePanes => self.toggle_dim_inactive_panes(ctx),
             ToggleBlurTexture => self.toggle_blur_texture(ctx),
-            ToggleLeftPanelVisibility => self.toggle_left_panel_visibility(ctx),
             SetInputMode {
                 new_mode,
                 from_binding,
@@ -655,23 +638,13 @@ impl AppearanceSettingsPageView {
     }
 
     pub fn new(ctx: &mut ViewContext<AppearanceSettingsPageView>) -> Self {
-        let (
-            ui_font_size,
-            monospace_font_size,
-            line_height_ratio,
-            monospace_font_weight,
-            notebook_font_size,
-            match_notebook_to_monospace_font_size,
-        ) = {
+        let (ui_font_size, monospace_font_size, line_height_ratio, monospace_font_weight) = {
             let appearance = Appearance::as_ref(ctx);
-            let font_settings = FontSettings::as_ref(ctx);
             (
                 appearance.ui_font_size(),
                 appearance.monospace_font_size(),
                 appearance.line_height_ratio(),
                 appearance.monospace_font_weight(),
-                *font_settings.notebook_font_size,
-                *font_settings.match_notebook_to_monospace_font_size,
             )
         };
 
@@ -681,19 +654,6 @@ impl AppearanceSettingsPageView {
             ui_font_size,
             ctx,
         );
-
-        let notebook_font_size_editor = Self::editor(
-            |me, event, ctx| me.handle_notebook_font_size_editor_event(event, ctx),
-            &format!("{notebook_font_size}"),
-            ui_font_size,
-            ctx,
-        );
-
-        if match_notebook_to_monospace_font_size {
-            notebook_font_size_editor.update(ctx, |editor_view, ctx| {
-                editor_view.set_interaction_state(InteractionState::Disabled, ctx);
-            })
-        }
 
         ctx.subscribe_to_model(&GPUState::handle(ctx), |_, _, event, ctx| {
             if matches!(event, GPUStateEvent::LowPowerGPUAvailable) {
@@ -714,28 +674,7 @@ impl AppearanceSettingsPageView {
 
         ctx.subscribe_to_model(
             &FontSettings::handle(ctx),
-            |me, font_settings, event, ctx| match event {
-                FontSettingsChangedEvent::NotebookFontSize { .. }
-                | FontSettingsChangedEvent::MatchNotebookToMonospaceFontSize { .. } => {
-                    let font_settings = font_settings.as_ref(ctx);
-                    let should_match_notebook_to_monospace_font_size =
-                        *font_settings.match_notebook_to_monospace_font_size;
-                    let notebook_font_size = *font_settings.notebook_font_size;
-
-                    me.notebook_font_size_editor
-                        .update(ctx, move |editor, ctx| {
-                            let interaction_state = if should_match_notebook_to_monospace_font_size
-                            {
-                                InteractionState::Disabled
-                            } else {
-                                InteractionState::Editable
-                            };
-                            editor.set_buffer_text(&format!("{notebook_font_size}"), ctx);
-                            editor.set_interaction_state(interaction_state, ctx);
-                        });
-
-                    ctx.notify();
-                }
+            |me, _, event, ctx| match event {
                 FontSettingsChangedEvent::EnforceMinimumContrast { .. } => {
                     me.enforce_min_contrast_dropdown
                         .update(ctx, |dropdown, ctx| {
@@ -1120,7 +1059,6 @@ impl AppearanceSettingsPageView {
         AppearanceSettingsPageView {
             page: Self::build_page(ctx),
             window_id: ctx.window_id(),
-            notebook_font_size_editor,
             font_size_editor,
             line_height_editor,
             new_window_columns_editor,
@@ -1214,13 +1152,6 @@ impl AppearanceSettingsPageView {
             window_settings_widgets.push(Box::new(ZoomLevelWidget));
         }
 
-        if window_settings
-            .left_panel_visibility_across_tabs
-            .is_supported_on_current_platform()
-        {
-            window_settings_widgets.push(Box::new(ToolsPanelStateScopeWidget::default()));
-        }
-
         if !window_settings_widgets.is_empty() {
             categories.push(Category::new("Window", window_settings_widgets));
         }
@@ -1254,10 +1185,8 @@ impl AppearanceSettingsPageView {
         categories.push(Category::new("Blocks", block_settings_widgets));
 
         let font_settings = FontSettings::as_ref(ctx);
-        let mut text_settings_widgets: Vec<Box<dyn SettingsWidget<View = Self>>> = vec![
-            Box::new(TerminalFontWidget::default()),
-            Box::new(NotebookFontSizeWidget::default()),
-        ];
+        let mut text_settings_widgets: Vec<Box<dyn SettingsWidget<View = Self>>> =
+            vec![Box::new(TerminalFontWidget::default())];
         if font_settings
             .use_thin_strokes
             .is_supported_on_current_platform()
@@ -1523,18 +1452,6 @@ impl AppearanceSettingsPageView {
         }
     }
 
-    pub fn handle_notebook_font_size_editor_event(
-        &mut self,
-        event: &EditorEvent,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        match event {
-            EditorEvent::Blurred | EditorEvent::Enter => self.set_notebook_font_size(ctx),
-            EditorEvent::Escape => ctx.emit(SettingsPageEvent::FocusModal),
-            _ => {}
-        }
-    }
-
     pub fn handle_line_editor_event(&mut self, event: &EditorEvent, ctx: &mut ViewContext<Self>) {
         match event {
             EditorEvent::Blurred | EditorEvent::Enter => self.set_line_height_ratio(ctx),
@@ -1628,17 +1545,6 @@ impl AppearanceSettingsPageView {
         FontSettings::handle(ctx).update(ctx, |font_settings, ctx| {
             report_if_error!(font_settings.monospace_font_weight.set_value(value, ctx))
         });
-    }
-
-    fn set_notebook_font_size(&mut self, ctx: &mut ViewContext<Self>) {
-        let user_input = self.notebook_font_size_editor.as_ref(ctx).buffer_text(ctx);
-        if let Ok(num) = user_input.parse::<usize>() {
-            if (MIN_FONT_SIZE..=MAX_FONT_SIZE).contains(&num) {
-                FontSettings::handle(ctx).update(ctx, |font_settings, ctx| {
-                    report_if_error!(font_settings.notebook_font_size.set_value(num as f32, ctx,));
-                });
-            }
-        }
     }
 
     fn set_opacity(
@@ -1960,15 +1866,6 @@ impl AppearanceSettingsPageView {
         WindowSettings::handle(ctx).update(ctx, |window_settings, ctx| {
             report_if_error!(window_settings
                 .background_blur_texture
-                .toggle_and_save_value(ctx));
-        });
-        ctx.notify();
-    }
-
-    pub fn toggle_left_panel_visibility(&mut self, ctx: &mut ViewContext<Self>) {
-        WindowSettings::handle(ctx).update(ctx, |window_settings, ctx| {
-            report_if_error!(window_settings
-                .left_panel_visibility_across_tabs
                 .toggle_and_save_value(ctx));
         });
         ctx.notify();
@@ -3040,46 +2937,6 @@ impl SettingsWidget for WindowBlurTextureWidget {
     }
 }
 
-#[derive(Default)]
-struct ToolsPanelStateScopeWidget {
-    switch_state: SwitchStateHandle,
-}
-
-impl SettingsWidget for ToolsPanelStateScopeWidget {
-    type View = AppearanceSettingsPageView;
-
-    fn search_terms(&self) -> &str {
-        "left tools panel open closed across tabs file tree project explorer global search"
-    }
-
-    fn render(
-        &self,
-        _view: &Self::View,
-        appearance: &Appearance,
-        app: &AppContext,
-    ) -> Box<dyn Element> {
-        let window_settings = WindowSettings::as_ref(app);
-        let is_enabled = *window_settings.left_panel_visibility_across_tabs;
-
-        render_body_item::<AppearancePageAction>(
-            "Tools panel visibility is consistent across tabs".to_string(),
-            None,
-            ToggleState::Enabled,
-            appearance,
-            appearance
-                .ui_builder()
-                .switch(self.switch_state.clone())
-                .check(is_enabled)
-                .build()
-                .on_click(|evt_ctx, _app, _v2f| {
-                    evt_ctx.dispatch_typed_action(AppearancePageAction::ToggleLeftPanelVisibility);
-                })
-                .finish(),
-            None,
-        )
-    }
-}
-
 struct InputTypeWidget {
     radio_buttons_states: Vec<MouseStateHandle>,
 }
@@ -3704,100 +3561,6 @@ impl SettingsWidget for TerminalFontWidget {
 
         self.render_line_height_editor(view, appearance, &mut terminal_font_row);
         terminal_font_row.finish()
-    }
-}
-
-#[derive(Default)]
-struct NotebookFontSizeWidget {
-    checkbox_state: MouseStateHandle,
-}
-
-impl SettingsWidget for NotebookFontSizeWidget {
-    type View = AppearanceSettingsPageView;
-
-    fn search_terms(&self) -> &str {
-        "text notebook font size"
-    }
-
-    fn render(
-        &self,
-        view: &Self::View,
-        appearance: &Appearance,
-        app: &AppContext,
-    ) -> Box<dyn Element> {
-        let font_settings = FontSettings::as_ref(app);
-        Container::new(
-            Flex::row()
-                .with_cross_axis_alignment(CrossAxisAlignment::Center)
-                .with_child(
-                    Shrinkable::new(
-                        1.0,
-                        Align::new(
-                            appearance
-                                .ui_builder()
-                                .span("Notebook font size".to_string())
-                                .build()
-                                .with_margin_right(16.)
-                                .finish(),
-                        )
-                        .left()
-                        .finish(),
-                    )
-                    .finish(),
-                )
-                .with_child(
-                    appearance
-                        .ui_builder()
-                        .checkbox(self.checkbox_state.clone(), None)
-                        .check(*font_settings.match_notebook_to_monospace_font_size)
-                        .build()
-                        .on_click(move |ctx, _, _| {
-                            ctx.dispatch_typed_action(
-                                AppearancePageAction::ToggleMatchNotebookToMonospaceFontSize,
-                            )
-                        })
-                        .finish(),
-                )
-                .with_child(
-                    appearance
-                        .ui_builder()
-                        .span("Match terminal".to_string())
-                        .build()
-                        .with_margin_left(2.)
-                        .with_margin_right(16.)
-                        .finish(),
-                )
-                .with_child(
-                    Container::new(
-                        Dismiss::new(
-                            appearance
-                                .ui_builder()
-                                .text_input(view.notebook_font_size_editor.clone())
-                                .with_style(UiComponentStyles {
-                                    width: Some(NOTEBOOK_FONT_SIZE_INPUT_BOX_WIDTH),
-                                    padding: Some(Coords {
-                                        top: 7.,
-                                        bottom: 7.,
-                                        left: 16.,
-                                        right: 16.,
-                                    }),
-                                    background: Some(appearance.theme().surface_2().into()),
-                                    ..Default::default()
-                                })
-                                .build()
-                                .finish(),
-                        )
-                        .on_dismiss(|ctx, _app| {
-                            ctx.dispatch_typed_action(AppearancePageAction::SetNotebookFontSize)
-                        })
-                        .finish(),
-                    )
-                    .finish(),
-                )
-                .finish(),
-        )
-        .with_margin_bottom(10.)
-        .finish()
     }
 }
 

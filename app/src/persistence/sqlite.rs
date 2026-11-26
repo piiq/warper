@@ -1,15 +1,7 @@
-use std::ffi::OsString;
 use std::path::Path;
 use std::str::FromStr;
 use std::sync::Once;
-use std::{
-    collections::{HashMap, VecDeque},
-    convert::TryInto,
-    fs,
-    path::PathBuf,
-    sync::Arc,
-    thread,
-};
+use std::{collections::VecDeque, convert::TryInto, fs, path::PathBuf, sync::Arc, thread};
 
 use anyhow::{anyhow, bail, Context, Result};
 use diesel::{
@@ -29,29 +21,22 @@ use warpui::AppContext;
 
 use super::block_list::{delete_blocks, save_block};
 use super::model::{
-    self, NewApp, NewCommand, NewTab, NewWindow, NewWorkspaceMetadata, Project, Tab, Window,
-    WorkspaceMetadata as WorkspaceMetadataModel, CODE_PANE_KIND, ENV_VAR_COLLECTION_PANE_KIND,
-    NOTEBOOK_PANE_KIND, SETTINGS_PANE_KIND, TERMINAL_PANE_KIND, WELCOME_PANE_KIND,
-    WORKFLOW_PANE_KIND,
+    self, NewApp, NewCommand, NewTab, NewWindow, NewWorkspaceMetadata, Tab, Window,
+    WorkspaceMetadata as WorkspaceMetadataModel, SETTINGS_PANE_KIND, TERMINAL_PANE_KIND,
 };
 use super::schema;
 use super::{
     BlockCompleted, FinishedCommandMetadata, ModelEvent, PersistedData, StartedCommandMetadata,
     WriterHandles,
 };
+use crate::app_state::SettingsPaneSnapshot;
 use crate::app_state::{
-    AppState, BranchSnapshot, CodePaneSnapShot, CodePaneTabSnapshot, LeafContents, LeafSnapshot,
-    NotebookPaneSnapshot, PaneFlex, PaneNodeSnapshot, SplitDirection, TabSnapshot,
-    TerminalPaneSnapshot, WindowSnapshot,
+    AppState, BranchSnapshot, LeafContents, LeafSnapshot, PaneFlex, PaneNodeSnapshot,
+    SplitDirection, TabSnapshot, TerminalPaneSnapshot, WindowSnapshot,
 };
-use crate::app_state::{
-    EnvVarCollectionPaneSnapshot, LeftPanelSnapshot, RightPanelSnapshot, SettingsPaneSnapshot,
-    WorkflowPaneSnapshot,
-};
-use crate::code::editor_management::CodeSource;
 use crate::persistence::block_list::get_all_restored_blocks;
-use crate::persistence::model::{CODE_REVIEW_PANE_KIND, GET_STARTED_PANE_KIND};
-use crate::project_workspaces::{metadata::WorkspaceMetadata, EnablementState};
+
+use crate::project_workspaces::metadata::WorkspaceMetadata;
 use crate::settings_view::SettingsSection;
 use crate::suggestions::ignored_suggestions_model::SuggestionType;
 use crate::tab::SelectedTabColor;
@@ -59,7 +44,6 @@ use crate::terminal::history::PersistedCommand;
 use crate::terminal::ShellLaunchData;
 use crate::themes::theme::AnsiColorIdentifier;
 use crate::{report_error, safe_info};
-use lsp::supported_servers::LSPServerType;
 
 diesel::define_sql_function! {
     fn json_extract(target: diesel::sql_types::Text, path: diesel::sql_types::Text) -> diesel::sql_types::Text;
@@ -364,12 +348,6 @@ fn handle_model_event(event: ModelEvent, connection: &mut SqliteConnection) -> a
             save_workspace_metadata(connection, *metadata)
                 .context("error upserting workspace metadata")
         }
-        ModelEvent::UpsertProject { project } => {
-            save_project(connection, project).context("error upserting project")
-        }
-        ModelEvent::DeleteProject { path } => {
-            delete_project(connection, &path).context("error deleting project")
-        }
         ModelEvent::InsertCommand { metadata } => {
             insert_command(connection, metadata).context("error inserting command")
         }
@@ -386,12 +364,6 @@ fn handle_model_event(event: ModelEvent, connection: &mut SqliteConnection) -> a
             suggestion_type,
         } => remove_ignored_suggestion(connection, suggestion, suggestion_type)
             .context("error removing ignored suggestion"),
-        ModelEvent::UpsertWorkspaceLanguageServer {
-            workspace_path,
-            lsp_type,
-            enabled,
-        } => upsert_workspace_language_server(connection, &workspace_path, lsp_type, enabled)
-            .context("error upserting workspace language server"),
     }
 }
 
@@ -470,7 +442,7 @@ struct SaveAppStateNodeTraversal<'a> {
 // Does so in a transaction so we're never in a partial state.
 fn save_app_state(conn: &mut SqliteConnection, app_state: &AppState) -> Result<()> {
     conn.transaction::<(), Error, _>(|conn| {
-        // Remove old app state
+        // Replace the saved layout, including rows left by removed pane types.
         diesel::delete(schema::app::dsl::app).execute(conn)?;
         diesel::delete(schema::terminal_panes::dsl::terminal_panes).execute(conn)?;
         diesel::delete(schema::notebook_panes::dsl::notebook_panes).execute(conn)?;
@@ -516,8 +488,8 @@ fn save_app_state(conn: &mut SqliteConnection, app_state: &AppState) -> Result<(
                 origin_y,
                 quake_mode: window.quake_mode,
                 universal_search_width: window.universal_search_width,
-                voltron_width: window.voltron_width,
-                left_panel_open: Some(window.left_panel_open),
+                voltron_width: None,
+                left_panel_open: None,
                 vertical_tabs_panel_open: Some(window.vertical_tabs_panel_open),
                 fullscreen_state: window.fullscreen_state as i32,
             };
@@ -577,42 +549,12 @@ fn save_app_state(conn: &mut SqliteConnection, app_state: &AppState) -> Result<(
                     parent_pane_node_id: None,
                 });
 
-                if tab.left_panel.is_some() || tab.right_panel.is_some() {
-                    let new_panel = model::NewPanel {
-                        tab_id: *tab_id,
-                        left_panel: tab
-                            .left_panel
-                            .as_ref()
-                            .and_then(|p| serde_json::to_string(p).ok()),
-                        right_panel: tab
-                            .right_panel
-                            .as_ref()
-                            .and_then(|p| serde_json::to_string(p).ok()),
-                    };
-                    diesel::insert_into(schema::panels::dsl::panels)
-                        .values(new_panel)
-                        .execute(conn)?;
-                }
-
                 while !pane_nodes.is_empty() {
                     let SaveAppStateNodeTraversal {
                         node: pane_node,
                         flex,
                         parent_pane_node_id,
                     } = pane_nodes.pop_front().expect("Should have node");
-
-                    // Skip leaves whose content types don't get a
-                    // corresponding `pane_leaves` row on save. Otherwise the
-                    // `pane_nodes` insert below would create an orphan row
-                    // (is_leaf=true, but no matching row in `pane_leaves`),
-                    // and `read_node` would fail to resolve the leaf on
-                    // restore, causing the entire surrounding tab to be
-                    // dropped. See `LeafContents::is_persisted`.
-                    if let PaneNodeSnapshot::Leaf(leaf) = pane_node {
-                        if !leaf.contents.is_persisted() {
-                            continue;
-                        }
-                    }
 
                     let is_leaf = matches!(pane_node, PaneNodeSnapshot::Leaf(_));
                     let new_pane_node = model::NewPaneNode {
@@ -679,13 +621,7 @@ fn save_pane_state(
     // kind-specific tables.
     let kind = match &snapshot.contents {
         LeafContents::Terminal(_) => TERMINAL_PANE_KIND,
-        LeafContents::Notebook(_) => NOTEBOOK_PANE_KIND,
-        LeafContents::EnvVarCollection(_) => ENV_VAR_COLLECTION_PANE_KIND,
-        LeafContents::Code(_) => CODE_PANE_KIND,
-        LeafContents::Workflow(_) => WORKFLOW_PANE_KIND,
         LeafContents::Settings(_) => SETTINGS_PANE_KIND,
-        LeafContents::GetStarted => GET_STARTED_PANE_KIND,
-        LeafContents::Welcome { .. } => WELCOME_PANE_KIND,
     };
 
     let leaf = model::NewPane {
@@ -716,88 +652,6 @@ fn save_pane_state(
                 .values(terminal)
                 .execute(conn)?;
         }
-        LeafContents::Notebook(notebook_snapshot) => {
-            let (notebook_id, local_path) = match notebook_snapshot {
-                NotebookPaneSnapshot::LocalNotebook {
-                    notebook_id: _,
-                    settings: _,
-                } => (None, None),
-                NotebookPaneSnapshot::LocalFileNotebook { path } => {
-                    (None, path.clone().map(encode_path))
-                }
-            };
-
-            let notebook = model::NewNotebookPane {
-                id,
-                notebook_id,
-                local_path,
-            };
-
-            diesel::insert_into(schema::notebook_panes::dsl::notebook_panes)
-                .values(notebook)
-                .execute(conn)?;
-        }
-        LeafContents::Code(code_snapshot) => {
-            let CodePaneSnapShot::Local {
-                tabs,
-                active_tab_index,
-                source,
-            } = code_snapshot;
-
-            let serialized_source = source.as_ref().and_then(|s| serde_json::to_string(s).ok());
-
-            let code = model::NewCodePane {
-                id,
-                active_tab_index: *active_tab_index as i32,
-                source_data: serialized_source,
-            };
-
-            diesel::insert_into(schema::code_panes::dsl::code_panes)
-                .values(code)
-                .execute(conn)?;
-
-            // Write ordered tab rows.
-            for (tab_idx, tab) in tabs.iter().enumerate() {
-                let tab_row = model::NewCodePaneTab {
-                    code_pane_id: id,
-                    tab_index: tab_idx as i32,
-                    local_path: tab.path.clone().map(encode_path),
-                };
-                diesel::insert_into(schema::code_pane_tabs::dsl::code_pane_tabs)
-                    .values(tab_row)
-                    .execute(conn)?;
-            }
-        }
-        LeafContents::EnvVarCollection(env_var_collection_snapshot) => {
-            let env_var_collection_id = match env_var_collection_snapshot {
-                EnvVarCollectionPaneSnapshot::LocalEnvVarCollection {
-                    env_var_collection_id: _,
-                } => None,
-            };
-
-            let env_var_collection = model::NewEnvVarCollectionPane {
-                id,
-                env_var_collection_id,
-            };
-
-            diesel::insert_into(schema::env_var_collection_panes::dsl::env_var_collection_panes)
-                .values(env_var_collection)
-                .execute(conn)?;
-        }
-        LeafContents::Workflow(workflow_pane_snapshot) => {
-            let workflow_id = match workflow_pane_snapshot {
-                WorkflowPaneSnapshot::LocalWorkflow {
-                    workflow_id: _,
-                    settings: _,
-                } => None,
-            };
-
-            let workflow = model::NewWorkflowPane { id, workflow_id };
-
-            diesel::insert_into(schema::workflow_panes::dsl::workflow_panes)
-                .values(workflow)
-                .execute(conn)?;
-        }
         LeafContents::Settings(settings_pane_snapshot) => {
             let current_page = match settings_pane_snapshot {
                 SettingsPaneSnapshot::Local { current_page, .. } => current_page,
@@ -812,66 +666,9 @@ fn save_pane_state(
                 .values(settings_pane)
                 .execute(conn)?;
         }
-        LeafContents::GetStarted => {
-            // Stateless
-        }
-        LeafContents::Welcome { startup_directory } => {
-            let welcome_pane = model::NewWelcomePane {
-                id,
-                startup_directory: startup_directory
-                    .as_ref()
-                    .map(|path| path.to_string_lossy().into_owned()),
-            };
-            diesel::insert_into(schema::welcome_panes::dsl::welcome_panes)
-                .values(welcome_pane)
-                .execute(conn)?;
-        }
     }
 
     Ok(())
-}
-
-/// Encode a path into a platform-specific byte representation for persistence.
-fn encode_path(path: PathBuf) -> Vec<u8> {
-    if path == PathBuf::new() {
-        // bytemuck will throw a TargetAlignmentGreaterAndInputNotAligned error
-        // if we don't special-case the empty path.
-        return Vec::new();
-    }
-
-    cfg_if::cfg_if! {
-        if #[cfg(unix)] {
-            use std::os::unix::ffi::OsStringExt;
-            path.into_os_string().into_vec()
-        } else if #[cfg(windows)] {
-            use std::os::windows::ffi::OsStrExt;
-            let wide_char_sequence: Vec<u16> = path.into_os_string().encode_wide().collect();
-            // We need to deal with slices (not Vec) because otherwise we will get a PodCastError::AlignmentMismatch.
-            let slice: &[u8] = bytemuck::cast_slice(wide_char_sequence.as_slice());
-            slice.to_vec()
-        }
-    }
-}
-
-/// Decode a path from its platform-specific byte representation.
-fn decode_path(bytes: Vec<u8>) -> PathBuf {
-    if bytes.is_empty() {
-        // bytemuck will throw a TargetAlignmentGreaterAndInputNotAligned error
-        // if we don't special-case the empty path.
-        return PathBuf::new();
-    }
-
-    cfg_if::cfg_if! {
-        if #[cfg(unix)] {
-            use std::os::unix::ffi::OsStringExt;
-            OsString::from_vec(bytes).into()
-        } else if #[cfg(windows)] {
-            use std::os::windows::ffi::OsStringExt;
-            // We need to deal with slices (not Vec) because otherwise we will get a PodCastError::AlignmentMismatch.
-            let wide_char_sequence: &[u16] = bytemuck::cast_slice(bytes.as_slice());
-            OsString::from_wide(wide_char_sequence).into()
-        }
-    }
 }
 
 fn save_workspace_metadata(
@@ -901,118 +698,6 @@ fn get_all_workspace_metadata(
         .load_iter::<WorkspaceMetadataModel, DefaultLoadingMode>(conn)?
         .filter_map(|item| item.ok().map(WorkspaceMetadata::from))
         .collect_vec())
-}
-
-fn get_all_workspace_language_servers_by_workspace(
-    conn: &mut SqliteConnection,
-) -> Result<HashMap<PathBuf, HashMap<LSPServerType, EnablementState>>, diesel::result::Error> {
-    use schema::workspace_language_server::dsl::*;
-    use schema::workspace_metadata;
-
-    let results = workspace_language_server
-        .inner_join(workspace_metadata::table)
-        .select((workspace_metadata::repo_path, language_server_name, enabled))
-        .load::<(String, String, String)>(conn)?;
-
-    let mut grouped: HashMap<PathBuf, HashMap<LSPServerType, EnablementState>> = HashMap::new();
-    for (path_str, server_name, enablement_str) in results {
-        let path = PathBuf::from(path_str);
-        let Some(server_type) = serde_json::from_str(&server_name).ok() else {
-            continue;
-        };
-
-        let Some(enablement) = serde_json::from_str(&enablement_str).ok() else {
-            continue;
-        };
-
-        grouped
-            .entry(path)
-            .or_default()
-            .insert(server_type, enablement);
-    }
-
-    Ok(grouped)
-}
-
-fn upsert_workspace_language_server(
-    conn: &mut SqliteConnection,
-    workspace_path: &Path,
-    server_type: LSPServerType,
-    enablement: EnablementState,
-) -> Result<()> {
-    use schema::workspace_language_server::dsl::*;
-    use schema::workspace_metadata::dsl::*;
-    let path_string = workspace_path.to_string_lossy().to_string();
-
-    // Try to find existing workspace
-    let metadata = workspace_metadata
-        .filter(repo_path.eq(&path_string))
-        .first::<WorkspaceMetadataModel>(conn)
-        .optional()?
-        .ok_or(anyhow::anyhow!("Can't find workspace for path"))?;
-
-    let ws_id = metadata.id;
-    let server_name = serde_json::to_string(&server_type)?;
-
-    // Now upsert the language server setting
-    // Check if record already exists
-    let existing = workspace_language_server
-        .filter(workspace_id.eq(ws_id))
-        .filter(language_server_name.eq(server_name.clone()))
-        .first::<model::WorkspaceLanguageServer>(conn)
-        .optional()?;
-
-    let enablement_str = serde_json::to_string(&enablement)?;
-
-    if let Some(existing_record) = existing {
-        // Update existing record
-        diesel::update(workspace_language_server.find(existing_record.id))
-            .set(enabled.eq(enablement_str))
-            .execute(conn)?;
-    } else {
-        // Insert new record
-        let new_language_server = model::NewWorkspaceLanguageServer {
-            workspace_id: ws_id,
-            language_server_name: server_name,
-            enabled: enablement_str.to_string(),
-        };
-
-        diesel::insert_into(workspace_language_server)
-            .values(&new_language_server)
-            .execute(conn)?;
-    }
-
-    Ok(())
-}
-
-fn save_project(conn: &mut SqliteConnection, project: Project) -> Result<()> {
-    use schema::projects::dsl::*;
-
-    diesel::insert_into(projects)
-        .values(project.clone())
-        .on_conflict(path)
-        .do_update()
-        .set(&project)
-        .execute(conn)?;
-
-    Ok(())
-}
-
-fn get_all_projects(conn: &mut SqliteConnection) -> Result<Vec<Project>, diesel::result::Error> {
-    use schema::projects::dsl::*;
-
-    Ok(projects
-        .load_iter::<Project, DefaultLoadingMode>(conn)?
-        .filter_map(|item| item.ok())
-        .collect_vec())
-}
-
-fn delete_project(conn: &mut SqliteConnection, project_path: &str) -> Result<()> {
-    use schema::projects::dsl::*;
-
-    diesel::delete(projects.filter(path.eq(project_path))).execute(conn)?;
-
-    Ok(())
 }
 
 fn get_all_ignored_suggestions(
@@ -1107,79 +792,6 @@ fn read_node(conn: &mut SqliteConnection, node: model::PaneNode) -> Result<PaneN
                         shell_launch_data,
                     })
                 }
-                NOTEBOOK_PANE_KIND => {
-                    let notebook_pane = schema::notebook_panes::dsl::notebook_panes
-                        .find(node.id)
-                        .select(model::NotebookPane::as_select())
-                        .first(conn)?;
-
-                    let local_path = notebook_pane.local_path.map(decode_path);
-
-                    // In the database schema, both the `notebook_id` and `local_path` are
-                    // nullable. It's possible for either a file pane or a notebook pane to be open
-                    // to an uneditable notebook. In that case, bias towards cloud notebooks. If
-                    // both are null, it's more likely that the pane was a new, empty cloud
-                    // notebook than an unreadable local file.
-                    LeafContents::Notebook(match local_path {
-                        Some(path) => NotebookPaneSnapshot::LocalFileNotebook { path: Some(path) },
-                        None => NotebookPaneSnapshot::LocalNotebook {
-                            notebook_id: None,
-                            settings: Default::default(),
-                        },
-                    })
-                }
-                WORKFLOW_PANE_KIND => LeafContents::Workflow(WorkflowPaneSnapshot::LocalWorkflow {
-                    workflow_id: None,
-                    settings: Default::default(),
-                }),
-                CODE_PANE_KIND => {
-                    let code_pane = schema::code_panes::dsl::code_panes
-                        .find(node.id)
-                        .select(model::CodePane::as_select())
-                        .first(conn)?;
-
-                    // Read child code_pane_tabs rows ordered by tab_index.
-                    let tab_rows: Vec<model::CodePaneTab> =
-                        schema::code_pane_tabs::dsl::code_pane_tabs
-                            .filter(schema::code_pane_tabs::columns::code_pane_id.eq(code_pane.id))
-                            .order(schema::code_pane_tabs::columns::tab_index.asc())
-                            .select(model::CodePaneTab::as_select())
-                            .load(conn)?;
-
-                    let tabs: Vec<CodePaneTabSnapshot> = tab_rows
-                        .into_iter()
-                        .map(|row| CodePaneTabSnapshot {
-                            path: row.local_path.map(decode_path),
-                        })
-                        .collect();
-                    let active_tab_index = code_pane.active_tab_index as usize;
-
-                    let source = code_pane
-                        .source_data
-                        .as_deref()
-                        .and_then(|data| serde_json::from_str::<CodeSource>(data).ok());
-
-                    LeafContents::Code(CodePaneSnapShot::Local {
-                        tabs,
-                        active_tab_index,
-                        source,
-                    })
-                }
-                ENV_VAR_COLLECTION_PANE_KIND => {
-                    let env_var_collection_pane =
-                        schema::env_var_collection_panes::dsl::env_var_collection_panes
-                            .find(node.id)
-                            .select(model::EnvVarCollectionPane::as_select())
-                            .first(conn)?;
-
-                    let _env_var_collection_pane = env_var_collection_pane;
-
-                    LeafContents::EnvVarCollection(
-                        EnvVarCollectionPaneSnapshot::LocalEnvVarCollection {
-                            env_var_collection_id: None,
-                        },
-                    )
-                }
                 SETTINGS_PANE_KIND => {
                     let settings_pane = schema::settings_panes::dsl::settings_panes
                         .find(node.id)
@@ -1193,17 +805,6 @@ fn read_node(conn: &mut SqliteConnection, node: model::PaneNode) -> Result<PaneN
                         current_page,
                         search_query: None,
                     })
-                }
-                CODE_REVIEW_PANE_KIND => bail!("Diff review has been removed"),
-                GET_STARTED_PANE_KIND => LeafContents::GetStarted,
-                WELCOME_PANE_KIND => {
-                    let welcome_pane = schema::welcome_panes::dsl::welcome_panes
-                        .find(node.id)
-                        .select(model::WelcomePane::as_select())
-                        .first(conn)?;
-                    LeafContents::Welcome {
-                        startup_directory: welcome_pane.startup_directory.map(PathBuf::from),
-                    }
                 }
                 other => bail!("Unrecognized pane kind: {other}"),
             };
@@ -1277,12 +878,6 @@ fn read_sqlite_data(conn: &mut SqliteConnection) -> Result<PersistedData, Error>
         .load::<Tab>(conn)?
         .grouped_by(&db_windows);
 
-    let db_panels = schema::panels::dsl::panels
-        .load::<model::Panel>(conn)?
-        .into_iter()
-        .map(|p| (p.tab_id, p))
-        .collect::<HashMap<_, _>>();
-
     let saved_windows: Vec<_> = db_windows
         .into_iter()
         .enumerate()
@@ -1292,16 +887,6 @@ fn read_sqlite_data(conn: &mut SqliteConnection) -> Result<PersistedData, Error>
                 .into_iter()
                 .filter_map(|tab| {
                     let root = read_root_node(conn, tab.id).ok()?;
-                    let panel = db_panels.get(&tab.id);
-
-                    let left_panel = panel
-                        .and_then(|p| p.left_panel.as_ref())
-                        .and_then(|s| serde_json::from_str::<LeftPanelSnapshot>(s).ok());
-
-                    let right_panel = panel
-                        .and_then(|p| p.right_panel.as_ref())
-                        .and_then(|s| serde_json::from_str::<RightPanelSnapshot>(s).ok());
-
                     Some(TabSnapshot {
                         root,
                         custom_title: tab.custom_title,
@@ -1320,8 +905,6 @@ fn read_sqlite_data(conn: &mut SqliteConnection) -> Result<PersistedData, Error>
                                     })
                             })
                             .unwrap_or_default(),
-                        left_panel,
-                        right_panel,
                     })
                 })
                 .collect();
@@ -1367,41 +950,14 @@ fn read_sqlite_data(conn: &mut SqliteConnection) -> Result<PersistedData, Error>
                 _ => None,
             };
 
-            let left_panel_width: Option<f32> = saved_tabs.get(tab_index).and_then(|tab| match tab
-                .left_panel
-                .as_ref()
-            {
-                Some(LeftPanelSnapshot { width, .. }) => Some(*width as f32),
-                _ => None,
-            });
-
-            let right_panel_width: Option<f32> =
-                saved_tabs
-                    .get(tab_index)
-                    .and_then(|tab| match tab.right_panel.as_ref() {
-                        Some(RightPanelSnapshot { width, .. }) => Some(*width as f32),
-                        _ => None,
-                    });
-
-            let window_left_panel_open = window.left_panel_open.unwrap_or_else(|| {
-                saved_tabs
-                    .get(tab_index)
-                    .and_then(|tab| tab.left_panel.as_ref())
-                    .is_some()
-            });
-
             WindowSnapshot {
                 tabs: saved_tabs,
                 active_tab_index: tab_index,
                 quake_mode: window.quake_mode,
                 bounds,
                 universal_search_width: window.universal_search_width,
-                voltron_width: window.voltron_width,
-                left_panel_open: window_left_panel_open,
                 vertical_tabs_panel_open: window.vertical_tabs_panel_open.unwrap_or(false),
                 fullscreen_state: fullscreen_state_val,
-                left_panel_width,
-                right_panel_width,
             }
         })
         .collect();
@@ -1424,16 +980,12 @@ fn read_sqlite_data(conn: &mut SqliteConnection) -> Result<PersistedData, Error>
     };
 
     let workspace_metadata = get_all_workspace_metadata(conn)?;
-    let workspace_language_servers = get_all_workspace_language_servers_by_workspace(conn)?;
-    let projects = get_all_projects(conn)?;
     let ignored_suggestions = get_all_ignored_suggestions(conn)?;
 
     Ok(PersistedData {
         app_state,
         command_history: commands,
         workspace_metadata,
-        workspace_language_servers,
-        projects,
         ignored_suggestions,
     })
 }
@@ -1462,7 +1014,7 @@ impl From<StartedCommandMetadata> for model::NewCommand {
             }),
             git_branch: metadata.git_branch,
             cloud_workflow_id: None,
-            workflow_command: metadata.workflow_command,
+            workflow_command: None,
         }
     }
 }

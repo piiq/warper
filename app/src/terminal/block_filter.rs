@@ -1,7 +1,7 @@
+use crate::editor::NavigationKey;
 use pathfinder_color::ColorU;
 use pathfinder_geometry::vector::vec2f;
 use regex_automata::hybrid::BuildError;
-use warp_editor::editor::NavigationKey;
 use warpui::elements::{Align, Dash};
 use warpui::ui_components::components::UiComponent;
 use warpui::FocusContext;

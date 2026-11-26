@@ -84,7 +84,6 @@ pub const TERMINAL_KEYBINDINGS: &[&str] = &[
     "workspace:show_keybinding_settings",
     "workspace:show_settings",
     "workspace:toggle_command_palette",
-    "workspace:toggle_launch_config_palette",
     "workspace:toggle_mouse_reporting",
     "workspace:toggle_navigation_palette",
     "workspace:toggle_resource_center",

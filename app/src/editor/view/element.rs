@@ -33,7 +33,6 @@ use warpui::text_selection_utils::{
 use warpui::ViewHandle;
 use warpui::{event::ModifiersState, text_layout::ComputeBaselinePositionArgs};
 
-use crate::editor::view::AutosuggestionLocation;
 use crate::themes::theme::Fill;
 use smallvec::SmallVec;
 use std::collections::HashMap;
@@ -1198,7 +1197,6 @@ impl EditorElement {
         content_origin: Vector2F,
         layout: &LayoutState,
         line_height: f32,
-        autosuggestion_soft_wrapped_line_ix: Option<usize>,
         ctx: &mut PaintContext,
         app: &AppContext,
         last_autosuggestion_glyph_position: &mut Option<Vector2F>,
@@ -1265,14 +1263,8 @@ impl EditorElement {
                 &baseline_position_fn,
             );
 
-            // Determine if the autosuggestion belongs on this line.
-            // If the location of the autosuggestion is not specified, it belongs at the very end
-            // If the autosuggestion is attached to a location, it belongs on the last TextFrame associated
-            // with the logical line.
-            let paint_autosuggestion_here = match autosuggestion_soft_wrapped_line_ix {
-                None => ix == layout.frame_layouts.displayed_lines().count() - 1,
-                Some(line_ix) => line_ix == ix,
-            };
+            let paint_autosuggestion_here =
+                ix == layout.frame_layouts.displayed_lines().count() - 1;
 
             // Render first line of autosuggestion text, if it exists. If not, render
             // first line of placeholder text, if it exists.
@@ -1812,27 +1804,13 @@ impl Element for EditorElement {
                 app,
             );
 
-            // Determine where to place the autosuggestion hint.
-            // It's mutable and updated according to the width of autosuggestion lines. And it is only drawn at the last line of autosuggestion.
+            // Track the final autosuggestion glyph to position its hint.
             let mut last_autosuggestion_glyph_position = Some(vec2f(0., 0.));
-
-            // The autosuggestion location should be expressed in a soft-wrapped row coordinate
-            // In other words, in what soft-wrapped row can we find the last character in the logical row that has the autosuggestion?
-            let autosuggestion_soft_wrapped_line = view_snapshot
-                .autosuggestion_location()
-                .as_ref()
-                .and_then(|l| match l {
-                    AutosuggestionLocation::EndOfBuffer => None,
-                    AutosuggestionLocation::Inline(logical_line_ix) => {
-                        Some(layout.frame_layouts.end_of_logical_row(*logical_line_ix))
-                    }
-                });
 
             self.paint_lines(
                 content_origin,
                 layout,
                 line_height,
-                autosuggestion_soft_wrapped_line,
                 ctx,
                 app,
                 &mut last_autosuggestion_glyph_position,

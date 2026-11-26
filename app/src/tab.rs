@@ -3,7 +3,6 @@ use crate::appearance::Appearance;
 /// the rendering and management of tabs in general.
 use crate::editor::EditorView;
 use crate::features::FeatureFlag;
-use crate::launch_configs::launch_config::LaunchConfig;
 use crate::menu::{MenuAction, MenuItem, MenuItemFields};
 use crate::pane_group::PaneGroup;
 use settings::Setting as _;
@@ -36,7 +35,7 @@ use warpui::elements::{
     CrossAxisAlignment, DragAxis, Draggable, DraggableState, DropTarget, Element, Empty, Fill,
     Flex, Hoverable, MainAxisAlignment, MainAxisSize, MouseStateHandle, OffsetPositioning, Padding,
     ParentAnchor, ParentElement, ParentOffsetBounds, PositionedElementAnchor,
-    PositionedElementOffsetBounds, Radius, Rect, SavePosition, Shrinkable, SizeConstraintCondition,
+    PositionedElementOffsetBounds, Radius, SavePosition, Shrinkable, SizeConstraintCondition,
     SizeConstraintSwitch, Stack, Text,
 };
 use warpui::fonts::Weight;
@@ -96,8 +95,6 @@ impl SelectedTabColor {
 
 #[derive(Debug, Clone)]
 pub enum NewSessionMenuItem {
-    OpenLaunchConfig(LaunchConfig),
-    OpenLaunchConfigDocs,
     CreateNewTabConfig,
 }
 
@@ -469,7 +466,6 @@ pub struct TabBarState {
 #[derive(Clone)]
 enum Indicator {
     None,
-    UnsavedChanges,
     /// This pane's inputs are being synced.
     Synced,
     Error,
@@ -572,10 +568,6 @@ impl<'a> TabComponent<'a> {
         let appearance = Appearance::as_ref(ctx);
         let title = tab.pane_group.as_ref(ctx).display_title(ctx);
 
-        let active_pane_has_unsaved_code_changes = tab
-            .pane_group
-            .as_ref(ctx)
-            .has_active_code_pane_with_unsaved_changes(ctx);
         let should_show_indicators = *TabSettings::as_ref(ctx).show_indicators.value();
         let are_inputs_synced = SyncedInputState::as_ref(ctx)
             .should_sync_this_pane_group(tab.pane_group.id(), tab.pane_group.window_id(ctx));
@@ -593,9 +585,7 @@ impl<'a> TabComponent<'a> {
         // But if it's on, we want to show the synced indicator if this tab is being synced.
         // If we aren't showing the synced indicator (and we know the setting is on),
         // we will show long-running, error indicators, etc. as applicable.
-        let indicator = if active_pane_has_unsaved_code_changes {
-            Indicator::UnsavedChanges
-        } else if !should_show_indicators {
+        let indicator = if !should_show_indicators {
             Indicator::None
         } else if are_inputs_synced {
             Indicator::Synced
@@ -814,21 +804,6 @@ impl<'a> TabComponent<'a> {
 
     fn render_indicator(&self) -> Option<Box<dyn Element>> {
         let icon = match &self.indicator {
-            Indicator::UnsavedChanges => Some(
-                Container::new(
-                    Rect::new()
-                        .with_background_color(
-                            self.appearance
-                                .theme()
-                                .main_text_color(self.appearance.theme().background())
-                                .into(),
-                        )
-                        .with_corner_radius(CornerRadius::with_all(Radius::Percentage(50.)))
-                        .finish(),
-                )
-                .with_uniform_margin(3.)
-                .finish(),
-            ),
             Indicator::None => None,
             Indicator::Synced => Some(
                 Icon::LinkHorizontal

@@ -401,12 +401,11 @@ impl super::TerminalView {
                 target_override,
             } => {
                 if let Some(target_override) = target_override {
-                    self.open_file_path_with_target(
-                        absolute_path.clone(),
-                        target_override.clone(),
-                        *line_and_column_num,
-                        ctx,
-                    );
+                    ctx.emit(super::Event::OpenFileWithTarget {
+                        path: absolute_path.clone(),
+                        target: target_override.clone(),
+                        line_col: *line_and_column_num,
+                    });
                 } else {
                     self.open_file_path(absolute_path.clone(), *line_and_column_num, ctx);
                 }

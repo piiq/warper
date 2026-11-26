@@ -4,9 +4,8 @@ use std::{any::Any, path::PathBuf};
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use command::r#async::Command;
-use itertools::Itertools as _;
 
-use crate::env_vars::{serialize_variables_for_shell, EnvVarValue};
+use super::shared::serialize_environment_variables;
 use crate::terminal::shell::Shell;
 
 use super::{CommandExecutor, CommandOutput, ExecuteCommandOptions};
@@ -45,12 +44,10 @@ impl CommandExecutor for RemoteCommandExecutor {
         // ssh connection. That's why we explicitly set the path and cwd as part of command_str.
         let mut command_str = String::new();
         if let Some(environment_variables) = environment_variables {
-            let env_vars = environment_variables
-                .into_iter()
-                .map(|(key, value)| (key, EnvVarValue::Constant(value)))
-                .collect_vec();
-            let env_vars_str = serialize_variables_for_shell(
-                env_vars.iter().map(|(key, value)| (key.as_str(), value)),
+            let env_vars_str = serialize_environment_variables(
+                environment_variables
+                    .iter()
+                    .map(|(key, value)| (key.as_str(), value.as_str())),
                 shell.shell_type(),
             );
             command_str.push_str(&env_vars_str);

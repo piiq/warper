@@ -6,6 +6,7 @@ use std::sync::Arc;
 use instant::Instant;
 use pathfinder_geometry::vector::vec2f;
 
+use crate::editor::NavigationKey;
 use crate::{
     editor::{
         EditorOptions, EditorView, Event as EditorEvent, PropagateAndNoOpNavigationKeys,
@@ -20,7 +21,6 @@ use crate::{
 use fuzzy_match::{match_indices_case_insensitive, FuzzyMatchResult};
 use warp_core::ui::theme::color::internal_colors;
 use warp_core::ui::{appearance::Appearance, builder::MIN_FONT_SIZE, theme::Fill};
-use warp_editor::editor::NavigationKey;
 use warpui::units::Pixels;
 use warpui::{
     color::ColorU,

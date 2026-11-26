@@ -64,7 +64,7 @@ fn maximize_warp_items(ctx: &mut ViewContext<ResourceCenterMainView>) -> Vec<Fea
 
     maximize_warp_items.push(FeatureItem::new(
         "Command search",
-        "Find and run previously executed commands, workflows, and more.",
+        "Find and run previously executed commands.",
         Tip::Action(TipAction::CommandSearch),
         ctx,
     ));
@@ -74,15 +74,6 @@ fn maximize_warp_items(ctx: &mut ViewContext<ResourceCenterMainView>) -> Vec<Fea
             "Split panes",
             "Split tabs into multiple panes to make your ideal layout.",
             Tip::Action(TipAction::SplitPane),
-            ctx,
-        ));
-    }
-
-    if ContextFlag::LaunchConfigurations.is_enabled() {
-        maximize_warp_items.push(FeatureItem::new(
-            "Launch configuration",
-            "Save your current configuration of windows, tabs, and panes.",
-            Tip::Action(TipAction::SaveNewLaunchConfig),
             ctx,
         ));
     }

@@ -10,7 +10,6 @@ default-members = [
   "app",
   "crates/channel_versions",
   "crates/command",
-  "crates/editor",
   "crates/markdown_parser",
   "crates/sum_tree",
   "crates/warpui",
@@ -38,11 +37,7 @@ http_client = { path = "crates/http_client" }
 http_server = { path = "crates/http_server" }
 integration = { path = "crates/integration" }
 ipc = { path = "crates/ipc" }
-jsonrpc = { path = "crates/jsonrpc" }
-languages = { path = "crates/languages" }
-lsp = { path = "crates/lsp" }
 markdown_parser = { path = "crates/markdown_parser" }
-node_runtime = { path = "crates/node_runtime" }
 persistence = { path = "crates/persistence" }
 repo_metadata = { path = "crates/repo_metadata" }
 settings = { path = "crates/settings" }
@@ -51,7 +46,6 @@ settings_value_derive = { path = "crates/settings_value_derive" }
 simple_logger = { path = "crates/simple_logger" }
 string-offset = { path = "crates/string-offset" }
 sum_tree = { path = "crates/sum_tree" }
-syntax_tree = { path = "crates/syntax_tree" }
 ui_components = { path = "crates/ui_components" }
 vim = { path = "crates/vim" }
 virtual-fs = { path = "crates/virtual_fs" }
@@ -59,14 +53,10 @@ warp = { path = "app" }
 warp_cli = { path = "crates/warp_cli" }
 warp_completer = { path = "crates/warp_completer" }
 warp_core = { path = "crates/warp_core" }
-warp_editor = { path = "crates/editor" }
 warp_features = { path = "crates/warp_features" }
-warp_files = { path = "crates/warp_files" }
 warp_isolation_platform = { path = "crates/isolation_platform" }
 warp_js = { path = "crates/warp_js" }
 warp_logging = { path = "crates/warp_logging" }
-warp_ripgrep = { path = "crates/warp_ripgrep" }
-warp_server_client = { path = "crates/warp_server_client" }
 warp_terminal = { path = "crates/warp_terminal" }
 warp_util = { path = "crates/warp_util" }
 warpui = { path = "crates/warpui" }
@@ -123,11 +113,9 @@ futures = { version = "0.3", features = ["executor", "thread-pool"] }
 futures-lite = "1.13.0"
 futures-util = { version = "0.3", default-features = false }
 get-size = { version = "0.1.4", features = ["derive"] }
-globset = "0.4.18"
 hex = "0.4.3"
 # This matches the version of hyper used by reqwest.
 hyper = "1.6.0"
-html5ever = "0.35.0"
 http = "1.1.0"
 humantime = "2.1.0"
 image = { version = "0.25.9", default-features = false, features = [
@@ -151,7 +139,6 @@ lazy_static = "1.4.0"
 libc = "0.2.81"
 line-ending = "1.4.0"
 log = { version = "0.4", features = ["serde", "std"] }
-mermaid_to_svg = { git = "https://github.com/warpdotdev/mermaid-to-svg.git", rev = "f7233f69965c59760fad98d684c786569814d821" }
 mime_guess = "2.0"
 minimp4 = "0.1.2"
 nix = { version = "0.26.4", default-features = false, features = ["signal"] }
@@ -218,46 +205,12 @@ toml_edit = "0.25.5"
 tower = "0.5.2"
 tower-http = "0.6.6"
 tracing = "0.1.40"
-arborium = { version = "2", default-features = false, features = [
-  "lang-rust",
-  "lang-go",
-  "lang-yaml",
-  "lang-python",
-  "lang-javascript",
-  "lang-typescript",
-  "lang-tsx",
-  "lang-java",
-  "lang-cpp",
-  "lang-bash",
-  "lang-c-sharp",
-  "lang-html",
-  "lang-css",
-  "lang-c",
-  "lang-json",
-  "lang-hcl",
-  "lang-lua",
-  "lang-ruby",
-  "lang-php",
-  "lang-toml",
-  "lang-swift",
-  "lang-kotlin",
-  "lang-scala",
-  "lang-powershell",
-  "lang-elixir",
-  "lang-sql",
-  "lang-starlark",
-  "lang-objc",
-  "lang-xml",
-  "lang-vue",
-  "lang-dockerfile",
-] }
 unicode-width = "0.1.12"
 uuid = { version = "1.1.2", features = ["v4", "serde", "js"] }
 vec1 = { version = "1.8.0", features = ["serde"] }
 version-compare = "0.1"
 vte = { git = "https://github.com/warpdotdev/vte.git", rev = "4b399c87b63ba88f45709edaa6383fc519f6c900", default-features = false }
 walkdir = "2"
-warp-workflows = { git = "https://github.com/warpdotdev/workflows", rev = "793a98ddda6ef19682aed66364faebd2829f0e01" }
 # Disable default features to disable support for WebGPU. We enable all other
 # default features of wgpu.
 wgpu = { version = "29.0.1", default-features = false, features = [

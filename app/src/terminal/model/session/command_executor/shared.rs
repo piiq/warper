@@ -55,3 +55,29 @@ pub fn shell_escape_single_quotes(command: &str, shell_type: ShellType) -> Strin
 pub fn shell_quote_arg(value: &str, shell_type: ShellType) -> String {
     format!("'{}'", shell_escape_single_quotes(value, shell_type))
 }
+
+/// Serializes plain environment values for commands executed through SSH or WSL.
+#[cfg(feature = "local_tty")]
+pub(super) fn serialize_environment_variables<'a>(
+    pairs: impl IntoIterator<Item = (&'a str, &'a str)>,
+    shell_type: ShellType,
+) -> String {
+    let shell_family = warp_util::path::ShellFamily::from(shell_type);
+    pairs
+        .into_iter()
+        .map(|(name, value)| {
+            let name = shell_family.escape(name);
+            let value = shell_quote_arg(value, shell_type);
+            match shell_type {
+                ShellType::Bash | ShellType::Zsh => format!("{name}={value}"),
+                ShellType::Fish => format!("set -x {name} {value};"),
+                ShellType::PowerShell => format!("$env:{name} = {value};"),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+#[cfg(all(test, feature = "local_tty"))]
+#[path = "shared_tests.rs"]
+mod tests;

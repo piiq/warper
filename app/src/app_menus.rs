@@ -1,29 +1,20 @@
 use std::borrow::Cow;
 use std::fs::File;
-use std::path::PathBuf;
 
 use crate::default_terminal::DefaultTerminal;
 use crate::features::{runtime_flags_menu_items, FeatureFlag};
-use crate::project_workspaces::metadata::WorkspaceMetadata;
-use crate::project_workspaces::PersistedWorkspace;
 use crate::report_if_error;
-use crate::root_view::OpenLaunchConfigArg;
 use crate::settings::{BlockVisibilitySettings, DebugSettings, SelectionSettings};
 use crate::terminal::alt_screen_reporting::AltScreenReporting;
 use crate::terminal::session_settings::SessionSettings;
 use crate::terminal::settings::{SpacingMode, TerminalSettings};
 use crate::undo_close::UndoCloseStack;
-use crate::user_config::WarpConfig;
 use crate::util::bindings::{self, trigger_to_keystroke, CustomAction};
 use crate::util::links;
-use crate::workspace::metadata::LaunchConfigUiLocation;
 use crate::workspace::sync_inputs::SyncedInputState;
 use csv::Writer;
-use enclose::enclose;
-use itertools::Itertools;
 use settings::manager::SettingsManager;
 use settings::Setting as _;
-use warp_util::path::user_friendly_path;
 use warpui::actions::StandardAction;
 use warpui::keymap::{Keystroke, Trigger};
 use warpui::platform::menu::{
@@ -53,7 +44,6 @@ const EXPORT_DEFAULT_SETTINGS_CSV_MENU_ITEM_NAME: &str =
     "Export Default Settings as CSV to home dir";
 
 const SETTINGS_CSV_FILE_NAME: &str = "warp_default_settings.csv";
-const MAX_RECENT_REPOS_IN_MENU: usize = 10;
 
 /// Creates the root app menu bar
 pub fn menu_bar(ctx: &mut AppContext) -> MenuBar {
@@ -97,15 +87,6 @@ fn default_name(action: CustomAction, ctx: &AppContext) -> String {
             debug_assert!(false, "action should have a name: {action:?}");
             "<NO DESCRIPTION>".into()
         })
-}
-
-fn non_updateable_custom_item(action: CustomAction, ctx: &AppContext) -> MenuItem {
-    MenuItem::Custom(CustomMenuItem::new(
-        &default_name(action, ctx),
-        custom_action_dispatcher(action),
-        no_updates,
-        custom_shortcut(action),
-    ))
 }
 
 /// Return a Custom Menu Item whose CustomAction can be updated and
@@ -208,24 +189,9 @@ fn make_new_app_menu(ctx: &AppContext) -> Menu {
 }
 
 fn make_new_file_menu(ctx: &AppContext) -> Menu {
-    let mut file_menu_options = make_new_elements_menu_items(ctx);
+    let mut file_menu_options = make_new_elements_menu_items();
     file_menu_options.extend([
         MenuItem::Separator,
-        updateable_custom_item_without_checkmark(CustomAction::OpenRepository, ctx),
-        MenuItem::Custom(CustomMenuItem::new_with_submenu(
-            "Open Recent",
-            |_| (),
-            |_props, ctx| {
-                let recent_repos = generate_recent_repos_for_menu(ctx);
-                MenuItemPropertyChanges {
-                    submenu: Some(Some(make_recent_repos_menu_items(ctx))),
-                    disabled: Some(recent_repos.is_empty()),
-                    ..Default::default()
-                }
-            },
-            None,
-            vec![],
-        )),
         MenuItem::Separator,
         updateable_custom_item_without_checkmark(CustomAction::CloseCurrentSession, ctx),
         updateable_custom_item_without_checkmark(CustomAction::CloseWindow, ctx),
@@ -255,7 +221,6 @@ fn make_new_edit_menu(ctx: &AppContext) -> Menu {
     ];
     let group_4 = vec![
         updateable_custom_item_without_checkmark(CustomAction::Find, ctx),
-        updateable_custom_item_without_checkmark(CustomAction::GoToLine, ctx),
         updateable_custom_item_without_checkmark(CustomAction::FocusInput, ctx),
     ];
     let group_5 = vec![
@@ -338,14 +303,9 @@ fn make_new_view_menu(ctx: &AppContext) -> Menu {
     let mut items = vec![
         updateable_custom_item_without_checkmark(CustomAction::CommandPalette, ctx),
         updateable_custom_item_without_checkmark(CustomAction::NavigationPalette, ctx),
-        updateable_custom_item_without_checkmark(CustomAction::LaunchConfigPalette, ctx),
-        updateable_custom_item_without_checkmark(CustomAction::FilesPalette, ctx),
-        updateable_custom_item_without_checkmark(CustomAction::ToggleProjectExplorer, ctx),
-        updateable_custom_item_without_checkmark(CustomAction::ToggleGlobalSearch, ctx),
         MenuItem::Separator,
         updateable_custom_item_without_checkmark(CustomAction::History, ctx),
         updateable_custom_item_without_checkmark(CustomAction::CommandSearch, ctx),
-        updateable_custom_item_without_checkmark(CustomAction::Workflows, ctx),
         MenuItem::Separator,
         MenuItem::Custom(CustomMenuItem::new(
             "Toggle Mouse Reporting",
@@ -787,45 +747,7 @@ fn make_new_help_menu() -> Menu {
     )
 }
 
-fn make_launch_config_menu_items(ctx: &mut AppContext) -> Vec<MenuItem> {
-    let mut launch_config_menu_items = vec![];
-
-    let launch_configs = WarpConfig::handle(ctx).as_ref(ctx).launch_configs();
-    for config in launch_configs {
-        launch_config_menu_items.push(MenuItem::Custom(CustomMenuItem::new(
-            &config.name,
-            enclose!((config) move |ctx| {
-                ctx.dispatch_global_action(
-                    "root_view:open_launch_config",
-                    &OpenLaunchConfigArg {
-                        launch_config: config.clone(),
-                        ui_location: LaunchConfigUiLocation::AppMenu,
-                        open_in_active_window: false,
-                    }
-                );
-                ctx.dispatch_global_action("workspace:save_app", &());
-            }),
-            no_updates,
-            None,
-        )));
-    }
-
-    if !launch_config_menu_items.is_empty() {
-        launch_config_menu_items.push(MenuItem::Separator);
-    }
-
-    // TODO(vorporeal): use non_updateable_custom_item() here instead
-    launch_config_menu_items.push(MenuItem::Custom(CustomMenuItem::new(
-        "Save New...",
-        custom_action_dispatcher(CustomAction::SaveCurrentConfig),
-        no_updates,
-        custom_shortcut(CustomAction::SaveCurrentConfig),
-    )));
-
-    launch_config_menu_items
-}
-
-fn make_new_elements_menu_items(ctx: &AppContext) -> Vec<MenuItem> {
+fn make_new_elements_menu_items() -> Vec<MenuItem> {
     let mut new_elements_menu = vec![
         MenuItem::Custom(CustomMenuItem::new(
             "New Window",
@@ -849,7 +771,6 @@ fn make_new_elements_menu_items(ctx: &AppContext) -> Vec<MenuItem> {
             },
             Some(Keystroke::parse("cmd-t").expect("Valid keystroke")),
         )),
-        non_updateable_custom_item(CustomAction::NewFile, ctx),
     ];
 
     let reopen_session_action_updater =
@@ -867,17 +788,6 @@ fn make_new_elements_menu_items(ctx: &AppContext) -> Vec<MenuItem> {
             changes
         },
         Some(Keystroke::parse("cmd-shift-T").expect("Valid keystroke")),
-    )));
-
-    new_elements_menu.push(MenuItem::Custom(CustomMenuItem::new_with_submenu(
-        "Launch Configurations",
-        |_| (),
-        |_props, ctx| MenuItemPropertyChanges {
-            submenu: Some(Some(make_launch_config_menu_items(ctx))),
-            ..Default::default()
-        },
-        None,
-        vec![],
     )));
 
     new_elements_menu
@@ -911,43 +821,6 @@ fn open_new_window(ctx: &mut AppContext) {
 /// No-op updater function for custom menu items that never change.
 fn no_updates(_: &MenuItemProperties, _: &mut AppContext) -> MenuItemPropertyChanges {
     Default::default()
-}
-
-fn make_recent_repos_menu_items(ctx: &AppContext) -> Vec<MenuItem> {
-    let recent_repos = generate_recent_repos_for_menu(ctx);
-
-    if recent_repos.is_empty() {
-        return vec![];
-    }
-
-    let home = dirs::home_dir().map(|p| p.display().to_string());
-
-    recent_repos
-        .into_iter()
-        .map(|path| {
-            let full_path = path.display().to_string();
-            let display_path = user_friendly_path(&full_path, home.as_deref()).into_owned();
-
-            MenuItem::Custom(CustomMenuItem::new(
-                &display_path,
-                move |ctx| {
-                    ctx.dispatch_global_action("workspace:open_repository", &full_path);
-                },
-                no_updates,
-                None,
-            ))
-        })
-        .collect()
-}
-
-fn generate_recent_repos_for_menu(ctx: &AppContext) -> Vec<PathBuf> {
-    PersistedWorkspace::handle(ctx)
-        .as_ref(ctx)
-        .workspaces()
-        .sorted_by(WorkspaceMetadata::most_recently_navigated)
-        .take(MAX_RECENT_REPOS_IN_MENU)
-        .map(|cbm| cbm.path)
-        .collect::<Vec<_>>()
 }
 
 /// \return a callback that updates a custom action based menu item based on the

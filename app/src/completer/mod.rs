@@ -18,12 +18,13 @@ use warp_completer::completer::{
 use warp_completer::signatures::CommandRegistry;
 use warp_core::features::FeatureFlag;
 use warp_util::path::{EscapeChar, ShellFamily};
-use warpui::{AppContext, SingletonEntity};
+use warpui::AppContext;
+#[cfg(feature = "completions_v2")]
+use warpui::SingletonEntity;
 
 use crate::safe_warn;
 use crate::terminal::model::session::{ExecuteCommandOptions, Session, SessionType};
 use crate::util::AsciiDebug;
-use crate::workflows::aliases::WorkflowAliases;
 
 lazy_static! {
     pub static ref CURR_DIRECTORY_ENTRY: EngineDirEntry = EngineDirEntry {
@@ -46,9 +47,6 @@ pub struct SessionContext {
     js_ctx: Option<js::SessionJsExecutionContext>,
 
     cached_directory_entries: dashmap::DashMap<TypedPathBuf, Arc<Vec<EngineDirEntry>>>,
-
-    /// Snapshot of all Warp workflow aliases.
-    workflow_aliases: HashMap<String, String>,
 }
 
 impl SessionContext {
@@ -259,11 +257,7 @@ impl CompletionContext for SessionContext {
     }
 
     fn top_level_commands(&self) -> Box<dyn Iterator<Item = &str> + '_> {
-        Box::new(
-            self.session
-                .top_level_commands()
-                .chain(self.workflow_aliases.keys().map(String::as_str)),
-        )
+        Box::new(self.session.top_level_commands())
     }
 
     fn command_case_sensitivity(&self) -> TopLevelCommandCaseSensitivity {
@@ -280,18 +274,11 @@ impl CompletionContext for SessionContext {
             .aliases()
             .iter()
             .map(|(alias, command)| (alias.as_str(), command.as_str()));
-        let workflow_aliases = self
-            .workflow_aliases
-            .iter()
-            .map(|(alias, command)| (alias.as_str(), command.as_str()));
-        Box::new(workflow_aliases.chain(session_aliases))
+        Box::new(session_aliases)
     }
 
     fn alias_command(&self, alias: &str) -> Option<&str> {
-        self.workflow_aliases
-            .get(alias)
-            .or_else(|| self.session.aliases().get(alias))
-            .map(Deref::deref)
+        self.session.aliases().get(alias).map(Deref::deref)
     }
 
     fn abbreviations(&self) -> Option<&HashMap<SmolStr, String>> {
@@ -337,12 +324,6 @@ impl SessionContext {
         current_working_directory: TypedPathBuf,
         #[allow(unused_variables)] ctx: &AppContext,
     ) -> Self {
-        let workflow_aliases = if FeatureFlag::WorkflowAliases.is_enabled() {
-            WorkflowAliases::as_ref(ctx).autocomplete_data(ctx)
-        } else {
-            Default::default()
-        };
-
         cfg_if::cfg_if! {
             if #[cfg(feature = "completions_v2")] {
                 use crate::plugin::{PluginHost, service::CallJsFunctionService};
@@ -356,7 +337,6 @@ impl SessionContext {
                     current_working_directory,
                     js_ctx: js_function_caller.map(js::SessionJsExecutionContext::new),
                     cached_directory_entries: Default::default(),
-                    workflow_aliases,
                 }
             } else {
                 Self {
@@ -364,52 +344,9 @@ impl SessionContext {
                     command_registry,
                     current_working_directory,
                     cached_directory_entries: Default::default(),
-                    workflow_aliases,
                 }
             }
         }
-    }
-}
-
-/// `CompletionContext` implementation for "global" completions, that provide completions on all
-/// commands in the `command_registry` rather than providing session-specific completions.
-///
-/// This `CompletionContext` is not coupled to a specific session and thus does not provide path or
-/// generator execution, which wouldn't have clear semantics without being coupled to a session.
-#[derive(Clone)]
-pub struct SessionAgnosticContext {
-    command_registry: Arc<CommandRegistry>,
-}
-
-impl SessionAgnosticContext {
-    pub fn new(command_registry: Arc<CommandRegistry>) -> Self {
-        Self { command_registry }
-    }
-}
-
-impl CompletionContext for SessionAgnosticContext {
-    fn top_level_commands(&self) -> Box<dyn Iterator<Item = &str> + '_> {
-        Box::new(self.command_registry.registered_commands())
-    }
-
-    fn command_registry(&self) -> &CommandRegistry {
-        &self.command_registry
-    }
-
-    fn environment_variable_names(&self) -> Option<&HashSet<SmolStr>> {
-        None
-    }
-
-    fn shell_supports_autocd(&self) -> Option<bool> {
-        None
-    }
-
-    fn path_completion_context(&self) -> Option<&dyn PathCompletionContext> {
-        None
-    }
-
-    fn generator_context(&self) -> Option<&dyn GeneratorContext> {
-        None
     }
 }
 

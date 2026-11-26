@@ -35,7 +35,6 @@ pub(crate) mod cli_agent_toolbar;
 pub(crate) mod code_snippet;
 pub mod color;
 mod command_corrections_denylist;
-pub mod dynamic_enum_suggestions;
 pub mod event;
 pub mod event_listener;
 pub mod find;

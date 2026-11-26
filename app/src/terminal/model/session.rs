@@ -250,8 +250,11 @@ impl Sessions {
 
         let session = Session::new(session_info.clone(), command_executor);
 
-        log::info!("Shell is bootstrapped with session_id {:?}", session.id());
-        log::debug!("Session details: {session:?}");
+        log::info!("Shell is bootstrapped");
+        log::debug!(
+            "Bootstrapped shell type: {:?}",
+            session.shell().shell_type()
+        );
 
         let session = Arc::new(session);
         self.sessions.insert(session.id(), session.clone());
@@ -306,16 +309,10 @@ impl Sessions {
         self.sessions
             .iter()
             .filter_map(|(id, session)| {
-                session.subshell_info().as_ref().map(|info| {
-                    (
-                        *id,
-                        if let Some(env_var_collection_name) = &info.env_var_collection_name {
-                            SubshellSource::EnvVarCollection(env_var_collection_name.clone())
-                        } else {
-                            SubshellSource::Command(info.spawning_command.clone())
-                        },
-                    )
-                })
+                session
+                    .subshell_info()
+                    .as_ref()
+                    .map(|info| (*id, SubshellSource::Command(info.spawning_command.clone())))
             })
             .collect()
     }

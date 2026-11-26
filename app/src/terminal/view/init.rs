@@ -15,7 +15,7 @@ use crate::{
     terminal::TerminalView,
     util::bindings::CustomAction,
 };
-use warpui::keymap::{BindingDescription, PerPlatformKeystroke};
+use warpui::keymap::PerPlatformKeystroke;
 use warpui::platform::OperatingSystem;
 use warpui::{
     keymap::{EditableBinding, FixedBinding},
@@ -340,17 +340,6 @@ pub fn init(app: &mut AppContext) {
             id!("Terminal") & ne!("TerminalView_BlockSelectionCardinality", "None"),
         ),
         EditableBinding::new(
-            "terminal:toggle_teams_modal",
-            "Toggle team workflows modal",
-            TerminalAction::OpenWorkflowModal,
-        )
-        .with_key_binding(cmd_or_ctrl_shift("s"))
-        .with_context_predicate(
-            id!("Terminal")
-                & !id!("IMEOpen")
-                & ne!("TerminalView_BlockSelectionCardinality", "None"),
-        ),
-        EditableBinding::new(
             "terminal:copy_git_branch",
             "Copy git branch",
             TerminalAction::CopyGitBranch,
@@ -652,12 +641,4 @@ pub fn init(app: &mut AppContext) {
     )
     .with_enabled(|| cfg!(feature = "local_fs") && ChannelState::enable_debug_features())
     .with_context_predicate(id!("Terminal"))]);
-
-    app.register_editable_bindings([EditableBinding::new(
-        "workspace:add_current_dir_as_project",
-        BindingDescription::new("Add current folder as project"),
-        TerminalAction::AddProjectAtCurrentDirectory,
-    )
-    .with_enabled(|| FeatureFlag::Projects.is_enabled())
-    .with_context_predicate(id!("Workspace"))]);
 }

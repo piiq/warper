@@ -20,6 +20,16 @@ fn provider_flags_are_not_registered() {
 }
 
 #[test]
+fn file_search_worker_is_not_registered() {
+    assert!(Args::try_parse_from(["warper", "ripgrep-search", "pattern", "."]).is_err());
+    assert!(
+        <Args as CommandFactory>::command()
+            .find_subcommand("ripgrep-search")
+            .is_none()
+    );
+}
+
+#[test]
 fn terminal_commands_remain_available() {
     let args = Args::try_parse_from(["warper", "completions", "zsh"]).unwrap();
     assert!(matches!(args.command(), Some(Command::Completions { .. })));

@@ -65,9 +65,6 @@ pub enum FeatureFlag {
     /// Feature flag for cursor reflow fix (fixes part of the Alacritty resizing logic).
     ResizeFix,
 
-    /// Enable multiselect in Notebooks and Warp Text.
-    RichTextMultiselect,
-
     /// If enabled, the default input mode is set to waterfall for new users.
     DefaultWaterfallMode,
 
@@ -86,9 +83,6 @@ pub enum FeatureFlag {
     /// Adds Alacritty as a supported terminal to import settings from.
     AlacrittySettingsImport,
 
-    /// Enable dynamic enum parameter types for workflow arguments
-    DynamicWorkflowEnums,
-
     /// Routes SSH sessions through the tmux-backed SSH wrapper.
     SSHTmuxWrapper,
 
@@ -99,9 +93,6 @@ pub enum FeatureFlag {
     /// Enables the shell selector, allowing us to open a new tab in
     /// a shell other than the default shell.
     ShellSelector,
-
-    /// Replaces the bookmark button with a "save as workflow" button.
-    BlockToolbeltSaveAsWorkflow,
 
     /// Lazily builds scenes at render time instead of eagerly when a view
     /// changes.
@@ -126,9 +117,6 @@ pub enum FeatureFlag {
 
     /// Adds avatar to the tab bar.
     AvatarInTabBar,
-
-    /// Adds aliases for executing saved workflows.
-    WorkflowAliases,
 
     SshDragAndDrop,
     DragTabsToWindows,
@@ -168,64 +156,20 @@ pub enum FeatureFlag {
     /// UNIX shells running "natively" on Windows via MSYS2.
     MSYS2Shells,
 
-    /// Enables the find/replace in code editor
-    CodeFindReplace,
-
-    /// Enables file search functionality in command palette
-    CommandPaletteFileSearch,
-
     /// Enables close button on left side of tabs
     TabCloseButtonOnLeft,
-
-    /// Enables the tabbed file viewer
-    TabbedEditorView,
-
-    /// An entrypoint pane type to launch other pane types from a search palette. The default view
-    /// when creating a tab.
-    WelcomeTab,
-
-    /// A new first-time user experience which prioritizes choosing a coding repository.
-    GetStartedTab,
-
-    /// Enables Projects and Project management
-    Projects,
 
     /// Enables the prompt chip that displays the GitHub PR for the current branch.
     GithubPrPromptChip,
 
-    /// Enables vim keybindings in the code editor.
-    VimCodeEditor,
-
-    /// Allows opening file links using the $EDITOR environment variable.
-    AllowOpeningFileLinksUsingEditorEnv,
-
     /// Enables the ability to undo closed panes.
     UndoClosedPanes,
-
-    /// Enables the file tree (with an entrypoint through code mode).
-    FileTree,
 
     /// Enables ignoring input suggestions.
     AllowIgnoringInputSuggestions,
 
-    /// Enables the one-time modal on app startup for existing users for the Code launch.
-    CodeLaunchModal,
-
     /// Enables UI zoom support (scaling the entire UI by a given percentage).
     UIZoom,
-
-    /// Enables rendering of images in markdown files.
-    MarkdownImages,
-    /// Enables rendering Mermaid diagrams in markdown notebooks.
-    MarkdownMermaid,
-    /// Enables editable Mermaid diagrams to behave atomically in notebook editors.
-    EditableMarkdownMermaid,
-
-    /// Enables rendering markdown tables in notebooks.
-    MarkdownTables,
-
-    /// Enables global search
-    GlobalSearch,
 
     /// Enables editing the third-party CLI agent footer from its context menu.
     AgentToolbarEditor,
@@ -237,9 +181,6 @@ pub enum FeatureFlag {
     /// External programs can trigger system and in-app notifications.
     PluggableNotifications,
 
-    /// Enables the OpenWarp launch modal announcing Warp going open-source.
-    OpenWarpLaunchModal,
-
     /// Updated tab styling (background colors, border, close button positioning, margins).
     NewTabStyling,
 
@@ -247,18 +188,12 @@ pub enum FeatureFlag {
     /// Ctrl-G intercepts the keystroke and opens Warp's input editor instead of $EDITOR.
     CLIAgentRichInput,
 
-    /// Enables incremental (diff-based) buffer updates for auto-reload instead of full replace.
-    IncrementalAutoReload,
-
     /// Enables Kitty keyboard protocol support (CSI u encoding, progressive enhancement).
     KittyKeyboardProtocol,
 
     /// Enables associating a tab color with a directory so tabs automatically
     /// adopt the configured color when their working directory matches.
     DirectoryTabColors,
-
-    /// Enables settings for Project Explorer and Global Search visibility.
-    OpenWarpNewSettingsModes,
 
     /// Enables vertical tab layout as an alternative to the horizontal tab bar.
     VerticalTabs,
@@ -327,10 +262,7 @@ pub const DOGFOOD_FLAGS: &[FeatureFlag] = &[
     FeatureFlag::ImeMarkedText,
     FeatureFlag::MSYS2Shells,
     FeatureFlag::RunGeneratorsWithCmdExe,
-    FeatureFlag::Projects,
-    FeatureFlag::MarkdownImages,
     FeatureFlag::DirectoryTabColors,
-    FeatureFlag::EditableMarkdownMermaid,
     FeatureFlag::HOANotifications,
     FeatureFlag::GeminiNotifications,
     FeatureFlag::VerticalTabsSummaryMode,
@@ -338,7 +270,7 @@ pub const DOGFOOD_FLAGS: &[FeatureFlag] = &[
 
 /// Features enabled for feature preview build users (e.g.: Friends of Warp).
 /// All PREVIEW_FLAGS are also automatically added to dogfood builds (WarpDev).
-pub const PREVIEW_FLAGS: &[FeatureFlag] = &[FeatureFlag::MarkdownTables];
+pub const PREVIEW_FLAGS: &[FeatureFlag] = &[];
 
 /// Features enabled for all release builds (i.e.: everything but WarpLocal).
 /// NOTE: if you are promoting a feature from Preview to launch, you'll likely
@@ -411,9 +343,7 @@ impl FeatureFlag {
         // very least, the feature flag should be removed from the Preview changelog by removing it from PREVIEW_FLAGS.
         // ** ONLY Preview-exclusive features should be added to this list! **
         match self {
-            GlobalSearch => Some("Enables global search in the left panel"),
 
-            MarkdownTables => Some("Enables rendering and interaction support for markdown tables in notebooks."),
             SettingsFile => Some("Enables configuring Warp via a user-editable `settings.toml` file, with hot reload and error reporting for invalid values."),
             _ => None,
         }

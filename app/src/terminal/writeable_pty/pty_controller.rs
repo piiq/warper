@@ -538,9 +538,6 @@ impl<T: EventLoopSender> PtyController<T> {
             // Explicitly start the block now that the command is executed.
             match source {
                 CommandExecutionSource::User => model.start_command_execution(),
-                CommandExecutionSource::EnvVarCollection { metadata } => {
-                    model.start_command_execution_from_env_var_collection(metadata)
-                }
             }
 
             // Ensure that the `TerminalModel` doesn't interpret any of the PTY output from the

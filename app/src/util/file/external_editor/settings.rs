@@ -1,4 +1,3 @@
-pub use crate::util::openable_file_type::EditorLayout;
 use serde::{Deserialize, Deserializer, Serialize};
 use settings::{macros::define_settings_group, SupportedPlatforms, SyncToCloud};
 
@@ -18,7 +17,6 @@ use settings::{macros::define_settings_group, SupportedPlatforms, SyncToCloud};
 )]
 pub enum EditorChoice {
     SystemDefault,
-    Warp,
     EnvEditor,
     #[schemars(description = "A specific external code editor.")]
     ExternalEditor(super::Editor),
@@ -43,7 +41,6 @@ impl<'de> Deserialize<'de> for EditorChoice {
         #[derive(Deserialize)]
         enum EditorChoiceInner {
             SystemDefault,
-            Warp,
             EnvEditor,
             ExternalEditor(super::Editor),
         }
@@ -51,7 +48,6 @@ impl<'de> Deserialize<'de> for EditorChoice {
         match EditorChoiceCompat::deserialize(deserializer)? {
             EditorChoiceCompat::New(inner) => match inner {
                 EditorChoiceInner::SystemDefault => Ok(EditorChoice::SystemDefault),
-                EditorChoiceInner::Warp => Ok(EditorChoice::Warp),
                 EditorChoiceInner::EnvEditor => Ok(EditorChoice::EnvEditor),
                 EditorChoiceInner::ExternalEditor(editor) => {
                     Ok(EditorChoice::ExternalEditor(editor))
@@ -76,42 +72,4 @@ define_settings_group!(EditorSettings, settings: [
         max_table_depth: 0,
         description: "The editor used to open files.",
     },
-    open_code_panels_file_editor: OpenCodePanelsFileEditor {
-        type: EditorChoice,
-        default: EditorChoice::Warp,
-        supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Never,
-        private: false,
-        toml_path: "code.editor.open_code_panels_file_editor",
-        max_table_depth: 0,
-        description: "The editor used to open files from code panels.",
-    },
-    open_file_layout: OpenFileLayout {
-        type: EditorLayout,
-        default: EditorLayout::SplitPane,
-        supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Never,
-        private: false,
-        toml_path: "code.editor.open_file_layout",
-        description: "The layout used when opening files in the editor.",
-    },
-    prefer_markdown_viewer: PreferMarkdownViewer {
-        type: bool,
-        default: true,
-        supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Never,
-        private: false,
-        toml_path: "code.editor.prefer_markdown_viewer",
-        description: "Whether to use the Markdown viewer when opening Markdown files.",
-    },
-    prefer_tabbed_editor_view: PreferTabbedEditorView {
-        type: bool,
-        default: true,
-        supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Never,
-        private: false,
-        toml_path: "code.editor.prefer_tabbed_editor_view",
-        description: "Whether to prefer opening files in a tabbed editor view.",
-    },
-
 ]);

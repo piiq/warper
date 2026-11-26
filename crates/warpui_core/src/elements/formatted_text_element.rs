@@ -80,7 +80,6 @@ pub type HighlightedHyperlink = Arc<Mutex<Option<HyperlinkPosition>>>;
 
 const CODE_BLOCK_OFFSET: usize = 1;
 
-// TODO: We should think about whether line height applies to notebooks as well.
 // Consider whether this element really needs a different default than DEFAULT_UI_LINE_HEIGHT_RATIO
 // used by the Text element.
 pub const DEFAULT_LINE_HEIGHT_RATIO: f32 = 1.4;
@@ -1582,12 +1581,10 @@ impl From<&FormattedTextLine> for LineType {
             FormattedTextLine::UnorderedList(_) => LineType::UnorderedList,
             FormattedTextLine::Heading(_)
             | FormattedTextLine::Line(_)
-            | FormattedTextLine::TaskList(_)
-            | FormattedTextLine::Table(_) => LineType::FormattedLine,
+            | FormattedTextLine::TaskList(_) => LineType::FormattedLine,
             FormattedTextLine::CodeBlock(_) => LineType::CodeBlock,
             FormattedTextLine::LineBreak
             | FormattedTextLine::HorizontalRule
-            | FormattedTextLine::Embedded(_)
             | FormattedTextLine::Image(_) => LineType::LineBreak,
         }
     }
@@ -1661,13 +1658,8 @@ impl Element for FormattedTextElement {
 
                     (self.font_size, &res, 1, LineType::CodeBlock)
                 }
-                FormattedTextLine::Table(table) => {
-                    res.push(FormattedTextFragment::plain_text(table.to_plain_text()));
-                    (self.font_size, &res, 0, LineType::FormattedLine)
-                }
                 FormattedTextLine::LineBreak
                 | FormattedTextLine::HorizontalRule
-                | FormattedTextLine::Embedded(_)
                 | FormattedTextLine::Image(_) => (self.font_size, &res, 0, LineType::LineBreak),
             };
 

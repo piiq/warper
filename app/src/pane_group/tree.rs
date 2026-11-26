@@ -212,10 +212,6 @@ impl PaneData {
         total_panes.saturating_sub(hidden_count)
     }
 
-    pub fn has_horizontal_split(&self) -> bool {
-        self.root.has_horizontal_split(&self.hidden_panes)
-    }
-
     pub fn num_hidden_panes(&self) -> usize {
         self.hidden_panes.len()
     }
@@ -573,35 +569,6 @@ impl PaneNode {
         match self {
             PaneNode::Leaf(pane_id) => pane_hidden_for_move(hidden_panes, pane_id),
             PaneNode::Branch(branch) => branch.has_children_hidden_for_move(hidden_panes),
-        }
-    }
-
-    pub fn has_horizontal_split(&self, hidden_panes: &[HiddenPane]) -> bool {
-        match self {
-            PaneNode::Leaf(_) => false,
-            PaneNode::Branch(branch) => {
-                let mut visible_or_move_children = 0usize;
-                let mut any_child_split = false;
-
-                for (_, child) in &branch.nodes {
-                    if !child.has_visible_children(hidden_panes)
-                        && !child.has_children_hidden_for_move(hidden_panes)
-                    {
-                        continue;
-                    }
-
-                    visible_or_move_children += 1;
-
-                    if child.has_horizontal_split(hidden_panes) {
-                        any_child_split = true;
-                    }
-                }
-
-                let self_has_split =
-                    branch.axis == SplitDirection::Horizontal && visible_or_move_children > 1;
-
-                self_has_split || any_child_split
-            }
         }
     }
 
@@ -1462,15 +1429,11 @@ impl From<SplitDirection> for app_state::SplitDirection {
     }
 }
 
-impl From<crate::launch_configs::launch_config::SplitDirection> for SplitDirection {
-    fn from(direction: crate::launch_configs::launch_config::SplitDirection) -> Self {
+impl From<crate::tab_configs::template::SplitDirection> for SplitDirection {
+    fn from(direction: crate::tab_configs::template::SplitDirection) -> Self {
         match direction {
-            crate::launch_configs::launch_config::SplitDirection::Horizontal => {
-                SplitDirection::Horizontal
-            }
-            crate::launch_configs::launch_config::SplitDirection::Vertical => {
-                SplitDirection::Vertical
-            }
+            crate::tab_configs::template::SplitDirection::Horizontal => SplitDirection::Horizontal,
+            crate::tab_configs::template::SplitDirection::Vertical => SplitDirection::Vertical,
         }
     }
 }

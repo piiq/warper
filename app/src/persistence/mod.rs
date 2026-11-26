@@ -16,14 +16,11 @@ pub use persistence::schema;
 pub mod testing;
 
 use instant::Instant;
-use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::mpsc::SyncSender;
 use std::sync::Arc;
 use std::thread::JoinHandle;
 
 use chrono::{DateTime, Local};
-use lsp::supported_servers::LSPServerType;
 use warp_core::command::ExitCode;
 use warpui::{AppContext, Entity, SingletonEntity};
 
@@ -32,10 +29,8 @@ use crate::suggestions::ignored_suggestions_model::SuggestionType;
 use crate::terminal::history::PersistedCommand;
 use crate::terminal::model::block::SerializedBlock;
 use crate::terminal::model::session::SessionId;
-use warp_server_client::ids::SyncId;
 
-use self::model::Project;
-use crate::project_workspaces::{metadata::WorkspaceMetadata, EnablementState};
+use crate::project_workspaces::metadata::WorkspaceMetadata;
 
 #[cfg(any(feature = "local_fs", feature = "integration_tests"))]
 pub use sqlite::database_file_path;
@@ -125,8 +120,6 @@ pub struct PersistedData {
 
     pub command_history: Vec<PersistedCommand>,
     pub workspace_metadata: Vec<WorkspaceMetadata>,
-    pub workspace_language_servers: HashMap<PathBuf, HashMap<LSPServerType, EnablementState>>,
-    pub projects: Vec<Project>,
     pub ignored_suggestions: Vec<(String, SuggestionType)>,
 }
 
@@ -148,8 +141,6 @@ pub struct StartedCommandMetadata {
     pub hostname: Option<String>,
     pub session_id: Option<SessionId>,
     pub git_branch: Option<String>,
-    pub cloud_workflow_id: Option<SyncId>,
-    pub workflow_command: Option<String>,
 }
 
 #[derive(Debug)]
@@ -176,12 +167,6 @@ pub enum ModelEvent {
     UpsertWorkspaceMetadata {
         metadata: Box<WorkspaceMetadata>,
     },
-    UpsertProject {
-        project: Project,
-    },
-    DeleteProject {
-        path: String,
-    },
     AddIgnoredSuggestion {
         suggestion: String,
         suggestion_type: SuggestionType,
@@ -189,11 +174,6 @@ pub enum ModelEvent {
     RemoveIgnoredSuggestion {
         suggestion: String,
         suggestion_type: SuggestionType,
-    },
-    UpsertWorkspaceLanguageServer {
-        workspace_path: PathBuf,
-        lsp_type: LSPServerType,
-        enabled: EnablementState,
     },
 }
 

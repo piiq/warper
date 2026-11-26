@@ -1,5 +1,4 @@
 use crate::context_chips::display_chip::GitLineChanges;
-use crate::pane_group::pane::IPaneType;
 use crate::pane_group::{PaneId, TerminalPaneId};
 use crate::safe_triangle::SafeTriangle;
 use crate::terminal::CLIAgent;
@@ -11,9 +10,8 @@ use warpui::elements::PositionedElementOffsetBounds;
 use warpui::EntityId;
 
 use super::{
-    branch_label_display, coalesce_summary_branch_entries, code_detail_kind_label,
-    compact_branch_subtitle_display, detail_sidecar_width_and_bounds,
-    detail_target_for_hovered_row, format_summary_primary_labels,
+    branch_label_display, coalesce_summary_branch_entries, compact_branch_subtitle_display,
+    detail_sidecar_width_and_bounds, detail_target_for_hovered_row, format_summary_primary_labels,
     non_terminal_search_text_fragments, pane_ids_for_display_granularity,
     pane_search_text_fragments, preferred_cli_agent_title, search_fragments_contain_query,
     select_summary_pane_kind_icons, should_keep_detail_sidecar_visible_for_mouse_position,
@@ -27,11 +25,6 @@ use super::{
 
 fn pane_id() -> PaneId {
     TerminalPaneId::dummy_terminal_pane_id().into()
-}
-fn code_summary_kind(title: &str) -> SummaryPaneKind {
-    SummaryPaneKind::Code {
-        title: title.to_string(),
-    }
 }
 
 #[test]
@@ -50,7 +43,7 @@ fn summary_pane_kind_icons_pick_two_oldest_distinct_pane_kinds() {
     assert_eq!(
         select_summary_pane_kind_icons([
             (EntityId::from_usize(30), SummaryPaneKind::Terminal),
-            (EntityId::from_usize(20), code_summary_kind("main.rs")),
+            (EntityId::from_usize(20), SummaryPaneKind::Settings),
             (
                 EntityId::from_usize(40),
                 SummaryPaneKind::CLIAgent {
@@ -61,7 +54,7 @@ fn summary_pane_kind_icons_pick_two_oldest_distinct_pane_kinds() {
         ]),
         Some(SummaryPaneKindIcons::Pair {
             primary: SummaryPaneKind::Terminal,
-            secondary: code_summary_kind("main.rs"),
+            secondary: SummaryPaneKind::Settings,
         })
     );
 }
@@ -70,11 +63,11 @@ fn summary_pane_kind_icons_pick_two_oldest_distinct_pane_kinds() {
 fn summary_pane_kind_icons_recompute_when_oldest_kind_is_removed() {
     assert_eq!(
         select_summary_pane_kind_icons([
-            (EntityId::from_usize(20), code_summary_kind("main.rs")),
+            (EntityId::from_usize(20), SummaryPaneKind::Settings),
             (EntityId::from_usize(30), SummaryPaneKind::Terminal),
         ]),
         Some(SummaryPaneKindIcons::Pair {
-            primary: code_summary_kind("main.rs"),
+            primary: SummaryPaneKind::Settings,
             secondary: SummaryPaneKind::Terminal,
         })
     );
@@ -236,10 +229,6 @@ fn preferred_cli_agent_title_fall_back_when_preferred_text_is_missing() {
     );
 }
 
-fn pane_type_supports_vertical_tabs_detail_sidecar(pane_type: IPaneType) -> bool {
-    matches!(pane_type, IPaneType::Terminal | IPaneType::Code)
-}
-
 fn collect_normalized_unique_summary_texts(
     texts: impl IntoIterator<Item = impl AsRef<str>>,
 ) -> Vec<String> {
@@ -259,36 +248,6 @@ fn collect_normalized_unique_summary_texts(
             }
             values
         })
-}
-
-#[test]
-fn detail_sidecar_supports_terminal_and_code_panes() {
-    assert!(pane_type_supports_vertical_tabs_detail_sidecar(
-        IPaneType::Terminal
-    ));
-    assert!(pane_type_supports_vertical_tabs_detail_sidecar(
-        IPaneType::Code
-    ));
-    assert!(!pane_type_supports_vertical_tabs_detail_sidecar(
-        IPaneType::Settings
-    ));
-}
-
-#[test]
-fn code_detail_kind_label_uses_programming_language_display_name() {
-    assert_eq!(
-        code_detail_kind_label("block_id.rs"),
-        Some("Rust".to_string())
-    );
-    assert_eq!(
-        code_detail_kind_label("Dockerfile"),
-        Some("Dockerfile".to_string())
-    );
-}
-
-#[test]
-fn code_detail_kind_label_returns_none_when_language_is_unknown() {
-    assert_eq!(code_detail_kind_label("notes.txt"), None);
 }
 
 #[test]

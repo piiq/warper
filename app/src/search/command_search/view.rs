@@ -25,7 +25,6 @@ use warpui::{
 
 use crate::{
     appearance::Appearance,
-    completer::SessionContext,
     search::{
         command_search::searcher::{CommandSearchItemAction, CommandSearchMixer},
         result_renderer::{QueryResultRenderer, QueryResultRendererStyles},
@@ -42,11 +41,10 @@ use crate::{
 
 use super::{
     history::history_data_source_for_session,
-    workflows::WorkflowsDataSource,
     zero_state::{CommandSearchZeroStateEvent, CommandSearchZeroStateView},
 };
 
-const DEFAULT_PLACEHOLDER_TEXT: &str = "Search your history, workflows, and more";
+const DEFAULT_PLACEHOLDER_TEXT: &str = "Search your command history";
 const PANEL_POSITION_ID: &str = "CommandSearchViewPanel";
 const DETAILS_PANEL_MARGIN: f32 = 4.;
 const MIN_WIDTH_RATIO: f32 = 0.25;
@@ -187,22 +185,13 @@ impl CommandSearchView {
     }
 
     /// Resets the mixer with the relevant data sources for Command Search registered.
-    fn reset_command_search_mixer(
-        &mut self,
-        session_id: SessionId,
-        session_context: Option<SessionContext>,
-        ctx: &mut ViewContext<Self>,
-    ) {
+    fn reset_command_search_mixer(&mut self, session_id: SessionId, ctx: &mut ViewContext<Self>) {
         self.mixer.update(ctx, |mixer, ctx| {
             mixer.reset(ctx);
 
             // Add data sources in lowest->highest priority order.  If results from two
             // data sources produce the same ranking score, the data source added first
             // will show up higher in the list (i.e.: further away from the input).
-            mixer.add_sync_source(
-                WorkflowsDataSource::new(session_context.as_ref(), ctx),
-                HashSet::from([QueryFilter::Workflows]),
-            );
 
             if History::as_ref(ctx).is_queryable(&session_id) {
                 let source = History::handle(ctx).read(ctx, |history_model, app| {
@@ -252,13 +241,12 @@ impl CommandSearchView {
     pub fn reset_state(
         &mut self,
         session_id: SessionId,
-        session_context: Option<SessionContext>,
         initial_query: String,
         query_filter: Option<QueryFilter>,
         menu_positioning: MenuPositioning,
         ctx: &mut ViewContext<Self>,
     ) {
-        self.reset_command_search_mixer(session_id, session_context, ctx);
+        self.reset_command_search_mixer(session_id, ctx);
         let ordering = match menu_positioning {
             MenuPositioning::AboveInputBox => SearchResultOrdering::BottomUp,
             MenuPositioning::BelowInputBox => SearchResultOrdering::TopDown,
@@ -363,7 +351,7 @@ impl CommandSearchView {
             let was_immediately_executed = match &result_action {
                 ExecuteHistory(_) => true,
 
-                AcceptHistory(_) | AcceptWorkflow(_) => false,
+                AcceptHistory(_) => false,
             };
 
             let (a11y_content, a11y_help_content) = if was_immediately_executed {
@@ -698,7 +686,7 @@ impl View for CommandSearchView {
     fn accessibility_contents(&self, _ctx: &AppContext) -> Option<AccessibilityContent> {
         Some(AccessibilityContent::new(
             "Command Search".to_owned(),
-            "Search your history, workflows, and more.  Use the Up and Down arrows to browse search results after typing.  Press Enter to accept a selected result, inserting it into the terminal input.  Press Escape to close.".to_owned(),
+            "Search your command history.  Use the Up and Down arrows to browse search results after typing.  Press Enter to accept a selected result, inserting it into the terminal input.  Press Escape to close.".to_owned(),
             WarpA11yRole::MenuRole,
         ))
     }

@@ -1087,33 +1087,6 @@ impl ActionButtonTheme for SecondaryTheme {
     }
 }
 
-/// Custom disabled theme for SecondaryTheme that preserves border.
-/// This avoids unwanted width changes when toggling between enabled/disabled states.
-pub struct DisabledSecondaryTheme;
-
-impl ActionButtonTheme for DisabledSecondaryTheme {
-    fn background(&self, hovered: bool, appearance: &Appearance) -> Option<Fill> {
-        DisabledTheme.background(hovered, appearance)
-    }
-
-    fn text_color(
-        &self,
-        hovered: bool,
-        background: Option<Fill>,
-        appearance: &Appearance,
-    ) -> ColorU {
-        DisabledTheme.text_color(hovered, background, appearance)
-    }
-
-    fn border(&self, appearance: &Appearance) -> Option<ColorU> {
-        Some(internal_colors::neutral_4(appearance.theme()))
-    }
-
-    fn keyboard_shortcut_background(&self, appearance: &Appearance) -> Option<ColorU> {
-        DisabledTheme.keyboard_shortcut_background(appearance)
-    }
-}
-
 /// "Primary" buttons have a colorful fill.
 ///
 /// [Figma spec](https://www.figma.com/design/chk9pwt35jTJhf9KnHmZyE/Components?node-id=3628-14344&t=GRYXipD0INVmDupA-0)

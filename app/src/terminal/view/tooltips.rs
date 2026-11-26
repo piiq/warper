@@ -23,58 +23,12 @@ use crate::{
     },
 };
 
-cfg_if::cfg_if! {
-    if #[cfg(feature = "local_fs")] {
-        use crate::terminal::view::RichContentLink;
-        use super::GridHighlightedLink;
-    }
-}
-
 struct GridTooltipLink {
     text: String,
     action: TerminalAction,
     /// Optional detail text to show after the link.
     detail: Option<String>,
     mouse_state: MouseStateHandle,
-}
-
-/// If appropriate, returns a GridTooltipLink for opening the file in the built-in editor.
-/// Mutates `detail_for_default` leaving None in place if the GridTooltipLink returned is the default
-/// action on "Cmd+Click" and thus should use the detail_for_default.
-#[cfg(feature = "local_fs")]
-fn open_in_warp_tooltip(
-    path: std::path::PathBuf,
-    line_and_column_num: Option<warp_util::path::LineAndColumnArg>,
-    detail_for_default: &mut Option<String>,
-    mouse_state: MouseStateHandle,
-    app: &AppContext,
-) -> Option<GridTooltipLink> {
-    use crate::{
-        settings::CodeSettings, util::file::external_editor::EditorSettings,
-        util::tooltips::should_show_open_in_warp_link,
-    };
-    use settings::Setting as _;
-    use warpui::SingletonEntity;
-
-    if !should_show_open_in_warp_link(&path, app) {
-        return None;
-    }
-
-    let detail = if *CodeSettings::as_ref(app).code_as_default_editor.value() {
-        detail_for_default.take()
-    } else {
-        None
-    };
-    Some(GridTooltipLink {
-        text: "Open in Warper".to_string(),
-        action: TerminalAction::OpenCodeInWarp {
-            path,
-            layout: *EditorSettings::as_ref(app).open_file_layout.value(),
-            line_col: line_and_column_num,
-        },
-        mouse_state,
-        detail,
-    })
 }
 
 impl TerminalView {
@@ -144,23 +98,8 @@ impl TerminalView {
 
         #[cfg_attr(not(feature = "local_fs"), allow(unused_mut))]
         if let Some(link) = &self.open_grid_link_tool_tip {
-            let mut open_in_warp = None;
             let modifier = directly_open_link_keybinding_string();
-            let mut detail = Some(format!("[{modifier} Click]"));
-            #[cfg(feature = "local_fs")]
-            {
-                if let GridHighlightedLink::File(file_link) = link {
-                    if let Some(path) = file_link.get_inner().absolute_path() {
-                        open_in_warp = open_in_warp_tooltip(
-                            path,
-                            file_link.get_inner().line_and_column_num,
-                            &mut detail,
-                            self.mouse_states.open_in_warp_tooltip.clone(),
-                            app,
-                        );
-                    }
-                }
-            }
+            let detail = Some(format!("[{modifier} Click]"));
 
             links.push(GridTooltipLink {
                 text: link.tooltip_text().to_owned(),
@@ -168,34 +107,13 @@ impl TerminalView {
                 mouse_state: self.mouse_states.grid_link_tooltip.clone(),
                 detail,
             });
-
-            links.extend(open_in_warp);
         }
 
         #[cfg_attr(not(feature = "local_fs"), allow(unused_mut))]
         if let Some(tooltip_info) = &self.open_rich_content_link_tool_tip {
             element_id = tooltip_info.position_id.to_owned();
-            let mut open_in_warp = None;
             let modifier_string = directly_open_link_keybinding_string();
-            let mut detail = Some(format!("[{modifier_string} Click]"));
-
-            #[cfg(feature = "local_fs")]
-            {
-                if let RichContentLink::FilePath {
-                    absolute_path,
-                    line_and_column_num,
-                    ..
-                } = &tooltip_info.link
-                {
-                    open_in_warp = open_in_warp_tooltip(
-                        absolute_path.clone(),
-                        *line_and_column_num,
-                        &mut detail,
-                        self.mouse_states.open_in_warp_tooltip.clone(),
-                        app,
-                    );
-                }
-            }
+            let detail = Some(format!("[{modifier_string} Click]"));
 
             links.push(GridTooltipLink {
                 text: tooltip_info.link.tooltip_text().to_owned(),
@@ -203,8 +121,6 @@ impl TerminalView {
                 mouse_state: self.mouse_states.rich_content_link_tooltip.clone(),
                 detail,
             });
-
-            links.extend(open_in_warp);
         }
 
         stack.add_positioned_overlay_child(

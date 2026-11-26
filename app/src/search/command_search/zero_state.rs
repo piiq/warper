@@ -22,7 +22,6 @@ lazy_static! {
     /// These are rendered as clickable 'chips' in the zero state.
     static ref SAMPLE_QUERY_TO_FILTER: HashMap<&'static str, QueryFilter> = HashMap::from([
         ("history: git checkout", QueryFilter::History),
-        ("workflows: run dev server", QueryFilter::Workflows),
     ]);
 }
 
@@ -267,7 +266,7 @@ impl TypedActionView for CommandSearchZeroStateView {
 
 /// Returns list of valid query filters that may be applied.
 fn valid_query_filters(_app: &AppContext) -> Vec<QueryFilter> {
-    vec![QueryFilter::History, QueryFilter::Workflows]
+    vec![QueryFilter::History]
 }
 
 mod styles {

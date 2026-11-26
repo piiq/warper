@@ -6,6 +6,7 @@ use instant::Duration;
 use lazy_static::lazy_static;
 pub use new_session_shell::*;
 use serde::{Deserialize, Serialize};
+use settings_value::SettingsValue;
 pub use startup_shell::*;
 pub use working_directory_config::*;
 
@@ -174,17 +175,7 @@ pub trait ToolbarChipSelection {
     }
 }
 
-#[derive(
-    Clone,
-    Debug,
-    Default,
-    Serialize,
-    Deserialize,
-    PartialEq,
-    Eq,
-    schemars::JsonSchema,
-    settings_value::SettingsValue,
-)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
 #[schemars(
     description = "CLI agent toolbar layout configuration.",
     rename_all = "snake_case"
@@ -195,9 +186,57 @@ pub enum CLIAgentToolbarChipSelection {
     Default,
     #[schemars(description = "Use a custom arrangement of toolbar items.")]
     Custom {
+        #[serde(deserialize_with = "deserialize_toolbar_items")]
         left: Vec<AgentToolbarItemKind>,
+        #[serde(deserialize_with = "deserialize_toolbar_items")]
         right: Vec<AgentToolbarItemKind>,
     },
+}
+
+/// Keep supported toolbar items when a saved layout contains removed item kinds.
+fn deserialize_toolbar_items<'de, D>(deserializer: D) -> Result<Vec<AgentToolbarItemKind>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let values = Vec::<serde_json::Value>::deserialize(deserializer)?;
+    Ok(values
+        .into_iter()
+        .filter_map(|value| serde_json::from_value(value).ok())
+        .collect())
+}
+
+impl SettingsValue for CLIAgentToolbarChipSelection {
+    fn to_file_value(&self) -> serde_json::Value {
+        match self {
+            Self::Default => serde_json::json!("default"),
+            Self::Custom { left, right } => serde_json::json!({
+                "custom": {
+                    "left": left.to_file_value(),
+                    "right": right.to_file_value(),
+                }
+            }),
+        }
+    }
+
+    fn from_file_value(value: &serde_json::Value) -> Option<Self> {
+        if value.as_str() == Some("default") {
+            return Some(Self::Default);
+        }
+        let custom = value.get("custom")?.as_object()?;
+        let read_items = |value: &serde_json::Value| {
+            Some(
+                value
+                    .as_array()?
+                    .iter()
+                    .filter_map(AgentToolbarItemKind::from_file_value)
+                    .collect(),
+            )
+        };
+        Some(Self::Custom {
+            left: read_items(custom.get("left")?)?,
+            right: read_items(custom.get("right")?)?,
+        })
+    }
 }
 
 impl ToolbarChipSelection for CLIAgentToolbarChipSelection {
@@ -314,3 +353,7 @@ settings::macros::implement_setting_for_enum!(
     max_table_depth: 1,
     description: "Controls the working directory used when opening new sessions.",
 );
+
+#[cfg(test)]
+#[path = "session_settings_tests.rs"]
+mod tests;

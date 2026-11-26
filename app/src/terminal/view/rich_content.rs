@@ -1,16 +1,11 @@
 use warpui::{prelude::ChildView, Element, EntityId, View, ViewContext, ViewHandle};
 
-use crate::{
-    env_vars::env_var_collection_block::EnvVarCollectionBlock,
-    terminal::{
-        block_list_viewport::ScrollPositionUpdate,
-        model::{
-            blocks::RichContentItem, rich_content::RichContentType, terminal_model::BlockIndex,
-        },
-        ssh::{error::SshErrorBlock, install_tmux::SshInstallTmuxBlock, warpify::SshWarpifyBlock},
-        warpify::success_block::WarpifySuccessBlock,
-        TerminalView,
-    },
+use crate::terminal::{
+    block_list_viewport::ScrollPositionUpdate,
+    model::{blocks::RichContentItem, rich_content::RichContentType, terminal_model::BlockIndex},
+    ssh::{error::SshErrorBlock, install_tmux::SshInstallTmuxBlock, warpify::SshWarpifyBlock},
+    warpify::success_block::WarpifySuccessBlock,
+    TerminalView,
 };
 
 /// Specifies where to insert rich content in the blocklist.
@@ -92,9 +87,6 @@ impl RichContent {
 /// `RichContent` view-specific metadata required for rendering in the `BlocklistElement`.
 #[derive(Clone, Debug)]
 pub enum RichContentMetadata {
-    EnvVarCollectionBlock {
-        env_var_collection_block_handle: ViewHandle<EnvVarCollectionBlock>,
-    },
     SshWarpifyBlock {
         ssh_warpify_block_handle: ViewHandle<SshWarpifyBlock>,
     },

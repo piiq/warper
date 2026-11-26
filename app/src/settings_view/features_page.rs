@@ -30,12 +30,11 @@ use crate::editor::{
     Event as EditorEvent, SingleLineEditorOptions, TextOptions,
     ACCEPT_AUTOSUGGESTION_KEYBINDING_NAME,
 };
-use crate::search::command_search::settings::CommandSearchSettings;
 use crate::settings::CLIAgentSettings;
 use crate::settings::{
-    AliasExpansionSettings, AppEditorSettings, CodeSettings, CtrlTabBehavior, DefaultSessionMode,
-    ExtraMetaKeys, GPUSettings, GlobalHotkeyMode, InputSettings, InputSettingsChangedEvent,
-    QuakeModeSettings, ScrollSettings, SelectionSettings, SshSettings, TabBehavior,
+    AliasExpansionSettings, AppEditorSettings, CtrlTabBehavior, DefaultSessionMode, ExtraMetaKeys,
+    GPUSettings, GlobalHotkeyMode, InputSettings, InputSettingsChangedEvent, QuakeModeSettings,
+    ScrollSettings, SelectionSettings, SshSettings, TabBehavior,
     DEFAULT_QUAKE_MODE_SIZE_PERCENTAGES, QUAKE_WINDOW_AUTOHIDE_SUPPORTED,
 };
 use crate::settings::{CLIAgentSettingsChangedEvent, ScrollSettingsChangedEvent};
@@ -337,22 +336,6 @@ pub fn init_actions_from_parent_view<T: Action + Clone>(
 
     toggle_binding_pairs.push(
         ToggleSettingActionPair::new(
-            "code as default editor",
-            builder(SettingsAction::FeaturesPageToggle(
-                FeaturesPageAction::ToggleCodeAsDefaultEditor,
-            )),
-            context,
-            flags::CODE_AS_DEFAULT_EDITOR,
-        )
-        .is_supported_on_current_platform(
-            CodeSettings::as_ref(app)
-                .code_as_default_editor
-                .is_supported_on_current_platform(),
-        ),
-    );
-
-    toggle_binding_pairs.push(
-        ToggleSettingActionPair::new(
             "input hint text",
             builder(SettingsAction::FeaturesPageToggle(
                 FeaturesPageAction::ToggleShowInputHintText,
@@ -515,7 +498,6 @@ pub enum FeaturesPageAction {
     ToggleSyntaxHighlighting,
     ToggleAliasExpansion,
     ToggleMiddleClickPaste,
-    ToggleCodeAsDefaultEditor,
     ToggleShowInputHintText,
     ToggleUseAudibleBell,
     TogglePreferLowPowerGPU,
@@ -540,7 +522,6 @@ pub enum FeaturesPageAction {
     ToggleLeftMetaKey,
     ToggleRightMetaKey,
     ToggleMouseReporting,
-    ToggleGlobalWorkflowsInUniversalSearch,
     ToggleScrollReporting,
     ToggleFocusReporting,
     ToggleLongRunningNotifications,
@@ -746,20 +727,6 @@ impl TypedActionView for FeaturesPageView {
                         .snackbar_enabled
                         .toggle_and_save_value(ctx));
                 });
-            }
-            ToggleGlobalWorkflowsInUniversalSearch => {
-                CommandSearchSettings::handle(ctx).update(ctx, |workflow_settings, ctx| {
-                    report_if_error!(workflow_settings
-                        .show_global_workflows_in_universal_search
-                        .toggle_and_save_value(ctx));
-                });
-            }
-            ToggleCodeAsDefaultEditor => {
-                CodeSettings::handle(ctx).update(ctx, |code_settings, ctx| {
-                    report_if_error!(code_settings
-                        .code_as_default_editor
-                        .toggle_and_save_value(ctx));
-                })
             }
             ToggleOpenLinksInDesktopApp => {
                 NativePreferenceSettings::handle(ctx).update(
@@ -1332,9 +1299,6 @@ impl FeaturesPageView {
         ctx.subscribe_to_model(&AliasExpansionSettings::handle(ctx), |_, _, _, ctx| {
             ctx.notify()
         });
-        ctx.subscribe_to_model(&CommandSearchSettings::handle(ctx), |_, _, _, ctx| {
-            ctx.notify()
-        });
         ctx.subscribe_to_model(&GPUSettings::handle(ctx), |me, _, _, ctx| {
             me.refresh_preferred_graphics_backend_dropdown(ctx);
             ctx.notify();
@@ -1802,15 +1766,13 @@ impl FeaturesPageView {
 
         #[cfg(feature = "local_fs")]
         {
-            if !FeatureFlag::OpenWarpNewSettingsModes.is_enabled() {
-                let external_editor_settings =
-                    crate::util::file::external_editor::EditorSettings::as_ref(ctx);
-                if external_editor_settings
-                    .open_file_editor
-                    .is_supported_on_current_platform()
-                {
-                    general_widgets.push(Box::new(ExternalEditorWidget::default()));
-                }
+            let external_editor_settings =
+                crate::util::file::external_editor::EditorSettings::as_ref(ctx);
+            if external_editor_settings
+                .open_file_editor
+                .is_supported_on_current_platform()
+            {
+                general_widgets.push(Box::new(ExternalEditorWidget::default()));
             }
         }
 
@@ -2049,10 +2011,6 @@ impl FeaturesPageView {
             Category::new("Terminal Input", editor_widgets),
             Category::new("Terminal", terminal_widgets),
             Category::new("Notifications", notifications_widgets),
-            Category::new(
-                "Workflows",
-                vec![Box::new(WorkflowsInCommandSearch::default())],
-            ),
             Category::new("System", system_widgets),
         ];
 
@@ -5299,46 +5257,6 @@ impl SettingsWidget for DefaultSessionModeWidget {
             )
             .with_child(ChildView::new(&view.default_session_mode_dropdown).finish())
             .finish()
-    }
-}
-
-#[derive(Default)]
-struct WorkflowsInCommandSearch {
-    switch_state: SwitchStateHandle,
-}
-
-impl SettingsWidget for WorkflowsInCommandSearch {
-    type View = FeaturesPageView;
-
-    fn search_terms(&self) -> &str {
-        "global workflows command search"
-    }
-
-    fn render(
-        &self,
-        _view: &Self::View,
-        appearance: &Appearance,
-        app: &AppContext,
-    ) -> Box<dyn Element> {
-        let ui_builder = appearance.ui_builder();
-        let workflow_settings = CommandSearchSettings::as_ref(app);
-        render_body_item::<FeaturesPageAction>(
-            "Show Global Workflows in Command Search (ctrl-r)".into(),
-            None,
-            ToggleState::Enabled,
-            appearance,
-            ui_builder
-                .switch(self.switch_state.clone())
-                .check(*workflow_settings.show_global_workflows_in_universal_search)
-                .build()
-                .on_click(move |ctx, _, _| {
-                    ctx.dispatch_typed_action(
-                        FeaturesPageAction::ToggleGlobalWorkflowsInUniversalSearch,
-                    )
-                })
-                .finish(),
-            None,
-        )
     }
 }
 

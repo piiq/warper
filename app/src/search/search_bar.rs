@@ -1,5 +1,5 @@
+use crate::editor::NavigationKey;
 use itertools::{Either, Itertools};
-use warp_editor::editor::NavigationKey;
 use warpui::elements::ConstrainedBox;
 use warpui::FocusContext;
 
@@ -26,9 +26,8 @@ use crate::ui_components::icons::Icon;
 use crate::{
     appearance::Appearance,
     editor::{
-        AutosuggestionLocation, EditorView, Event as EditorEvent,
-        PlainTextEditorViewAction as EditorAction, PropagateAndNoOpNavigationKeys,
-        SingleLineEditorOptions,
+        EditorView, Event as EditorEvent, PlainTextEditorViewAction as EditorAction,
+        PropagateAndNoOpNavigationKeys, SingleLineEditorOptions,
     },
 };
 
@@ -944,11 +943,7 @@ impl<T: Action + Clone> SearchBar<T> {
                             let suggestion = filter.filter_atom().primary_text[editor_text.len()..]
                                 .to_owned()
                                 + " ";
-                            editor.set_autosuggestion(
-                                suggestion,
-                                AutosuggestionLocation::EndOfBuffer,
-                                ctx,
-                            );
+                            editor.set_autosuggestion(suggestion, ctx);
                         } else {
                             editor.clear_autosuggestion(ctx);
                         }

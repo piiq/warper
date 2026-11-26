@@ -10,10 +10,7 @@ use crate::settings::CtrlTabBehavior;
 use crate::terminal::keys_settings::KeysSettings;
 use crate::themes::theme::WarpTheme;
 
-use crate::workspace::metadata::LaunchConfigUiLocation;
-
 use lazy_static::lazy_static;
-use warp_util::path::LineAndColumnArg;
 
 use crate::search::action::search_item::MatchedBinding;
 use itertools::Itertools;
@@ -31,11 +28,9 @@ use std::ops::Deref;
 use std::sync::Arc;
 
 use crate::palette::PaletteMode;
-use crate::root_view::OpenLaunchConfigArg;
 use crate::search::command_palette::data_sources::DataSourceStore;
 use crate::session_management::SessionSource;
 use crate::workspace::WorkspaceAction;
-use warp_server_client::ids::SyncId;
 use warpui::elements::{
     Align, Border, ChildView, Clipped, ClippedScrollStateHandle, ClippedScrollable, ConstrainedBox,
     Container, CornerRadius, Dismiss, Empty, Fill, Flex, ParentElement, Radius, SavePosition,
@@ -57,7 +52,6 @@ lazy_static! {
         [
             "input:toggle_input_type",
             "workspace:show_theme_chooser",
-            "workspace:create_personal_workflow",
         ]
     );
 }
@@ -90,19 +84,6 @@ pub enum Event {
     Close {
         accepted_action_type: Option<&'static str>,
     },
-    /// Execute the workflow identified by `id`.
-    ExecuteWorkflow { id: SyncId },
-    /// Invoke the env vars identified by `id`.
-    InvokeEnvironmentVariables { id: SyncId },
-    /// Open a notebook identified by `id`.
-    OpenNotebook { id: SyncId },
-    /// Open a file at the given path.
-    OpenFile {
-        path: String,
-        line_and_column_arg: Option<LineAndColumnArg>,
-    },
-    /// Open a directory at the given path.
-    OpenDirectory { path: String },
 }
 
 #[derive(Debug, Clone, Default)]
@@ -312,8 +293,7 @@ impl View {
 
     #[cfg(feature = "integration_tests")]
     /// Returns the current search results within the command palette. Used within integration tests
-    /// to verify the command palette returns the correct results when launch configurations or the
-    /// current session changes.
+    /// to verify the command palette returns the correct results when sessions change.
     pub fn search_results<'a>(
         &'a self,
         app: &'a AppContext,
@@ -387,8 +367,6 @@ impl View {
             (mode, active_query_filter),
             (PaletteMode::Command, QueryFilter::Actions)
                 | (PaletteMode::Navigation, QueryFilter::Sessions)
-                | (PaletteMode::LaunchConfig, QueryFilter::LaunchConfigurations)
-                | (PaletteMode::Files, QueryFilter::Files)
         )
     }
 
@@ -528,12 +506,6 @@ impl View {
                 self.scroll_selected_index_into_view(*index, ctx);
                 ctx.notify();
             }
-            // The QueryFilterChanged event is deferred (fires after the current
-            // view update returns). When switching to the Files filter,
-            // open_files_palette has already called reset_search_mixer and
-            // run_query.  Resetting the mixer here would abort the in-flight
-            // async file search without re-running it, leaving the palette
-            // empty.
             SearchBarEvent::QueryFilterChanged { .. } => {}
             SearchBarEvent::SelectionUpdateInZeroState { selection_update } => {
                 self.zero_state_items.update(ctx, |items, ctx| {
@@ -697,56 +669,38 @@ impl View {
         result_action: CommandPaletteItemAction,
         ctx: &mut ViewContext<Self>,
     ) {
-        let selected_items_handle = SelectedItems::handle(ctx);
-        selected_items_handle.update(ctx, |selected_items, _ctx| {
-            selected_items.enqueue(result_action.to_summary())
-        });
-
+        SelectedItems::handle(ctx)
+            .update(ctx, |items, _| items.enqueue(result_action.to_summary()));
         if let CommandPaletteItemAction::AcceptBinding { binding } = &result_action {
             if let Some(action) = &binding.action {
-                match action.as_any().downcast_ref::<WorkspaceAction>() {
-                    Some(WorkspaceAction::TogglePalette {
-                        mode: PaletteMode::LaunchConfig,
-                        source: _,
-                    }) => {
-                        self.reset(ctx);
-                        self.set_active_query_filter(QueryFilter::LaunchConfigurations, ctx);
-                        return;
-                    }
+                if matches!(
+                    action.as_any().downcast_ref::<WorkspaceAction>(),
                     Some(WorkspaceAction::TogglePalette {
                         mode: PaletteMode::Navigation,
-                        source: _,
-                    }) => {
-                        self.reset(ctx);
-                        self.set_active_query_filter(QueryFilter::Sessions, ctx);
-                        return;
-                    }
-                    Some(WorkspaceAction::TogglePalette {
-                        mode: PaletteMode::Files,
-                        source: _,
-                    }) => {
-                        self.reset(ctx);
-                        self.set_active_query_filter(QueryFilter::Files, ctx);
-                        return;
-                    }
-
+                        ..
+                    })
+                ) {
+                    self.reset(ctx);
+                    self.set_active_query_filter(QueryFilter::Sessions, ctx);
+                    return;
+                }
+                if matches!(
+                    action.as_any().downcast_ref::<WorkspaceAction>(),
                     Some(WorkspaceAction::TogglePalette {
                         mode: PaletteMode::Command,
-                        source: _,
-                    }) => {
-                        self.close(ctx, Some(result_action.result_type()));
-                        return;
-                    }
-                    _ => {}
+                        ..
+                    })
+                ) {
+                    self.close(ctx, Some(result_action.result_type()));
+                    return;
                 }
             }
         }
-
         match result_action.clone() {
             CommandPaletteItemAction::AcceptBinding { binding } => {
                 if let Some(action) = binding.action.as_deref() {
                     self.dispatch_typed_action_on_view(action, ctx);
-                };
+                }
             }
             CommandPaletteItemAction::NavigateToSession {
                 pane_view_locator,
@@ -761,85 +715,11 @@ impl View {
                     );
                 }
             }
-
-            CommandPaletteItemAction::OpenLaunchConfiguration {
-                open_in_active_window,
-                config,
-            } => {
-                ctx.dispatch_global_action(
-                    "root_view:open_launch_config",
-                    OpenLaunchConfigArg {
-                        open_in_active_window,
-                        launch_config: config.deref().clone(),
-                        ui_location: LaunchConfigUiLocation::CommandPalette,
-                    },
-                );
-            }
             CommandPaletteItemAction::NewSession { source } => {
-                self.dispatch_typed_action_on_view(source.action().deref(), ctx);
+                self.dispatch_typed_action_on_view(source.action().deref(), ctx)
             }
-            CommandPaletteItemAction::OpenFile {
-                path,
-                project_directory,
-                line_and_column_arg,
-            } => {
-                let absolute_path = std::path::Path::new(&project_directory)
-                    .join(&path)
-                    .to_string_lossy()
-                    .to_string();
-
-                ctx.emit(Event::OpenFile {
-                    path: absolute_path,
-                    line_and_column_arg,
-                });
-            }
-            CommandPaletteItemAction::OpenDirectory {
-                path,
-                project_directory,
-            } => {
-                let absolute_path = std::path::Path::new(&project_directory)
-                    .join(&path)
-                    .to_string_lossy()
-                    .to_string();
-
-                ctx.emit(Event::OpenDirectory {
-                    path: absolute_path,
-                });
-            }
-            CommandPaletteItemAction::CreateFile {
-                file_name,
-                current_directory,
-            } => {
-                let file_path = std::path::Path::new(&current_directory).join(&file_name);
-
-                if let Err(e) = std::fs::File::create_new(&file_path) {
-                    if e.kind() != std::io::ErrorKind::AlreadyExists {
-                        log::warn!("Failed to create file {}: {e}", file_path.display());
-                        return;
-                    }
-                }
-
-                ctx.emit(Event::OpenFile {
-                    path: file_path.to_string_lossy().to_string(),
-                    line_and_column_arg: None,
-                });
-            }
-            CommandPaletteItemAction::ExecuteWorkflow { id } => {
-                ctx.emit(Event::ExecuteWorkflow { id })
-            }
-            CommandPaletteItemAction::InvokeEnvironmentVariables { id } => {
-                ctx.emit(Event::InvokeEnvironmentVariables { id })
-            }
-            CommandPaletteItemAction::OpenNotebook { id } => ctx.emit(Event::OpenNotebook { id }),
-
-            CommandPaletteItemAction::OpenProject { path, .. } => {
-                ctx.dispatch_typed_action(&WorkspaceAction::OpenRepository { path: Some(path) });
-            }
-            CommandPaletteItemAction::NoOp => {
-                // No-op action (used for non-interactable separator items that don't do anything on click).
-            }
+            CommandPaletteItemAction::NoOp => {}
         }
-
         self.close(ctx, Some(result_action.result_type()));
     }
 

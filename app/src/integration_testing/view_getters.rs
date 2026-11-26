@@ -19,7 +19,6 @@ use crate::{
     terminal::{input::Input, TerminalView},
     themes::theme_chooser::ThemeChooser,
     view_components::find::Find,
-    workflows::CategoriesView,
     workspace::Workspace,
 };
 use warpui::Entity;
@@ -171,11 +170,6 @@ pub fn theme_chooser_view(app: &App, window_id: WindowId) -> ViewHandle<ThemeCho
 
 /// Panics if there isn't a single single keybindings view in the view hierarchy.
 pub fn keybindings_view(app: &App, window_id: WindowId) -> ViewHandle<KeybindingsView> {
-    singleton_view_of_type(app, window_id)
-}
-
-/// Panics if there isn't a single workflows view in the view hierarchy.
-pub fn workflow_categories_view(app: &App, window_id: WindowId) -> ViewHandle<CategoriesView> {
     singleton_view_of_type(app, window_id)
 }
 

@@ -200,7 +200,6 @@ Use high-level helpers from `app/src/integration_testing/` whenever possible:
 - command palette helpers
 - navigation helpers
 - settings helpers
-- workflow/file tree/notebook helpers
 
 Drop to raw `with_event(...)`, `with_event_fn(...)`, or saved-position mouse events only when there is no suitable helper.
 

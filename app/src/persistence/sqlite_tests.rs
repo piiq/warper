@@ -4,19 +4,16 @@ use diesel::prelude::*;
 
 use crate::{
     app_state::{
-        AppState, CodePaneSnapShot, CodePaneTabSnapshot, LeafContents, LeafSnapshot,
-        PaneNodeSnapshot, TabSnapshot, TerminalPaneSnapshot, WindowSnapshot,
+        AppState, LeafContents, LeafSnapshot, PaneNodeSnapshot, TabSnapshot, TerminalPaneSnapshot,
+        WindowSnapshot,
     },
-    code::editor_management::CodeSource,
     persistence::{BlockCompleted, ModelEvent},
     tab::SelectedTabColor,
     terminal::model::block::SerializedBlock,
     terminal::ShellLaunchData,
 };
 
-use super::{
-    decode_path, deduplicate_events, encode_path, read_sqlite_data, save_app_state, setup_database,
-};
+use super::{deduplicate_events, read_sqlite_data, save_app_state, setup_database};
 
 #[test]
 fn test_deduplicate_snapshots() {
@@ -104,19 +101,13 @@ fn test_terminal_window_snapshot(vertical_tabs_panel_open: bool) -> WindowSnapsh
             }),
             default_directory_color: None,
             selected_color: SelectedTabColor::default(),
-            left_panel: None,
-            right_panel: None,
         }],
         active_tab_index: 0,
         bounds: None,
         fullscreen_state: Default::default(),
         quake_mode: false,
         universal_search_width: None,
-        voltron_width: None,
-        left_panel_open: false,
         vertical_tabs_panel_open,
-        left_panel_width: None,
-        right_panel_width: None,
     }
 }
 
@@ -155,7 +146,7 @@ fn test_sqlite_round_trips_vertical_tabs_panel_open() {
 #[test]
 fn test_sqlite_discards_removed_review_pane_and_preserves_terminal() {
     use crate::app_state::{BranchSnapshot, PaneFlex, SplitDirection};
-    use crate::persistence::{model, schema};
+    use crate::persistence::schema;
 
     let tempdir = tempfile::tempdir().expect("tempdir should be created");
     let mut conn =
@@ -199,7 +190,7 @@ fn test_sqlite_discards_removed_review_pane_and_preserves_terminal() {
     diesel::update(
         schema::pane_leaves::table.filter(schema::pane_leaves::pane_node_id.eq(obsolete_id)),
     )
-    .set(schema::pane_leaves::kind.eq(model::CODE_REVIEW_PANE_KIND))
+    .set(schema::pane_leaves::kind.eq("code_review"))
     .execute(&mut conn)
     .unwrap();
     diesel::insert_into(schema::code_review_panes::table)
@@ -247,19 +238,13 @@ fn test_sqlite_round_trips_custom_vertical_tabs_title() {
                 }),
                 default_directory_color: None,
                 selected_color: SelectedTabColor::default(),
-                left_panel: None,
-                right_panel: None,
             }],
             active_tab_index: 0,
             bounds: None,
             fullscreen_state: Default::default(),
             quake_mode: false,
             universal_search_width: None,
-            voltron_width: None,
-            left_panel_open: false,
             vertical_tabs_panel_open: false,
-            left_panel_width: None,
-            right_panel_width: None,
         }],
         active_window_index: Some(0),
         block_lists: Default::default(),
@@ -282,118 +267,4 @@ fn test_sqlite_round_trips_custom_vertical_tabs_title() {
         custom_vertical_tabs_title.as_deref(),
         Some("Production API")
     );
-}
-
-#[test]
-fn test_sqlite_round_trips_code_pane_with_multiple_tabs() {
-    let tempdir = tempfile::tempdir().expect("tempdir should be created");
-    let database_path = tempdir.path().join("warp.sqlite");
-    let mut conn = setup_database(&database_path).expect("database should initialize");
-
-    let app_state = AppState {
-        windows: vec![WindowSnapshot {
-            tabs: vec![TabSnapshot {
-                custom_title: None,
-                root: PaneNodeSnapshot::Leaf(LeafSnapshot {
-                    is_focused: true,
-                    custom_vertical_tabs_title: None,
-                    contents: LeafContents::Code(CodePaneSnapShot::Local {
-                        tabs: vec![
-                            CodePaneTabSnapshot {
-                                path: Some(PathBuf::from("/tmp/main.rs")),
-                            },
-                            CodePaneTabSnapshot {
-                                path: Some(PathBuf::from("/tmp/lib.rs")),
-                            },
-                            CodePaneTabSnapshot { path: None },
-                        ],
-                        active_tab_index: 1,
-                        source: Some(CodeSource::FileTree {
-                            path: PathBuf::from("/tmp/main.rs"),
-                        }),
-                    }),
-                }),
-                default_directory_color: None,
-                selected_color: SelectedTabColor::default(),
-                left_panel: None,
-                right_panel: None,
-            }],
-            active_tab_index: 0,
-            bounds: None,
-            fullscreen_state: Default::default(),
-            quake_mode: false,
-            universal_search_width: None,
-            voltron_width: None,
-            left_panel_open: false,
-            vertical_tabs_panel_open: false,
-            left_panel_width: None,
-            right_panel_width: None,
-        }],
-        active_window_index: Some(0),
-        block_lists: Default::default(),
-    };
-
-    save_app_state(&mut conn, &app_state).expect("app state should save");
-
-    let restored = read_sqlite_data(&mut conn)
-        .expect("app state should load")
-        .app_state;
-
-    assert_eq!(restored.windows.len(), 1);
-    let restored_tab = &restored.windows[0].tabs[0];
-    let PaneNodeSnapshot::Leaf(LeafSnapshot {
-        contents:
-            LeafContents::Code(CodePaneSnapShot::Local {
-                tabs,
-                active_tab_index,
-                source,
-            }),
-        ..
-    }) = &restored_tab.root
-    else {
-        panic!("Expected code pane leaf");
-    };
-
-    assert_eq!(tabs.len(), 3);
-    assert_eq!(*active_tab_index, 1);
-    assert_eq!(tabs[0].path, Some(PathBuf::from("/tmp/main.rs")));
-    assert_eq!(tabs[1].path, Some(PathBuf::from("/tmp/lib.rs")));
-    assert_eq!(tabs[2].path, None);
-    assert!(matches!(source, Some(CodeSource::FileTree { .. })));
-}
-
-fn assert_encode_then_decode_preserves_original_path(original_path: PathBuf) {
-    let bytes = encode_path(original_path.clone());
-    let decoded_path = decode_path(bytes);
-    assert_eq!(original_path, decoded_path);
-}
-
-/// Test that a local path can be encoded and decoded. We use this when persisting a local
-/// file path for notebooks in sqlite. We need this test because Windows `OsString`s are
-/// often arbitrary sequences of 16-bit values, unlike Unix which uses sequences of 8-bit
-/// values (bytes). Since `diesel::sql_types::Binary` deals with sequences of bytes (`u8`)
-/// we need to perform special casting on `OsString`s on Windows.
-#[test]
-fn test_path_encode_decode() {
-    // Empty path
-    assert_encode_then_decode_preserves_original_path(PathBuf::new());
-
-    // Windows-style paths
-    assert_encode_then_decode_preserves_original_path(PathBuf::from(r"C:\windows\system32.dll"));
-    assert_encode_then_decode_preserves_original_path(PathBuf::from("c:temp"));
-    assert_encode_then_decode_preserves_original_path(PathBuf::from(r"\temp"));
-    assert_encode_then_decode_preserves_original_path(PathBuf::from(r"\temp\emoji\🙈.txt"));
-    assert_encode_then_decode_preserves_original_path(PathBuf::from(r"\temp\ñoñàscii\temp.txt"));
-    assert_encode_then_decode_preserves_original_path(PathBuf::from(r"\temp\hindi\हिन्दी"));
-    assert_encode_then_decode_preserves_original_path(PathBuf::from(r"\temp\cjk\狗没有耐心"));
-
-    // Unix-style paths
-    assert_encode_then_decode_preserves_original_path(PathBuf::from(
-        "/home/persistence/example.sql",
-    ));
-    assert_encode_then_decode_preserves_original_path(PathBuf::from("./database/log.txt"));
-    assert_encode_then_decode_preserves_original_path(PathBuf::from("/temp/emoji/🙈.txt"));
-    assert_encode_then_decode_preserves_original_path(PathBuf::from("/temp/ñoñàscii/temp.txt"));
-    assert_encode_then_decode_preserves_original_path(PathBuf::from("/temp/hindi/हिन्दी"));
-    assert_encode_then_decode_preserves_original_path(PathBuf::from("/temp/cjk/狗没有耐心"));
 }

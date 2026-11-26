@@ -4,6 +4,4 @@ use serde::{Deserialize, Serialize};
 pub enum PaletteMode {
     Command,
     Navigation,
-    LaunchConfig,
-    Files,
 }

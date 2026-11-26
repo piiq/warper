@@ -4,15 +4,13 @@ use warpui::App;
 #[cfg(test)]
 pub fn initialize_settings_for_tests(app: &mut App) {
     use crate::{
-        search::command_search::settings::CommandSearchSettings,
         settings::{
             app_icon::AppIconSettings, init_and_register_user_preferences,
             manager::SettingsManager, AccessibilitySettings, AliasExpansionSettings,
             AppEditorSettings, BlockVisibilitySettings, CLIAgentSettings, ChangelogSettings,
-            CodeSettings, DebugSettings, EmacsBindingsSettings, FontSettings, GPUSettings,
-            InputModeSettings, InputSettings, NativePreferenceSettings, PaneSettings,
-            SameLinePromptBlockSettings, ScrollSettings, SelectionSettings, SshSettings,
-            ThemeSettings, VimBannerSettings,
+            DebugSettings, EmacsBindingsSettings, FontSettings, GPUSettings, InputModeSettings,
+            InputSettings, NativePreferenceSettings, PaneSettings, SameLinePromptBlockSettings,
+            ScrollSettings, SelectionSettings, SshSettings, ThemeSettings, VimBannerSettings,
         },
         terminal::{
             general_settings::GeneralSettings, keys_settings::KeysSettings,
@@ -38,7 +36,6 @@ pub fn initialize_settings_for_tests(app: &mut App) {
     BlockVisibilitySettings::register(app);
     BlockListSettings::register(app);
     ChangelogSettings::register(app);
-    CommandSearchSettings::register(app);
     DebugSettings::register(app);
     AppIconSettings::register(app);
     EmacsBindingsSettings::register(app);
@@ -79,6 +76,5 @@ pub fn initialize_settings_for_tests(app: &mut App) {
     UndoCloseSettings::register(app);
     VimBannerSettings::register(app);
     WindowSettings::register(app);
-    CodeSettings::register(app);
     SemanticSelection::register(app);
 }

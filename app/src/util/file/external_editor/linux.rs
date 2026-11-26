@@ -334,16 +334,18 @@ pub fn open_file_path_with_line_and_col(
     if full_path.is_file() {
         let with_editor = with_editor.or_else(|| get_app_for_file_from_mime(full_path));
         if let Some(editor) = with_editor {
-            if let Some(mut command) = editor.command(full_path, line_column_number) {
-                if let Err(err) = command.spawn() {
-                    log::error!("Error launching {editor:?}: {err:#}");
-                }
+            if let Some(command) = editor.command(full_path, line_column_number) {
+                let mut command_async = command::r#async::Command::new(command.get_program());
+                command_async.args(command.get_args());
+                super::launch_editor_command(&mut command_async, editor.to_string(), ctx);
                 return;
             }
         }
     }
 
-    ctx.open_file_path(full_path);
+    let mut command = command::r#async::Command::new("xdg-open");
+    command.arg(full_path);
+    super::launch_editor_command(&mut command, "the default application".to_string(), ctx);
 }
 
 /// Attempt to match a file with an existing editor based on Mime type

@@ -7,8 +7,7 @@ use warpui::{
 };
 
 use crate::{
-    code::editor_management::{CodeEditorStatus, CodeEditorSummary},
-    pane_group::{CodePane, PaneGroup, PaneId, TerminalPane},
+    pane_group::{PaneGroup, PaneId, TerminalPane},
     report_if_error,
     session_management::{RunningSessionSummary, SessionNavigationData},
     terminal::general_settings::GeneralSettings,
@@ -27,14 +26,9 @@ enum QuitScope<'a> {
     Tabs(Vec<WeakViewHandle<PaneGroup>>),
     Window(WindowId),
     App,
-    #[allow(dead_code)]
-    EditorTab {
-        file_name: Option<String>,
-        editor_status: Vec<CodeEditorStatus>,
-    }, // TODO: Include the "log out" confirmation modal too.
 }
 
-/// Summary of unsaved data and running processes to show the user before they quit.
+/// Summary of running processes to show the user before they quit.
 pub struct UnsavedStateSummary<'a> {
     scope: QuitScope<'a>,
 
@@ -47,9 +41,6 @@ pub struct UnsavedStateSummary<'a> {
 
     /// All terminal sessions in this scope.
     terminal_sessions: Vec<SessionNavigationData>,
-
-    /// Whether or not there are unsaved code changes.
-    unsaved_code_changes: bool,
 }
 
 /// Builder for a warning dialog that displays unsaved state.
@@ -59,8 +50,6 @@ pub struct QuitWarningDialog<'a> {
     on_confirm: Option<AppModalCallback>,
     on_cancel: Option<AppModalCallback>,
     on_show_processes: Option<AppModalCallback>,
-    on_save_changes: Option<AppModalCallback>,
-    on_discard_changes: Option<AppModalCallback>,
 }
 
 impl QuitScope<'_> {
@@ -96,32 +85,6 @@ impl QuitScope<'_> {
                 .filter(|session| session.window_id() == *window_id)
                 .collect_vec(),
             Self::App => SessionNavigationData::all_sessions(ctx).collect_vec(),
-            Self::EditorTab { .. } => Vec::new(),
-        }
-    }
-
-    /// All code editors in this scope.
-    fn code_editors(&self, ctx: &AppContext) -> Vec<CodeEditorStatus> {
-        match self {
-            Self::Pane {
-                pane_group,
-                pane_id,
-                ..
-            } => pane_group
-                .downcast_pane_by_id::<CodePane>(*pane_id)
-                .map(|code_pane| code_pane.editor_status(ctx))
-                .into_iter()
-                .collect(),
-            Self::Tabs(ref tabs) => tabs
-                .iter()
-                .filter_map(|tab| tab.upgrade(ctx))
-                .flat_map(|pane_group| CodeEditorStatus::editors_in_tab(&pane_group, ctx))
-                .collect_vec(),
-            Self::Window(window_id) => {
-                CodeEditorStatus::editors_in_window(*window_id, ctx).collect_vec()
-            }
-            Self::App => CodeEditorStatus::all_editors(ctx).collect_vec(),
-            Self::EditorTab { editor_status, .. } => editor_status.clone(),
         }
     }
 }
@@ -137,21 +100,6 @@ impl UnsavedStateSummary<'static> {
 
     pub fn for_tabs(tabs: Vec<WeakViewHandle<PaneGroup>>, ctx: &mut AppContext) -> Self {
         Self::for_scope(QuitScope::Tabs(tabs), ctx)
-    }
-
-    #[allow(dead_code)]
-    pub fn for_editor_tab(
-        file_name: Option<String>,
-        editor_status: Vec<CodeEditorStatus>,
-        ctx: &mut AppContext,
-    ) -> Self {
-        Self::for_scope(
-            QuitScope::EditorTab {
-                file_name,
-                editor_status,
-            },
-            ctx,
-        )
     }
 }
 
@@ -176,22 +124,18 @@ impl<'a> UnsavedStateSummary<'a> {
         let sessions = scope.sessions(ctx);
         let sessions_summary = RunningSessionSummary::new(&sessions);
 
-        let code_editors = scope.code_editors(ctx);
-        let code_editor_summary = CodeEditorSummary::new(&code_editors);
-
         UnsavedStateSummary {
             scope,
             total_long_running_commands: sessions_summary.long_running_cmds.len(),
             windows_with_long_running_commands: sessions_summary.windows_running().len(),
             tabs_with_long_running_commands: sessions_summary.tabs_running().len(),
             terminal_sessions: sessions,
-            unsaved_code_changes: !code_editor_summary.unsaved_changes.is_empty(),
         }
     }
 
     pub fn should_display_warning(&self, ctx: &AppContext) -> bool {
         *GeneralSettings::as_ref(ctx).show_warning_before_quitting
-            && (self.total_long_running_commands > 0 || self.unsaved_code_changes)
+            && self.total_long_running_commands > 0
     }
 
     pub fn running_sessions(&self) -> RunningSessionSummary<'_> {
@@ -203,7 +147,7 @@ impl<'a> UnsavedStateSummary<'a> {
         QuitWarningDialog::new(self)
     }
 
-    /// Builds warning text describing what unsaved data there is.
+    /// Builds warning text describing the running processes.
     pub fn warning_text(&self) -> String {
         let mut info_text_lines = Vec::<String>::new();
 
@@ -211,7 +155,7 @@ impl<'a> UnsavedStateSummary<'a> {
             QuitScope::Tabs(ref tabs) if tabs.len() == 1 => " in this tab.",
             QuitScope::Window(_) => " in this window.",
             QuitScope::Pane { .. } => " in this pane.",
-            QuitScope::App | QuitScope::Tabs(_) | QuitScope::EditorTab { .. } => ".",
+            QuitScope::App | QuitScope::Tabs(_) => ".",
         };
 
         if self.total_long_running_commands > 0 {
@@ -237,14 +181,6 @@ impl<'a> UnsavedStateSummary<'a> {
             info_text_lines.push(process_info_text);
         }
 
-        if self.unsaved_code_changes {
-            if let QuitScope::EditorTab { ref file_name, .. } = self.scope {
-                info_text_lines.push(format!("Do you want to save the changes you made to {}? Your changes will be discarded if you don't save them.", file_name.clone().unwrap_or("this file".to_string())));
-            } else {
-                info_text_lines.push(format!("You have unsaved file changes{scope_suffix}"));
-            }
-        }
-
         info_text_lines.join("\n")
     }
 }
@@ -256,8 +192,6 @@ impl<'a> QuitWarningDialog<'a> {
             on_confirm: None,
             on_cancel: None,
             on_show_processes: None,
-            on_save_changes: None,
-            on_discard_changes: None,
         }
     }
 
@@ -279,28 +213,12 @@ impl<'a> QuitWarningDialog<'a> {
         self
     }
 
-    #[allow(dead_code)]
-    /// Set the callback to invoke if the user wants to save changes before exiting an editor tab.
-    pub fn on_save_changes<F: FnOnce(&mut AppContext) + 'static>(mut self, f: F) -> Self {
-        self.on_save_changes = Some(Box::new(f));
-        self
-    }
-
-    #[allow(dead_code)]
-    /// Set the callback to invoke if the user wants to discard changes before exiting an editor tab.
-    pub fn on_discard_changes<F: FnOnce(&mut AppContext) + 'static>(mut self, f: F) -> Self {
-        self.on_discard_changes = Some(Box::new(f));
-        self
-    }
-
     pub fn build(self) -> AlertDialogWithCallbacks<AppModalCallback> {
         let QuitWarningDialog {
             state,
             on_confirm,
             on_cancel,
             on_show_processes,
-            on_save_changes,
-            on_discard_changes,
         } = self;
 
         let mut buttons = Vec::new();
@@ -309,17 +227,8 @@ impl<'a> QuitWarningDialog<'a> {
             let confirm_title = match state.scope {
                 QuitScope::Window(_) | QuitScope::Tabs(_) | QuitScope::Pane { .. } => "Yes, close",
                 QuitScope::App => "Yes, quit",
-                _ => "",
             };
             buttons.push(ModalButton::for_app(confirm_title.to_string(), callback));
-        }
-
-        if let Some(callback) = on_save_changes {
-            buttons.push(ModalButton::for_app("Save".to_string(), callback));
-        }
-
-        if let Some(callback) = on_discard_changes {
-            buttons.push(ModalButton::for_app("Don't Save".to_string(), callback));
         }
 
         if let Some(callback) = on_show_processes {
@@ -343,7 +252,6 @@ impl<'a> QuitWarningDialog<'a> {
             QuitScope::Tabs(_) => "Close tabs?",
             QuitScope::Window(_) => "Close window?",
             QuitScope::App => "Quit Warper?",
-            QuitScope::EditorTab { .. } => "Save changes?",
         };
 
         AlertDialogWithCallbacks::for_app(

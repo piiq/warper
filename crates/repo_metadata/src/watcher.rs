@@ -17,7 +17,7 @@ use crate::{repository::SubscriberId, RepoMetadataError, Repository};
 cfg_if::cfg_if! {
     if #[cfg(feature = "local_fs")] {
         use watcher::{BulkFilesystemWatcher, BulkFilesystemWatcherEvent};
-        use crate::entry::{
+        use crate::git_paths::{
             extract_worktree_git_dir, is_commit_related_git_file, is_git_internal_path,
             is_index_lock_file, is_shared_git_ref,
         };
@@ -293,7 +293,7 @@ impl DirectoryWatcher {
         let registration_future = if let Some(ref watcher) = self.watcher {
             if let Some(local_path) = local_path.clone() {
                 watcher.update(ctx, |watcher, _ctx| {
-                    use crate::entry::should_ignore_git_path;
+                    use crate::git_paths::should_ignore_git_path;
                     use notify_debouncer_full::notify::{RecursiveMode, WatchFilter};
                     use std::sync::Arc;
 

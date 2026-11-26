@@ -5,7 +5,6 @@ pub mod app_installation_detection;
 mod block_visibility;
 mod changelog;
 pub mod cli_agents;
-mod code;
 mod debug;
 mod editor;
 mod emacs_bindings;
@@ -31,10 +30,6 @@ mod theme;
 mod vim_banner;
 
 #[cfg(test)]
-#[path = "code_tests.rs"]
-mod code_tests;
-
-#[cfg(test)]
 #[path = "schema_validation_tests.rs"]
 mod schema_validation_tests;
 
@@ -43,7 +38,6 @@ pub use alias_expansion::*;
 pub use block_visibility::*;
 pub use changelog::*;
 pub use cli_agents::*;
-pub use code::*;
 pub use debug::*;
 pub use editor::*;
 pub use emacs_bindings::*;

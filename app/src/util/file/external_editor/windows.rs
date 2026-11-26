@@ -1,13 +1,24 @@
 //! Module containing logic to determine to open a file in a text editor, if it is installed.
 //! TODO(PLAT-749): Add support for more editors.
 
-use command::r#async::Command;
 use enum_iterator::{all, cardinality};
 use std::collections::HashMap;
+use std::ffi::OsString;
+use std::os::windows::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use warp_util::path::LineAndColumnArg;
 use warpui::AppContext;
+use windows::{
+    core::PCWSTR,
+    Win32::{
+        System::Com::{CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED},
+        UI::{
+            Shell::{ShellExecuteExW, SEE_MASK_FLAG_NO_UI, SEE_MASK_NOASYNC, SHELLEXECUTEINFOW},
+            WindowsAndMessaging::SW_SHOWNORMAL,
+        },
+    },
+};
 use winreg::enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE};
 use winreg::RegKey;
 use winreg::HKEY;
@@ -160,43 +171,22 @@ impl Editor {
         }
     }
 
-    pub fn command(
+    fn file_url(
         &self,
         line_column_number: Option<LineAndColumnArg>,
         full_path: &Path,
-    ) -> Option<Command> {
-        let command = match self {
-            Editor::VSCode => {
-                let mut command = Command::new("explorer.exe");
-                let suffix = line_column_number
-                    .as_ref()
-                    .map(LineAndColumnArg::to_string_suffix)
-                    .unwrap_or_default();
-                command.arg(format!("vscode://file/{}{suffix}", full_path.display()));
-                command
-            }
-            Editor::Cursor => {
-                let mut command = Command::new("explorer.exe");
-                let suffix = line_column_number
-                    .as_ref()
-                    .map(LineAndColumnArg::to_string_suffix)
-                    .unwrap_or_default();
-                command.arg(format!("cursor://file/{}{suffix}", full_path.display()));
-                command
-            }
-            Editor::Windsurf => {
-                let mut command = Command::new("explorer.exe");
-                let suffix = line_column_number
-                    .as_ref()
-                    .map(LineAndColumnArg::to_string_suffix)
-                    .unwrap_or_default();
-                command.arg(format!("windsurf://file/{}{suffix}", full_path.display()));
-                command
-            }
+    ) -> Option<String> {
+        let scheme = match self {
+            Editor::VSCode => "vscode",
+            Editor::Cursor => "cursor",
+            Editor::Windsurf => "windsurf",
             _ => return None,
         };
-
-        Some(command)
+        let suffix = line_column_number
+            .as_ref()
+            .map(LineAndColumnArg::to_string_suffix)
+            .unwrap_or_default();
+        Some(format!("{scheme}://file/{}{suffix}", full_path.display()))
     }
 }
 
@@ -216,14 +206,41 @@ pub fn open_file_path_with_line_and_col(
     if full_path.is_file() {
         with_editor = with_editor.filter(|editor| editor.is_installed(ctx));
         if let Some(editor) = with_editor {
-            if let Some(mut command) = editor.command(line_column_number, full_path) {
-                if let Err(err) = command.spawn() {
-                    log::error!("Error launching {editor:?}: {err:#}");
-                }
+            if let Some(url) = editor.file_url(line_column_number, full_path) {
+                open_with_shell(url.into(), editor.to_string(), ctx);
                 return;
             }
         }
     }
 
-    ctx.open_file_path(full_path);
+    open_with_shell(
+        full_path.as_os_str().to_owned(),
+        "the default application".to_string(),
+        ctx,
+    );
+}
+
+fn open_with_shell(target: OsString, editor_name: String, ctx: &mut AppContext) {
+    super::report_open_result(
+        async move {
+            let target = target.encode_wide().chain(Some(0)).collect::<Vec<_>>();
+            let mut info = SHELLEXECUTEINFOW {
+                cbSize: std::mem::size_of::<SHELLEXECUTEINFOW>() as u32,
+                // Complete shell activation before leaving this worker thread.
+                fMask: SEE_MASK_NOASYNC | SEE_MASK_FLAG_NO_UI,
+                lpFile: PCWSTR(target.as_ptr()),
+                nShow: SW_SHOWNORMAL.0,
+                ..Default::default()
+            };
+            unsafe {
+                CoInitializeEx(None, COINIT_APARTMENTTHREADED).ok()?;
+                let result = ShellExecuteExW(&mut info);
+                CoUninitialize();
+                result?;
+            }
+            Ok(())
+        },
+        editor_name,
+        ctx,
+    );
 }

@@ -6,9 +6,9 @@ use std::borrow::Cow;
 
 use super::{
     about_page::AboutPageView, appearance_page::AppearanceSettingsPageView,
-    cli_agents_page::CLIAgentSettingsPageView, code_page::CodeSettingsPageView,
-    features_page::FeaturesPageView, keybindings::KeybindingsView, privacy_page::PrivacyPageView,
-    warpify_page::WarpifyPageView, SettingsSection,
+    cli_agents_page::CLIAgentSettingsPageView, features_page::FeaturesPageView,
+    keybindings::KeybindingsView, privacy_page::PrivacyPageView, warpify_page::WarpifyPageView,
+    SettingsSection,
 };
 use crate::{
     appearance::Appearance,
@@ -86,7 +86,6 @@ pub enum SettingsPageViewHandle {
     Features(ViewHandle<FeaturesPageView>),
     Keybindings(ViewHandle<KeybindingsView>),
     About(ViewHandle<AboutPageView>),
-    Code(ViewHandle<CodeSettingsPageView>),
     Privacy(ViewHandle<PrivacyPageView>),
     Warpify(ViewHandle<WarpifyPageView>),
     CLIAgents(ViewHandle<CLIAgentSettingsPageView>),
@@ -100,7 +99,6 @@ impl SettingsPageViewHandle {
             Features(view_handle) => ChildView::new(view_handle).finish(),
             Keybindings(view_handle) => ChildView::new(view_handle).finish(),
             About(view_handle) => ChildView::new(view_handle).finish(),
-            Code(view_handle) => ChildView::new(view_handle).finish(),
             Privacy(view_handle) => ChildView::new(view_handle).finish(),
             Warpify(view_handle) => ChildView::new(view_handle).finish(),
             CLIAgents(view_handle) => ChildView::new(view_handle).finish(),

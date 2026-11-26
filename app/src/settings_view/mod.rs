@@ -1,3 +1,4 @@
+use crate::editor::NavigationKey;
 use crate::pane_group::focus_state::PaneFocusHandle;
 use crate::{
     appearance::Appearance,
@@ -22,12 +23,9 @@ use appearance_page::{AppearancePageAction, AppearanceSettingsPageView};
 use cli_agents_page::{
     CLIAgentSettingsPageAction, CLIAgentSettingsPageEvent, CLIAgentSettingsPageView,
 };
-use code_page::CodeSubpage;
-use code_page::{CodeSettingsPageAction, CodeSettingsPageEvent};
 use features_page::{FeaturesPageView, FeaturesSettingsPageEvent};
 use itertools::Itertools as _;
 use keybindings::KeybindingsView;
-use nav::{SettingsNavItem, SettingsUmbrella};
 use pathfinder_geometry::vector::Vector2F;
 use privacy_page::{PrivacyPageView, PrivacyPageViewEvent};
 use settings_file_footer::{render_footer, SettingsFooterKind, SettingsFooterMouseStates};
@@ -35,14 +33,11 @@ use settings_page::{
     MatchData, SettingsPage, SettingsPageEvent, SettingsPageMeta, SettingsPageViewHandle,
     HEADER_PADDING,
 };
-use std::collections::HashMap;
-use std::path::PathBuf;
 use std::str::FromStr;
 use warp_core::{
     channel::ChannelState, context_flag::ContextFlag, features::FeatureFlag,
     settings::ToggleableSetting as _, ui::theme::color::internal_colors,
 };
-use warp_editor::editor::NavigationKey;
 use warpify_page::{WarpifyPageAction, WarpifyPageView};
 use warpui::Element;
 use warpui::{
@@ -63,12 +58,10 @@ use warpui::{
 mod about_page;
 mod appearance_page;
 mod cli_agents_page;
-mod code_page;
 mod directory_color_add_picker;
 mod features;
 mod features_page;
 pub mod keybindings;
-mod nav;
 pub mod pane_manager;
 mod privacy;
 mod privacy_page;
@@ -76,7 +69,6 @@ mod settings_file_footer;
 pub(crate) mod settings_page;
 mod warpify_page;
 pub(crate) use cli_agents_page::cli_agent_settings_widget_id;
-pub use code_page::CodeSettingsPageView;
 pub use features_page::FeaturesPageAction;
 pub use privacy_page::PrivacyPageAction;
 pub use settings_page::{
@@ -121,9 +113,6 @@ pub enum SettingsViewEvent {
         message: String,
         flavor: ToastFlavor,
     },
-    OpenLspLogs {
-        log_path: PathBuf,
-    },
 }
 
 /// Different navigation sections within the settings view
@@ -137,10 +126,6 @@ pub enum SettingsSection {
     Privacy,
     Warpify,
     ThirdPartyCLIAgents,
-    Code,
-    // ── Code umbrella subpages ──
-    Projects,
-    Editor,
 }
 
 use crate::util::bindings::custom_tag_to_keystroke;
@@ -151,8 +136,6 @@ impl Display for SettingsSection {
         match self {
             SettingsSection::Keybindings => write!(f, "Keyboard shortcuts"),
             SettingsSection::ThirdPartyCLIAgents => write!(f, "Third party CLI agents"),
-            SettingsSection::Projects => write!(f, "Projects and language servers"),
-            SettingsSection::Editor => write!(f, "Editor"),
             _ => write!(f, "{self:?}"),
         }
     }
@@ -166,31 +149,6 @@ impl SettingsSection {
     pub fn requires_hosted_services(&self) -> bool {
         self.is_removed_hosted_surface()
     }
-
-    /// Returns true if this section is a subpage under any umbrella.
-    pub fn is_subpage(&self) -> bool {
-        self.is_code_subpage()
-    }
-
-    /// Returns true if this section is a subpage under the "Code" umbrella.
-    pub fn is_code_subpage(&self) -> bool {
-        matches!(self, Self::Projects | Self::Editor)
-    }
-
-    /// Maps subpage sections back to their parent page section for page lookup.
-    /// Non-subpage sections return themselves.
-    pub fn parent_page_section(&self) -> Self {
-        match self {
-            // Code subpages render within the Code page.
-            s if s.is_code_subpage() => Self::Code,
-            other => *other,
-        }
-    }
-
-    /// The ordered list of Code subpage sections shown under the Code umbrella.
-    pub fn code_subpages() -> &'static [Self] {
-        &[Self::Projects, Self::Editor]
-    }
 }
 
 impl FromStr for SettingsSection {
@@ -200,14 +158,11 @@ impl FromStr for SettingsSection {
         match s {
             "About" => Ok(Self::About),
             "Appearance" => Ok(Self::Appearance),
-            "Code" => Ok(Self::Code),
             "Features" => Ok(Self::Features),
             "Keyboard shortcuts" => Ok(Self::Keybindings),
             "Privacy" => Ok(Self::Privacy),
             "Warpify" => Ok(Self::Warpify),
             "Third party CLI agents" | "ThirdPartyCLIAgents" => Ok(Self::ThirdPartyCLIAgents),
-            "Projects and language servers" | "Projects" => Ok(Self::Projects),
-            "Editor" => Ok(Self::Editor),
             _ => Err(()),
         }
     }
@@ -280,7 +235,6 @@ pub mod flags {
     pub const HIDE_WORKSPACE_DECORATIONS_CONTEXT_FLAG: &str = "Hide_Workspace_Decorations";
     pub const ALIAS_EXPANSION_FLAG: &str = "Alias_Expansion_Enabled";
     pub const MIDDLE_CLICK_PASTE_FLAG: &str = "Middle_Click_Paste_Enabled";
-    pub const CODE_AS_DEFAULT_EDITOR: &str = "Code_As_Default_Enabled";
     pub const SYNC_ALL_TABS_FLAG: &str = "Sync_All_Tabs_Enabled";
     pub const SYNC_ALL_PANES_IN_CURRENT_TAB: &str = "Sync_All_Panes_In_Current_Tab";
     pub const USE_AUDIBLE_BELL_CONTEXT_FLAG: &str = "Use_Audible_Terminal_Bell";
@@ -310,9 +264,6 @@ pub mod flags {
     pub const CLI_AGENT_RICH_INPUT_OPEN: &str = "CLIAgentRichInputOpen";
     pub const CLI_AGENT_FOOTER_ENABLED: &str = "CLIAgentFooterEnabled";
     pub const CLI_AGENT_RICH_INPUT_CHIP_ENABLED: &str = "CLIAgentRichInputChipEnabled";
-    // Tools panel settings
-    pub const SHOW_PROJECT_EXPLORER: &str = "ShowProjectExplorer";
-    pub const SHOW_GLOBAL_SEARCH: &str = "ShowGlobalSearch";
 }
 
 pub fn init_actions_from_parent_view<T: Action + Clone>(
@@ -627,12 +578,10 @@ pub enum DebugSettingsAction {
 #[derive(Debug, Clone)]
 pub enum SettingsAction {
     SelectAndRefresh(SettingsSection),
-    ToggleUmbrella(usize),
     AppearancePageToggle(AppearancePageAction),
     FeaturesPageToggle(FeaturesPageAction),
     PrivacyPageToggle(PrivacyPageAction),
     CLIAgents(CLIAgentSettingsPageAction),
-    Code(CodeSettingsPageAction),
     WarpifyPageToggle(WarpifyPageAction),
     Tab,
     Split(Direction),
@@ -650,102 +599,6 @@ pub enum SettingsAction {
 enum CycleDirection {
     Up,
     Down,
-}
-
-/// A stop in the arrow-key navigation order over the sidebar.
-///
-/// A collapsed umbrella occupies a single stop rather than being skipped,
-/// so arrow-key navigation auto-expands it and selects one of its visible
-/// subpages instead of jumping over it. Which subpage is chosen depends
-/// on the direction of cycling: navigating Down enters the umbrella at
-/// its first visible subpage, while navigating Up enters at its last
-/// visible subpage, matching the natural reading order the user was
-/// moving through.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-enum NavStop {
-    /// A concrete page, or a subpage of an already-expanded umbrella.
-    /// Arrow-key nav lands directly on this section.
-    Section(SettingsSection),
-    /// A collapsed umbrella. Activating this stop navigates to either
-    /// `first_subpage` (when arriving from above via Down) or
-    /// `last_subpage` (when arriving from below via Up), which
-    /// auto-expands the umbrella via
-    /// [`SettingsView::set_and_refresh_current_page_internal`].
-    CollapsedUmbrella {
-        /// Index into `nav_items`. Used to detect when the currently active
-        /// page belongs to this collapsed umbrella (e.g. the user manually
-        /// collapsed it while on one of its subpages), so cycling still
-        /// moves relative to the umbrella's position in the nav order.
-        nav_index: usize,
-        first_subpage: SettingsSection,
-        last_subpage: SettingsSection,
-    },
-}
-
-/// Builds the ordered list of arrow-key nav stops from `nav_items`.
-///
-/// `is_visible` decides which sections are currently shown in the sidebar;
-/// callers pass a predicate that ignores the search filter when no search
-/// is active and applies it otherwise. Umbrellas with no visible subpages
-/// are skipped entirely.
-fn build_nav_stops<F>(nav_items: &[SettingsNavItem], is_visible: F) -> Vec<NavStop>
-where
-    F: Fn(SettingsSection) -> bool,
-{
-    nav_items
-        .iter()
-        .enumerate()
-        .flat_map(|(nav_index, item)| match item {
-            SettingsNavItem::Page(section) => {
-                if is_visible(*section) {
-                    vec![NavStop::Section(*section)]
-                } else {
-                    vec![]
-                }
-            }
-            SettingsNavItem::Umbrella(umbrella) => {
-                let visible: Vec<SettingsSection> = umbrella
-                    .subpages
-                    .iter()
-                    .copied()
-                    .filter(|s| is_visible(*s))
-                    .collect();
-                if visible.is_empty() {
-                    vec![]
-                } else if umbrella.expanded {
-                    visible.into_iter().map(NavStop::Section).collect()
-                } else {
-                    let first_subpage = visible[0];
-                    let last_subpage = *visible.last().unwrap_or(&first_subpage);
-                    vec![NavStop::CollapsedUmbrella {
-                        nav_index,
-                        first_subpage,
-                        last_subpage,
-                    }]
-                }
-            }
-        })
-        .collect()
-}
-
-/// Returns the index in `stops` that corresponds to `section`.
-///
-/// A collapsed-umbrella stop also matches when `section` is one of the
-/// umbrella's subpages — this covers the edge case where the user manually
-/// collapsed the umbrella while still on a subpage, so arrow-key cycling
-/// continues to move relative to the umbrella's position in the nav order.
-fn current_stop_index(
-    stops: &[NavStop],
-    nav_items: &[SettingsNavItem],
-    section: SettingsSection,
-) -> Option<usize> {
-    stops.iter().position(|stop| match stop {
-        NavStop::Section(s) => *s == section,
-        NavStop::CollapsedUmbrella { nav_index, .. } => matches!(
-            nav_items.get(*nav_index),
-            Some(SettingsNavItem::Umbrella(u)) if u.contains(section)
-        ),
-    })
 }
 
 /// Returns the next index after applying `direction`, wrapping around the
@@ -780,7 +633,6 @@ macro_rules! update_page {
             SettingsPageViewHandle::Privacy(handle) => $ctx.update_view(handle, $update),
             SettingsPageViewHandle::CLIAgents(handle) => $ctx.update_view(handle, $update),
             SettingsPageViewHandle::About(handle) => $ctx.update_view(handle, $update),
-            SettingsPageViewHandle::Code(handle) => $ctx.update_view(handle, $update),
         }
     };
 }
@@ -795,16 +647,7 @@ pub struct SettingsView {
     clipped_scroll_state: ClippedScrollStateHandle,
     context_menu: ViewHandle<Menu<SettingsAction>>,
     context_menu_state: Option<Vector2F>,
-    /// Sidebar navigation items (pages + umbrellas).
-    nav_items: Vec<SettingsNavItem>,
-    /// Handle to the Code settings page, used to switch subpage modes.
-    code_page_handle: ViewHandle<CodeSettingsPageView>,
-    /// Per-subpage search match results. Populated during search so that
-    /// subpages sharing the same backing page can be filtered independently.
-    subpage_filter: HashMap<SettingsSection, MatchData>,
-    /// Current settings.toml error, mirrored from `Workspace` via
-    /// [`set_settings_error_state`]. Used by the sidebar footer to decide
-    /// whether to show the inline error alert.
+    nav_items: Vec<SettingsSection>,
     settings_file_error: Option<SettingsFileError>,
     /// Whether the workspace-level settings-error banner has been dismissed.
     /// Mirrored from `Workspace` via [`set_settings_error_state`].
@@ -846,13 +689,6 @@ impl SettingsView {
         // Keybindings page
         let keybindings_handle = ctx.add_typed_action_view(KeybindingsView::new);
 
-        // Code page
-        let code_page_handle = ctx.add_typed_action_view(CodeSettingsPageView::new);
-        let code_page_handle_for_nav = code_page_handle.clone();
-        ctx.subscribe_to_view(&code_page_handle, |me, _, event, ctx| {
-            me.handle_code_page_event(event, ctx);
-        });
-
         let warpify_page_handle = ctx.add_typed_action_view(WarpifyPageView::new);
         ctx.subscribe_to_view(&warpify_page_handle, |me, _, event, ctx| {
             me.handle_warpify_page_event(event, ctx);
@@ -893,7 +729,6 @@ impl SettingsView {
 
         let settings_pages = vec![
             SettingsPage::new(cli_agents_page_handle),
-            SettingsPage::new(code_page_handle),
             SettingsPage::new(appearance_page_handle),
             SettingsPage::new(features_page_handle),
             SettingsPage::new(keybindings_handle),
@@ -902,38 +737,19 @@ impl SettingsView {
             SettingsPage::new(about_page_handle),
         ];
 
-        let mut nav_items = vec![
-            SettingsNavItem::Page(SettingsSection::ThirdPartyCLIAgents),
-            SettingsNavItem::Umbrella(SettingsUmbrella::new(
-                "Code",
-                vec![SettingsSection::Projects, SettingsSection::Editor],
-            )),
-            SettingsNavItem::Page(SettingsSection::Appearance),
-            SettingsNavItem::Page(SettingsSection::Features),
-            SettingsNavItem::Page(SettingsSection::Keybindings),
-            SettingsNavItem::Page(SettingsSection::Warpify),
-            SettingsNavItem::Page(SettingsSection::Privacy),
-            SettingsNavItem::Page(SettingsSection::About),
+        let nav_items = vec![
+            SettingsSection::ThirdPartyCLIAgents,
+            SettingsSection::Appearance,
+            SettingsSection::Features,
+            SettingsSection::Keybindings,
+            SettingsSection::Warpify,
+            SettingsSection::Privacy,
+            SettingsSection::About,
         ];
 
-        // Resolve the initial page: map internal backing-page sections to their default subpage.
-        let requested_page = page.filter(|section| !section.is_removed_hosted_surface());
-        let initial_page = match requested_page {
-            Some(SettingsSection::Code) => SettingsSection::Projects,
-            Some(section) if section.is_subpage() => section,
-            other => other.unwrap_or_default(),
-        };
-
-        // Auto-expand the umbrella if the initial page is one of its subpages.
-        if initial_page.is_subpage() {
-            for item in &mut nav_items {
-                if let SettingsNavItem::Umbrella(umbrella) = item {
-                    if umbrella.contains(initial_page) {
-                        umbrella.expanded = true;
-                    }
-                }
-            }
-        }
+        let initial_page = page
+            .filter(|section| !section.is_removed_hosted_surface())
+            .unwrap_or_default();
 
         Self {
             pages_filter: settings_pages
@@ -949,8 +765,6 @@ impl SettingsView {
             context_menu,
             context_menu_state: Default::default(),
             nav_items,
-            code_page_handle: code_page_handle_for_nav,
-            subpage_filter: HashMap::new(),
             settings_file_error: None,
             settings_error_banner_dismissed: false,
             footer_mouse_states: SettingsFooterMouseStates::default(),
@@ -1007,155 +821,25 @@ impl SettingsView {
     ) {
         match event {
             EditorEvent::Edited(_) => {
-                let search_query = editor.as_ref(ctx).buffer_text(ctx);
-                let is_search_active = !search_query.is_empty();
-
-                if is_search_active {
-                    // Save umbrella expanded state before search modifies it.
-                    for item in &mut self.nav_items {
-                        if let SettingsNavItem::Umbrella(umbrella) = item {
-                            if umbrella.pre_search_expanded.is_none() {
-                                umbrella.pre_search_expanded = Some(umbrella.expanded);
-                            }
-                        }
-                    }
-
-                    self.subpage_filter.clear();
-                    // Do the same for Code subpages.
-                    for &subpage_section in SettingsSection::code_subpages() {
-                        if let Some(subpage) = CodeSubpage::from_section(subpage_section) {
-                            self.code_page_handle.update(ctx, |view, ctx| {
-                                view.set_active_subpage(Some(subpage), ctx);
-                            });
-                            let match_data = self
-                                .code_page_handle
-                                .update(ctx, |view, ctx| view.update_filter(&search_query, ctx));
-                            self.subpage_filter.insert(subpage_section, match_data);
-                        }
-                    }
-                } else {
-                    // Search cleared: restore umbrella expanded state.
-                    for item in &mut self.nav_items {
-                        if let SettingsNavItem::Umbrella(umbrella) = item {
-                            if let Some(saved) = umbrella.pre_search_expanded.take() {
-                                umbrella.expanded = saved;
-                            }
-                        }
-                    }
-                    self.subpage_filter.clear();
-                }
-
-                // Run the standard page-level filter (needed for non-subpage pages
-                // and subpages with their own backing page).
-                // Switch to all-widgets mode so standalone backing page
-                // filter is correct for pages_filter.
-                if is_search_active {
-                    self.code_page_handle.update(ctx, |view, ctx| {
-                        view.set_active_subpage(None, ctx);
-                    });
-                }
-
+                let query = editor.as_ref(ctx).buffer_text(ctx);
                 for (i, page) in self.settings_pages.iter().enumerate() {
                     self.pages_filter[i] = update_page!(
                         &page.view_handle,
                         |view, ctx| {
-                            let match_data = view.update_filter(&search_query, ctx);
+                            let result = view.update_filter(&query, ctx);
                             ctx.notify();
-                            match_data
+                            result
                         },
                         ctx
                     );
                 }
-
-                // Restore the active subpage after filtering.
-                if is_search_active {
-                    let current = self.current_settings_page;
-                    if current.is_code_subpage() {
-                        if let Some(subpage) = CodeSubpage::from_section(current) {
-                            self.code_page_handle.update(ctx, |view, ctx| {
-                                view.set_active_subpage(Some(subpage), ctx);
-                            });
-                        }
-                    }
-                }
-
-                // Auto-expand umbrellas that have matching subpages during search.
-                if is_search_active {
-                    for item in &mut self.nav_items {
-                        if let SettingsNavItem::Umbrella(umbrella) = item {
-                            let has_match = umbrella.subpages.iter().any(|subpage_section| {
-                                self.subpage_filter
-                                    .get(subpage_section)
-                                    .map(|md| md.is_truthy())
-                                    .unwrap_or_else(|| {
-                                        // Subpages with their own backing page
-                                        // with standalone settings pages.
-                                        // fall back to pages_filter.
-                                        let backing = subpage_section.parent_page_section();
-                                        self.settings_pages
-                                            .iter()
-                                            .zip(self.pages_filter.iter())
-                                            .any(|(p, md)| p.section == backing && md.is_truthy())
-                                    })
-                            });
-                            if has_match {
-                                umbrella.expanded = true;
-                            }
-                        }
-                    }
-                }
-
-                // Auto-select: if the current subpage/page is no longer visible,
-                // jump to the first visible subpage or page.
-                let current_still_visible = if is_search_active {
-                    // For subpages with per-subpage filter, check the subpage itself.
-                    if let Some(md) = self.subpage_filter.get(&self.current_settings_page) {
-                        md.is_truthy()
-                    } else {
-                        // Fall back to backing page filter.
-                        let current_backing = self.current_settings_page.parent_page_section();
-                        self.filtered_pages(ctx)
-                            .any(|(page, _)| page.section == current_backing)
-                    }
-                } else {
-                    let current_backing = self.current_settings_page.parent_page_section();
-                    self.filtered_pages(ctx)
-                        .any(|(page, _)| page.section == current_backing)
-                };
-
-                if !current_still_visible {
-                    // Find the first visible section: check subpages first, then pages.
-                    let first_visible = if is_search_active {
-                        self.nav_items
-                            .iter()
-                            .flat_map(|item| match item {
-                                SettingsNavItem::Page(section) => vec![*section],
-                                SettingsNavItem::Umbrella(umbrella) => umbrella.subpages.clone(),
-                            })
-                            .find(|section| {
-                                if let Some(md) = self.subpage_filter.get(section) {
-                                    md.is_truthy()
-                                } else {
-                                    let backing = section.parent_page_section();
-                                    self.settings_pages
-                                        .iter()
-                                        .zip(self.pages_filter.iter())
-                                        .any(|(p, md)| p.section == backing && md.is_truthy())
-                                }
-                            })
-                    } else {
-                        self.filtered_pages(ctx)
-                            .next()
-                            .map(|(page, _)| page.section)
-                    };
-
-                    if let Some(new_section) = first_visible {
-                        self.set_and_refresh_current_page_internal(
-                            new_section,
-                            false, /* should_clear_query */
-                            false, /* allow_steal_focus */
-                            ctx,
-                        );
+                if !self.section_passes_search_filter(self.current_settings_page) {
+                    let next = self
+                        .filtered_pages(ctx)
+                        .next()
+                        .map(|(page, _)| page.section);
+                    if let Some(section) = next {
+                        self.set_and_refresh_current_page_internal(section, false, false, ctx);
                     }
                 }
                 ctx.notify();
@@ -1315,27 +999,13 @@ impl SettingsView {
         }
     }
 
-    fn handle_code_page_event(
-        &mut self,
-        event: &CodeSettingsPageEvent,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        match event {
-            CodeSettingsPageEvent::OpenLspLogs { log_path } => {
-                ctx.emit(SettingsViewEvent::OpenLspLogs {
-                    log_path: log_path.clone(),
-                });
-            }
-        }
-    }
-
     pub fn current_settings_section(&self) -> SettingsSection {
         self.current_settings_page
     }
 
     fn current_settings_page(&self) -> Option<&SettingsPage> {
-        // Resolve code subpages to their backing page.
-        let lookup_section = self.current_settings_page.parent_page_section();
+        // Find the selected settings page.
+        let lookup_section = self.current_settings_page;
         self.settings_pages
             .iter()
             .find(|page| page.section == lookup_section)
@@ -1359,15 +1029,8 @@ impl SettingsView {
         allow_steal_focus: bool,
         ctx: &mut ViewContext<Self>,
     ) {
-        // Map internal backing-page sections to their default subpage.
-        // External callers should use subpage variants directly.
-        let section = match section {
-            SettingsSection::Code => SettingsSection::Projects,
-            other => other,
-        };
-
-        // Check the backing page exists.
-        let page_section = section.parent_page_section();
+        // Check the requested page exists.
+        let page_section = section;
         if self.settings_page(page_section).is_none() {
             return;
         }
@@ -1388,26 +1051,6 @@ impl SettingsView {
             self.clear_search_query(ctx);
         }
         self.current_settings_page = section;
-        // When navigating to a subpage, update the backing page's active subpage mode
-        // and auto-expand the umbrella containing it.
-        if section.is_subpage() {
-            // Code subpages: update the Code page's subpage mode.
-            if section.is_code_subpage() {
-                let subpage = CodeSubpage::from_section(section);
-                self.code_page_handle.update(ctx, |view, ctx| {
-                    view.set_active_subpage(subpage, ctx);
-                });
-            }
-            // Auto-expand the umbrella containing this subpage.
-            for item in &mut self.nav_items {
-                if let SettingsNavItem::Umbrella(umbrella) = item {
-                    if umbrella.contains(section) {
-                        umbrella.expanded = true;
-                    }
-                }
-            }
-        }
-
         if let Some(settings_page) = self.current_settings_page() {
             update_page!(
                 &settings_page.view_handle,
@@ -1443,7 +1086,6 @@ impl SettingsView {
             SettingsPageViewHandle::Privacy(v) => v.as_ref(app).should_render(app),
             SettingsPageViewHandle::Warpify(v) => v.as_ref(app).should_render(app),
             SettingsPageViewHandle::CLIAgents(v) => v.as_ref(app).should_render(app),
-            SettingsPageViewHandle::Code(v) => v.as_ref(app).should_render(app),
         }
     }
 
@@ -1496,59 +1138,28 @@ impl SettingsView {
     /// when rendering sidebar items so arrow-key navigation stays in sync
     /// with what the user can actually see.
     fn section_passes_search_filter(&self, section: SettingsSection) -> bool {
-        if let Some(md) = self.subpage_filter.get(&section) {
-            md.is_truthy()
-        } else {
-            let backing = section.parent_page_section();
-            self.settings_pages
-                .iter()
-                .zip(self.pages_filter.iter())
-                .any(|(p, md)| p.section == backing && md.is_truthy())
-        }
+        self.settings_pages
+            .iter()
+            .zip(&self.pages_filter)
+            .any(|(page, data)| page.section == section && data.is_truthy())
     }
 
     fn cycle_pages(&mut self, direction: CycleDirection, ctx: &mut ViewContext<Self>) {
-        let is_search_active = !self.search_editor.as_ref(ctx).buffer_text(ctx).is_empty();
-
-        // Build nav stops from the current sidebar state. A collapsed umbrella
-        // is represented as a single stop (rather than being skipped) so that
-        // arrow-key navigation auto-expands it and selects its first visible
-        // subpage instead of silently jumping over it.
-        let stops = build_nav_stops(&self.nav_items, |section| {
-            !is_search_active || self.section_passes_search_filter(section)
-        });
-
-        if stops.is_empty() {
+        let pages: Vec<_> = self
+            .nav_items
+            .iter()
+            .copied()
+            .filter(|section| self.section_passes_search_filter(*section))
+            .collect();
+        if pages.is_empty() {
             return;
         }
-
-        let next_index =
-            match current_stop_index(&stops, &self.nav_items, self.current_settings_page) {
-                Some(idx) => next_stop_index(idx, stops.len(), direction),
-                // Current page isn't in the visible nav order (e.g. it was
-                // just filtered out); jump to the first visible stop.
-                None => 0,
-            };
-
-        // Selecting a subpage auto-expands its umbrella in
-        // set_and_refresh_current_page_internal, which is exactly the behavior
-        // we want when landing on a `CollapsedUmbrella` stop. We pick the
-        // entry subpage based on `direction` so that Up into a collapsed
-        // umbrella lands on its last visible subpage (matching the reading
-        // order the user was moving through) and Down lands on the first.
-        let target_section = match stops[next_index] {
-            NavStop::Section(section) => section,
-            NavStop::CollapsedUmbrella {
-                first_subpage,
-                last_subpage,
-                ..
-            } => match direction {
-                CycleDirection::Up => last_subpage,
-                CycleDirection::Down => first_subpage,
-            },
-        };
-
-        self.set_and_refresh_current_page_internal(target_section, false, false, ctx);
+        let index = pages
+            .iter()
+            .position(|section| *section == self.current_settings_page)
+            .map(|index| next_stop_index(index, pages.len(), direction))
+            .unwrap_or(0);
+        self.set_and_refresh_current_page_internal(pages[index], false, false, ctx);
     }
 
     fn input_tab(&mut self, ctx: &mut ViewContext<Self>) {
@@ -1698,7 +1309,7 @@ impl View for SettingsView {
         let appearance = Appearance::as_ref(app);
 
         // Subpages may use a parent section as their backing settings page.
-        let content_page_section = self.current_settings_page.parent_page_section();
+        let content_page_section = self.current_settings_page;
         let (page, current_page_handle) = if settings_pages.is_empty() {
             (self.render_search_zero_state(appearance), None)
         } else {
@@ -1717,97 +1328,22 @@ impl View for SettingsView {
             .with_cross_axis_alignment(CrossAxisAlignment::Stretch)
             .with_child(self.render_search_editor(appearance));
 
-        // Render sidebar using nav_items (pages + umbrellas).
-        for (nav_index, nav_item) in self.nav_items.iter().enumerate() {
-            match nav_item {
-                SettingsNavItem::Page(section) => {
-                    let section = *section;
-                    // Find the page in settings_pages for render/visibility check.
-                    if let Some((page, match_data)) =
-                        settings_pages.iter().find(|(p, _)| p.section == section)
-                    {
-                        let page_active = section == self.current_settings_page;
-                        buttons.add_child(
-                            page.render_page_button(appearance, *match_data, page_active)
-                                .on_click(move |ctx, _, _| {
-                                    ctx.dispatch_typed_action(SettingsAction::SelectAndRefresh(
-                                        section,
-                                    ));
-                                })
-                                .finish(),
-                        );
-                    }
-                }
-                SettingsNavItem::Umbrella(umbrella) => {
-                    // Check which subpages are visible. Use per-subpage filter
-                    // if available (search active), otherwise fall back to backing page.
-                    let is_subpage_visible = |section: &SettingsSection| -> bool {
-                        if let Some(md) = self.subpage_filter.get(section) {
-                            return md.is_truthy();
-                        }
-                        let backing = section.parent_page_section();
-                        settings_pages.iter().any(|(p, _)| p.section == backing)
-                    };
-
-                    let any_subpage_visible = umbrella.subpages.iter().any(is_subpage_visible);
-
-                    // Only show the umbrella if at least one subpage is visible.
-                    if !any_subpage_visible {
-                        continue;
-                    }
-
-                    // Render umbrella header row. The whole row is a single
-                    // Hoverable so hover styling + pointing-hand cursor apply
-                    // across the full clickable area, not just the text.
-                    buttons.add_child(
-                        umbrella
-                            .render_umbrella_row(appearance)
-                            .on_click(move |ctx, _, _| {
-                                ctx.dispatch_typed_action(SettingsAction::ToggleUmbrella(
-                                    nav_index,
-                                ));
-                            })
-                            .finish(),
-                    );
-                    // Render subpage items when expanded.
-                    if umbrella.expanded {
-                        for (sub_idx, subpage_section) in umbrella.subpages.iter().enumerate() {
-                            let subpage_section = *subpage_section;
-                            // Use per-subpage filter if available, otherwise backing page.
-                            let match_data = self
-                                .subpage_filter
-                                .get(&subpage_section)
-                                .copied()
-                                .unwrap_or_else(|| {
-                                    let backing = subpage_section.parent_page_section();
-                                    settings_pages
-                                        .iter()
-                                        .find(|(p, _)| p.section == backing)
-                                        .map(|(_, md)| *md)
-                                        .unwrap_or(MatchData::Uncounted(false))
-                                });
-
-                            if !match_data.is_truthy() {
-                                continue;
-                            }
-
-                            let is_active = subpage_section == self.current_settings_page;
-                            if let Some(hoverable) = umbrella
-                                .render_subpage_button(sub_idx, appearance, match_data, is_active)
-                            {
-                                buttons.add_child(
-                                    hoverable
-                                        .on_click(move |ctx, _, _| {
-                                            ctx.dispatch_typed_action(
-                                                SettingsAction::SelectAndRefresh(subpage_section),
-                                            );
-                                        })
-                                        .finish(),
-                                );
-                            }
-                        }
-                    }
-                }
+        for &section in &self.nav_items {
+            if let Some((page, match_data)) = settings_pages
+                .iter()
+                .find(|(page, _)| page.section == section)
+            {
+                buttons.add_child(
+                    page.render_page_button(
+                        appearance,
+                        *match_data,
+                        section == self.current_settings_page,
+                    )
+                    .on_click(move |ctx, _, _| {
+                        ctx.dispatch_typed_action(SettingsAction::SelectAndRefresh(section));
+                    })
+                    .finish(),
+                );
             }
         }
         // Footer: "Open settings file" button, or an inline error alert if
@@ -1919,14 +1455,6 @@ impl TypedActionView for SettingsView {
             SettingsAction::SelectAndRefresh(section) => {
                 self.set_and_refresh_current_page_internal(*section, false, true, ctx);
             }
-            SettingsAction::ToggleUmbrella(nav_index) => {
-                if let Some(SettingsNavItem::Umbrella(umbrella)) =
-                    self.nav_items.get_mut(*nav_index)
-                {
-                    umbrella.toggle();
-                    ctx.notify();
-                }
-            }
 
             SettingsAction::AppearancePageToggle(appearance_action) => {
                 if let Some(appearance_page) = self.settings_page(SettingsSection::Appearance) {
@@ -1960,15 +1488,6 @@ impl TypedActionView for SettingsView {
                     if let SettingsPageViewHandle::CLIAgents(view) = &ai_page.view_handle {
                         view.update(ctx, |view, ctx| {
                             view.handle_action(cli_action, ctx);
-                        })
-                    }
-                }
-            }
-            SettingsAction::Code(code_action) => {
-                if let Some(code_page) = self.settings_page(SettingsSection::Code) {
-                    if let SettingsPageViewHandle::Code(view) = &code_page.view_handle {
-                        view.update(ctx, |view, ctx| {
-                            view.handle_action(code_action, ctx);
                         })
                     }
                 }

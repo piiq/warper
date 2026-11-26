@@ -111,17 +111,6 @@ impl FrameLayouts {
         self.frames().map(|frame| frame.lines().len()).sum()
     }
 
-    /// Returns the index of the row that represents the end of some logical row
-    pub fn end_of_logical_row(&self, logical_row: usize) -> usize {
-        self.frames
-            .iter()
-            // adding 1 to include the TextFrame that represents this row (the queried one)
-            .take(logical_row + 1)
-            .fold(0, |acc, text_frame| acc + text_frame.lines().len())
-            // subtracting one to convert a count of rows into an index
-            - 1
-    }
-
     /// Returns the line at the given index, where the first line is 0 if it exists.
     pub fn get_line(&self, desired_index: usize) -> Option<&text_layout::Line> {
         self.frames

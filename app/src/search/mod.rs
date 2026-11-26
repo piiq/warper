@@ -4,8 +4,6 @@ pub mod binding_source;
 pub mod command_palette;
 pub mod command_search;
 pub mod data_source;
-pub mod external_secrets;
-pub mod files;
 mod filter_chip_renderer;
 pub mod item;
 pub mod macros;
@@ -15,8 +13,6 @@ pub mod result_renderer;
 mod search_bar;
 pub mod search_results_menu;
 pub mod searcher;
-pub mod welcome_palette;
-mod workflows;
 
 pub use item::SearchItem;
 pub use mixer::SyncDataSource;
@@ -24,4 +20,3 @@ pub use result_renderer::ItemHighlightState;
 
 pub use data_source::QueryFilter;
 use filter_chip_renderer::FilterChipRenderer;
-pub use workflows::fuzzy_match::FuzzyMatchWorkflowResult;

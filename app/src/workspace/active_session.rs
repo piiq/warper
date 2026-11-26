@@ -9,14 +9,13 @@ use warpui::{Entity, EntityId, ModelContext, SingletonEntity, WindowId};
 use crate::terminal::model::session::Session;
 
 /// The active terminal session in each window. The active session of a window is the current
-/// session of the most-recently-focused terminal pane of the active tab of the window's workspace.
+/// session of the most-recently-focused terminal pane of the window's workspace.
 ///
 /// #### When to use `ActiveSession`
 /// Generally, if a more specific session is available, it should be preferred. For example, when
-/// opening a Markdown file from a file link in a block's output, that block's session should be
-/// the basis. However, sometimes there is no contextual session (such as when opening a file
-/// in Warp from Finder, or when starting from a cloud object). In that case, the `ActiveSession`
-/// might be used, but it's often still better to be context-independent.
+/// opening a file link in a block's output, that block's session should be the basis. Settings
+/// and tab-config actions can use the most recent terminal session for its editor environment
+/// when their active tab has no terminal pane.
 #[derive(Default)]
 pub struct ActiveSession {
     window_sessions: HashMap<WindowId, WindowActiveSession>,
