@@ -138,21 +138,38 @@ fn transferred_tab_workspace(
     app: &mut App,
     vertical_tabs_panel_open: bool,
 ) -> ViewHandle<Workspace> {
+    let source = mock_workspace(app);
+    source.update(app, |workspace, ctx| workspace.add_terminal_tab(ctx));
+    let tab = source.read(app, |workspace, _| workspace.tabs[0].clone());
+    let source_window_id = source.read(app, |workspace, _| workspace.window_id);
     let global_resource_handles = GlobalResourceHandles::mock(app);
     let (_, workspace) = app.add_window(WindowStyle::NotStealFocus, |ctx| {
+        let destination_window_id = ctx.window_id();
+        ctx.transfer_view_tree_to_window(
+            tab.pane_group.id(),
+            source_window_id,
+            destination_window_id,
+        );
         Workspace::new(
             global_resource_handles,
             NewWorkspaceSource::TransferredTab {
-                tab_color: None,
-                custom_title: None,
+                tab,
                 vertical_tabs_panel_open,
-                for_drag_preview: false,
             },
             ctx,
         )
     });
+    source.update(app, |workspace, ctx| {
+        workspace.remove_tab_without_undo(0, ctx)
+    });
     workspace
 }
+
+#[path = "tab_transfer_tests.rs"]
+mod tab_transfer_tests;
+
+#[path = "upload_transfer_tests.rs"]
+mod upload_transfer_tests;
 
 #[cfg(feature = "local_fs")]
 fn open_worktree_sidecar(workspace: &ViewHandle<Workspace>, app: &mut App) {

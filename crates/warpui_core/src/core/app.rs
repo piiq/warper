@@ -578,6 +578,8 @@ pub type FrameDrawnCallback = dyn Fn(&mut AppContext, WindowId);
 
 pub type BeforeOpenUrlCallback = dyn Fn(&str, &AppContext) -> String;
 
+type PendingWindowOpening = Box<dyn FnOnce(Result<()>, &mut AppContext)>;
+
 pub struct AppContext {
     /////////////////////////
     // Fields from AppContext
@@ -608,6 +610,9 @@ pub struct AppContext {
     /// type keys, as it requires the values to appropriately downcast.
     typed_actions: HashMap<ActionType, HashMap<ViewType, Box<TypedActionCallback>>>,
     presenters: HashMap<WindowId, Rc<RefCell<Presenter>>>,
+    pending_window_openings: HashMap<WindowId, PendingWindowOpening>,
+    #[cfg(test)]
+    defer_next_window_opening: bool,
     /// Configuration options related to rendering of the application.
     rendering_config: rendering::Config,
     global_actions: HashMap<String, Vec<Box<GlobalActionCallback>>>,
@@ -694,23 +699,18 @@ pub struct AppContext {
     /// `WeakViewHandle::upgrade()`, and `WeakViewHandle::window_id()`.
     pub(super) view_to_window: HashMap<EntityId, WindowId>,
 
-    /// Maps child view → parent view for views created via `add_typed_action_view_with_parent`.
+    /// Maps child view → parent view for views created through a `ViewContext`.
     /// Unlike the presenter's layout-time parent map, this persists across renders and
     /// includes views that are conditionally rendered. Used by `transfer_view_tree_to_window`
     /// to discover non-rendered child views that must move with their parent.
     ///
-    /// Populated by `add_typed_action_view_internal` when a parent_view_id is provided,
-    /// and cleaned up in `remove_dropped_items` when views are dropped.
+    /// Updated by `set_view_parent` and cleaned up when views are dropped.
     structural_child_to_parent: HashMap<EntityId, EntityId>,
 
     /// Reverse of `structural_child_to_parent`: maps parent view → set of child views.
     /// Enables efficient traversal in `transfer_structural_children` without iterating
     /// all views in the source window.
     structural_parent_to_children: HashMap<EntityId, HashSet<EntityId>>,
-
-    /// When set, all focus changes to this window are suppressed.
-    /// Used during tab drag to prevent the new window from stealing focus.
-    suppress_focus_for_window: Option<WindowId>,
 
     /// An optional provider that creates an [`AssetSource`] for loading a
     /// fallback font from a URL string. Injected by the application layer so
@@ -740,12 +740,6 @@ impl AppContext {
 
     pub fn is_window_open(&self, window_id: WindowId) -> bool {
         self.windows.contains_key(&window_id)
-    }
-
-    /// Sets or clears the window for which focus changes should be suppressed.
-    /// When set, all `ctx.focus()` calls targeting this window will be ignored.
-    pub fn set_suppress_focus_for_window(&mut self, window_id: Option<WindowId>) {
-        self.suppress_focus_for_window = window_id;
     }
 
     fn with_foreground_executor(
@@ -808,9 +802,11 @@ impl AppContext {
             termination_result: Default::default(),
             zoom_factor: ZoomFactor::default(),
             view_to_window: Default::default(),
+            pending_window_openings: Default::default(),
+            #[cfg(test)]
+            defer_next_window_opening: false,
             structural_child_to_parent: Default::default(),
             structural_parent_to_children: Default::default(),
-            suppress_focus_for_window: None,
             fallback_font_source_provider: None,
         };
 
@@ -2244,14 +2240,16 @@ impl AppContext {
         T: View + TypedActionView,
         F: FnOnce(&mut ViewContext<T>) -> T,
     {
-        self.insert_window(options, build_root_view)
+        self.try_add_window(options, build_root_view)
+            .expect("failed to open window")
     }
 
-    fn insert_window<T, F>(
+    /// Opens a window without building its views when the platform rejects creation.
+    pub fn try_add_window<T, F>(
         &mut self,
         add_window_options: AddWindowOptions,
         build_root_view: F,
-    ) -> (WindowId, ViewHandle<T>)
+    ) -> Result<(WindowId, ViewHandle<T>)>
     where
         T: View + TypedActionView,
         F: FnOnce(&mut ViewContext<T>) -> T,
@@ -2266,12 +2264,89 @@ impl AppContext {
                     .expect("this window was just inserted and should still exist")
                     .root_view = Some(root_handle.into());
                 root_view_id
-            });
-        (
+            })?;
+        Ok((
             window_id,
             self.root_view(window_id)
                 .expect("should have just inserted a window and root view"),
-        )
+        ))
+    }
+
+    /// Builds a root view after native window creation succeeds, including asynchronous backends.
+    /// The builder may reject an operation whose source changed while the window was opening.
+    /// Builder and completion effects are flushed together after the completion returns.
+    pub fn try_add_window_async<T, F, C>(
+        &mut self,
+        options: AddWindowOptions,
+        build_root_view: F,
+        complete: C,
+    ) where
+        T: View + TypedActionView,
+        F: FnOnce(WindowId, &mut AppContext) -> Result<ViewHandle<T>> + 'static,
+        C: FnOnce(Result<(WindowId, ViewHandle<T>)>, &mut AppContext) + 'static,
+    {
+        self.pending_flushes += 1;
+        match self.open_platform_window(None, options) {
+            Err(error) => complete(Err(error), self),
+            Ok(window_id) => {
+                let opening: PendingWindowOpening = Box::new(move |result, ctx| {
+                    ctx.pending_flushes += 1;
+                    let result = result.and_then(|()| {
+                        ctx.windows.insert(window_id, Window::default());
+                        let root = build_root_view(window_id, ctx)?;
+                        ctx.windows
+                            .get_mut(&window_id)
+                            .expect("The new window exists")
+                            .root_view = Some(root.clone().into());
+                        ctx.finish_window_opening(window_id, root.id());
+                        Ok((window_id, root))
+                    });
+                    if result.is_err() {
+                        ctx.discard_window_opening(window_id);
+                    }
+                    complete(result, ctx);
+                    ctx.flush_effects();
+                });
+                let ready = self
+                    .windows()
+                    .platform_window(window_id)
+                    .is_some_and(|window| window.is_ready());
+                #[cfg(test)]
+                let ready = ready && !std::mem::take(&mut self.defer_next_window_opening);
+                if ready {
+                    opening(Ok(()), self);
+                } else {
+                    self.pending_window_openings.insert(window_id, opening);
+                }
+            }
+        }
+        self.flush_effects();
+    }
+
+    fn complete_window_opening(&mut self, window_id: WindowId, result: Result<()>) -> bool {
+        let Some(opening) = self.pending_window_openings.remove(&window_id) else {
+            return false;
+        };
+        opening(result, self);
+        true
+    }
+
+    fn discard_window_opening(&mut self, window_id: WindowId) {
+        if let Some(window) = self.windows.remove(&window_id) {
+            for view_id in window.views.keys() {
+                self.view_to_window.remove(view_id);
+                autotracking::remove_view(window_id, *view_id);
+            }
+        }
+        self.window_bounds.remove(&window_id);
+        self.next_window_bounds_map.remove(&window_id);
+        self.presenters.remove(&window_id);
+        self.window_invalidations.remove(&window_id);
+        self.invalidation_callbacks.remove(&window_id);
+        WindowManager::handle(self).update(self, |manager, ctx| {
+            manager.close_window_async(window_id, TerminationMode::ContentTransferred);
+            manager.remove_window(window_id, ctx);
+        });
     }
 
     fn insert_window_internal<F>(
@@ -2279,10 +2354,21 @@ impl AppContext {
         window_id: Option<WindowId>,
         add_window_options: AddWindowOptions,
         build_window_data: F,
-    ) -> (WindowId, EntityId)
+    ) -> Result<(WindowId, EntityId)>
     where
         F: FnOnce(WindowId, &mut AppContext) -> EntityId,
     {
+        let window_id = self.open_platform_window(window_id, add_window_options)?;
+        let root_view_id = build_window_data(window_id, self);
+        self.finish_window_opening(window_id, root_view_id);
+        Ok((window_id, root_view_id))
+    }
+
+    fn open_platform_window(
+        &mut self,
+        window_id: Option<WindowId>,
+        add_window_options: AddWindowOptions,
+    ) -> Result<WindowId> {
         let AddWindowOptions {
             window_style,
             window_bounds,
@@ -2303,10 +2389,6 @@ impl AppContext {
         self.next_window_bounds_map
             .insert(window_id, anchor_new_windows_from_closed_position);
 
-        // Clear the next window bounds if they were set - we don't want to start
-        // from the last closed position after a new window has been created.
-        self.next_window_bounds = None;
-
         self.presenters
             .insert(window_id, Rc::new(RefCell::new(Presenter::new(window_id))));
 
@@ -2325,6 +2407,9 @@ impl AppContext {
         };
 
         let callbacks = WindowCallbacks {
+            opened_callback: Box::new(move |result, ctx| {
+                ctx.complete_window_opening(window_id, result)
+            }),
             standard_action_callback: Box::new(move |action, ctx| {
                 log::info!("Dispatching standard action {action:?}");
                 let responder_chain = ctx.get_responder_chain(window_id);
@@ -2465,34 +2550,27 @@ impl AppContext {
             windowing_state.open_window(window_id, window_options, callbacks)
         });
 
-        // Create the root view after adding the window but before registering an invalidation callback.
-        // This ensures that a platform window is always available to user view code.
-        let root_view_id = build_window_data(window_id, self);
+        if let Err(error) = window_result {
+            self.window_bounds.remove(&window_id);
+            self.next_window_bounds_map.remove(&window_id);
+            self.presenters.remove(&window_id);
+            return Err(error);
+        }
+
+        Ok(window_id)
+    }
+
+    fn finish_window_opening(&mut self, window_id: WindowId, root_view_id: EntityId) {
+        self.next_window_bounds = None;
         self.focus(window_id, root_view_id);
-
-        match window_result {
-            Err(err) => {
-                log::error!("error opening window: {err}");
+        self.on_window_invalidated(window_id, move |window_id, ctx| {
+            if let Some(window) = ctx.windows().platform_window(window_id) {
+                window.request_redraw();
+                if ctx.is_unit_test || cfg!(feature = "integration_tests") {
+                    ctx.build_scene(window_id, window.as_ctx());
+                }
             }
-            Ok(_) => {
-                self.on_window_invalidated(window_id, move |window_id, ctx| {
-                    if let Some(window) = ctx.windows().platform_window(window_id) {
-                        // All we need to do when a window is invalidated is
-                        // request from the OS that it be redrawn.  We'll do all
-                        // of the actual work later.
-                        window.request_redraw();
-
-                        // In tests, however, there's no real event loop, so we need to do the work now.
-                        // While this _shouldn't_ be necessary in integration tests, it currently is.
-                        if ctx.is_unit_test || cfg!(feature = "integration_tests") {
-                            ctx.build_scene(window_id, window.as_ctx());
-                        }
-                    }
-                });
-            }
-        };
-
-        (window_id, root_view_id)
+        });
     }
 
     #[allow(clippy::unwrap_in_result)]
@@ -2647,14 +2725,17 @@ impl AppContext {
             .as_ref()
             .expect("should have root view")
             .id();
-        self.insert_window_internal(
+        if let Err(error) = self.insert_window_internal(
             Some(window_id),
             add_window_options,
             move |window_id, ctx| {
                 ctx.windows.insert(window_id, window);
                 root_view_id
             },
-        );
+        ) {
+            log::error!("Failed to reopen window: {error}");
+            return;
+        }
 
         self.invalidate_all_views_for_window(window_id);
     }
@@ -2882,17 +2963,8 @@ impl AppContext {
         // Register in view_to_window mapping
         self.view_to_window.insert(view_id, window_id);
 
-        // If a parent view ID was provided, add the view as a child of the parent
         if let Some(parent_view_id) = parent_view_id {
-            if let Some(presenter) = self.presenter(window_id) {
-                presenter.borrow_mut().set_parent(view_id, parent_view_id);
-            }
-            self.structural_child_to_parent
-                .insert(view_id, parent_view_id);
-            self.structural_parent_to_children
-                .entry(parent_view_id)
-                .or_default()
-                .insert(view_id);
+            self.set_view_parent(view_id, parent_view_id);
         }
 
         // Register the action handler for this view type (if it hasn't already been added)
@@ -2908,6 +2980,34 @@ impl AppContext {
         let handle = ViewHandle::new(window_id, view_id, &self.ref_counts);
         self.flush_effects();
         handle
+    }
+
+    /// Sets ownership of a child view, including children that are not currently rendered.
+    /// Call after a transfer to attach a moved root to its destination parent.
+    /// The parent may still be under construction.
+    pub fn set_view_parent(&mut self, view_id: EntityId, parent_view_id: EntityId) {
+        let window_id = *self
+            .view_to_window
+            .get(&view_id)
+            .expect("The child view must exist before setting its parent");
+        if let Some(previous_parent) = self
+            .structural_child_to_parent
+            .insert(view_id, parent_view_id)
+        {
+            if let Some(children) = self.structural_parent_to_children.get_mut(&previous_parent) {
+                children.remove(&view_id);
+                if children.is_empty() {
+                    self.structural_parent_to_children.remove(&previous_parent);
+                }
+            }
+        }
+        self.structural_parent_to_children
+            .entry(parent_view_id)
+            .or_default()
+            .insert(view_id);
+        if let Some(presenter) = self.presenter(window_id) {
+            presenter.borrow_mut().set_parent(view_id, parent_view_id);
+        }
     }
 
     /// Transfers a single view from one window to another.
@@ -3780,9 +3880,6 @@ impl AppContext {
             return;
         }
 
-        if self.suppress_focus_for_window == Some(window_id) {
-            return;
-        }
         self.pending_flushes += 1;
 
         if let Some((blurred_id, mut blurred)) = self.windows.get_mut(&window_id).and_then(|w| {
@@ -4085,6 +4182,11 @@ impl AppContext {
                 view_id,
                 callback,
             } => {
+                let window_id = self
+                    .view_to_window
+                    .get(&view_id)
+                    .copied()
+                    .unwrap_or(window_id);
                 if let Some(mut view) = self
                     .windows
                     .get_mut(&window_id)
@@ -4105,6 +4207,11 @@ impl AppContext {
                 mut on_item,
                 on_done,
             } => {
+                let window_id = self
+                    .view_to_window
+                    .get(&view_id)
+                    .copied()
+                    .unwrap_or(window_id);
                 if let Some(mut view) = self
                     .windows
                     .get_mut(&window_id)
@@ -4159,6 +4266,11 @@ impl AppContext {
                 on_done: callback,
                 ..
             } => {
+                let window_id = self
+                    .view_to_window
+                    .get(&view_id)
+                    .copied()
+                    .unwrap_or(window_id);
                 if let Some(mut view) = self
                     .windows
                     .get_mut(&window_id)
@@ -4590,3 +4702,19 @@ impl AppContext {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "window_creation_tests.rs"]
+mod window_creation_tests;
+
+#[cfg(test)]
+#[path = "window_creation_async_tests.rs"]
+mod window_creation_async_tests;
+
+#[cfg(test)]
+#[path = "transfer_task_tests.rs"]
+mod transfer_task_tests;
+
+#[cfg(test)]
+#[path = "transfer_subscription_tests.rs"]
+mod transfer_subscription_tests;

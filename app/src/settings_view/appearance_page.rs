@@ -600,6 +600,15 @@ impl View for AppearanceSettingsPageView {
         "AppearanceSettingsPage"
     }
 
+    fn on_window_transferred(
+        &mut self,
+        _source_window_id: WindowId,
+        target_window_id: WindowId,
+        _ctx: &mut ViewContext<Self>,
+    ) {
+        self.window_id = target_window_id;
+    }
+
     fn render(&self, app: &AppContext) -> Box<dyn Element> {
         self.page.render(self, app)
     }

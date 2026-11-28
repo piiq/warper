@@ -52,6 +52,29 @@ impl SettingsPaneManager {
         self.panes.get(&window_id).and_then(|data| data.locator)
     }
 
+    /// Moves the shared settings view and its open-pane location with a transferred tab.
+    pub fn transfer_pane(
+        &mut self,
+        source_window_id: WindowId,
+        destination_window_id: WindowId,
+        pane_group_id: EntityId,
+    ) -> Option<ViewHandle<SettingsView>> {
+        let source = self.panes.get_mut(&source_window_id)?;
+        let locator = source
+            .locator
+            .filter(|locator| locator.pane_group_id == pane_group_id)?;
+        source.locator = None;
+        let settings_view = source.settings_view.clone();
+
+        let destination = self
+            .panes
+            .get_mut(&destination_window_id)
+            .expect("The destination workspace has registered its settings view");
+        destination.settings_view = settings_view.clone();
+        destination.locator = Some(locator);
+        Some(settings_view)
+    }
+
     pub fn register_pane(
         &mut self,
         pane: &SettingsPane,

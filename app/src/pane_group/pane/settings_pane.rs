@@ -1,4 +1,6 @@
-use warpui::{AppContext, ModelHandle, SingletonEntity, View, ViewContext, ViewHandle, WindowId};
+use warpui::{
+    AppContext, EntityId, ModelHandle, SingletonEntity, View, ViewContext, ViewHandle, WindowId,
+};
 
 use crate::{
     app_state::{LeafContents, SettingsPaneSnapshot},
@@ -58,6 +60,10 @@ impl PaneContent for SettingsPane {
         PaneId::from_settings_pane_view(&self.view)
     }
 
+    fn window_transfer_roots(&self, ctx: &AppContext) -> Vec<EntityId> {
+        vec![self.view.id(), self.settings_view(ctx).id()]
+    }
+
     fn attach(
         &self,
         _group: &PaneGroup,
@@ -65,13 +71,20 @@ impl PaneContent for SettingsPane {
         ctx: &mut ViewContext<PaneGroup>,
     ) {
         let pane_id = self.id();
+        let settings_view = SettingsPaneManager::as_ref(ctx).settings_view(ctx.window_id());
+        // Undo may retain a wrapper after its shared view moves to another window.
+        if self.settings_view(ctx).id() != settings_view.id() {
+            let pane_stack = self.view.as_ref(ctx).pane_stack().clone();
+            pane_stack.update(ctx, |stack, ctx| {
+                stack.replace_active_view(settings_view.clone(), ctx);
+            });
+        }
         self.view
             .update(ctx, |view, ctx| view.set_focus_handle(focus_handle, ctx));
 
-        ctx.subscribe_to_view(
-            &self.settings_view(ctx),
-            move |pane_group, _, event, ctx| handle_settings_event(pane_group, pane_id, event, ctx),
-        );
+        ctx.subscribe_to_view(&settings_view, move |pane_group, _, event, ctx| {
+            handle_settings_event(pane_group, pane_id, event, ctx)
+        });
 
         ctx.subscribe_to_view(&self.view, move |group, _, event, ctx| {
             group.handle_pane_view_event(pane_id, event, ctx);
@@ -90,16 +103,21 @@ impl PaneContent for SettingsPane {
         _detach_type: DetachType,
         ctx: &mut ViewContext<PaneGroup>,
     ) {
-        // Always unsubscribe from views
-        let settings_view = self.settings_view(ctx);
-        ctx.unsubscribe_to_view(&settings_view);
-        ctx.unsubscribe_to_view(&self.view);
-
-        // Always deregister from SettingsPaneManager - it will be re-registered on attach if restored.
-        // Only clear the locator if this is the currently registered settings pane for the window.
         let window_id = ctx.window_id();
         let pane_group_id = ctx.view_id();
         let pane_id = self.id();
+        let is_registered = SettingsPaneManager::as_ref(ctx).find_pane(window_id)
+            == Some(crate::PaneViewLocator {
+                pane_group_id,
+                pane_id,
+            });
+        // A previously closed wrapper may share this view with a newly opened pane.
+        if is_registered {
+            let settings_view = self.settings_view(ctx);
+            ctx.unsubscribe_to_view(&settings_view);
+        }
+        ctx.unsubscribe_to_view(&self.view);
+
         SettingsPaneManager::handle(ctx).update(ctx, |manager, ctx| {
             manager.deregister_pane(&window_id, pane_group_id, pane_id, ctx);
         });

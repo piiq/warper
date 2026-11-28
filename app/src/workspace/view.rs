@@ -81,7 +81,7 @@ use crate::resource_center::{
     mark_feature_used_and_write_to_user_defaults, skip_tips_and_write_to_user_defaults,
     ResourceCenterEvent, ResourceCenterPage, ResourceCenterView, Tip, TipAction, TipsCompleted,
 };
-use crate::root_view::NewWorkspaceSource;
+use crate::root_view::{MoveTabToNewWindowArg, NewWorkspaceSource};
 use crate::search::command_search::searcher::{AcceptedHistoryItem, CommandSearchItemAction};
 use crate::search::command_search::view::{CommandSearchEvent, CommandSearchView};
 use crate::session_management::{SessionNavigationData, SessionSource};
@@ -427,6 +427,33 @@ struct FileUploadSessions {
     upload_id_to_local_map: HashMap<RemoteUploadId, TerminalPaneId>,
 }
 
+impl FileUploadSessions {
+    fn transfer_to(&mut self, destination: &mut Self, pane_ids: &HashSet<TerminalPaneId>) {
+        let uploads = self
+            .local_to_upload_id_map
+            .iter()
+            .filter_map(|(&local, &remote_upload)| {
+                (pane_ids.contains(&local) || pane_ids.contains(&remote_upload.0))
+                    .then_some((local, remote_upload))
+            })
+            .collect::<Vec<_>>();
+        for (local, remote_upload) in uploads {
+            self.local_to_remote_map.remove(&local);
+            self.local_to_upload_id_map.remove(&local);
+            self.upload_id_to_local_map.remove(&remote_upload);
+            destination
+                .local_to_remote_map
+                .insert(local, remote_upload.0);
+            destination
+                .local_to_upload_id_map
+                .insert(local, remote_upload);
+            destination
+                .upload_id_to_local_map
+                .insert(remote_upload, local);
+        }
+    }
+}
+
 /// Controls the color palette used for a workspace banner.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum BannerSeverity {
@@ -463,9 +490,7 @@ struct PendingSessionConfigReplacement {
     old_pane_group_id: EntityId,
 }
 pub struct TransferredTab {
-    pub pane_group: ViewHandle<PaneGroup>,
-    pub color: Option<AnsiColorIdentifier>,
-    pub custom_title: Option<String>,
+    pub tab: TabData,
     pub vertical_tabs_panel_open: bool,
 }
 
@@ -536,10 +561,6 @@ pub struct Workspace {
     vertical_tabs_panel_open: bool,
     vertical_tabs_panel: VerticalTabsPanelState,
     lightbox_view: Option<ViewHandle<LightboxView>>,
-    /// When true, this workspace was created to receive a transferred PaneGroup.
-    /// The placeholder tab will be replaced when adopt_transferred_pane_group is called.
-    pending_pane_group_transfer: bool,
-    is_drag_preview_workspace: bool,
     /// Sidecar menu for submenu-parent items (Terminal, New worktree config) in the
     /// new-session dropdown. Shown as a positioned overlay next to the hovered
     /// parent item, following the model picker sidecar pattern.
@@ -612,10 +633,6 @@ impl Workspace {
                 crate::util::file::open_file_path_with_editor(line_col, path, None, ctx)
             }
         }
-    }
-
-    pub fn is_drag_preview_workspace(&self) -> bool {
-        self.is_drag_preview_workspace
     }
 
     fn tab_rename_editor_font_size(ctx: &AppContext, appearance: &Appearance) -> f32 {
@@ -988,7 +1005,11 @@ impl Workspace {
             me.handle_theme_chooser_event(event, ctx);
         });
 
-        let settings_pane = ctx.add_typed_action_view(move |ctx| SettingsView::new(None, ctx));
+        (Self::build_settings_view(ctx), theme_chooser_view)
+    }
+
+    fn build_settings_view(ctx: &mut ViewContext<Self>) -> ViewHandle<SettingsView> {
+        let settings_pane = ctx.add_typed_action_view(|ctx| SettingsView::new(None, ctx));
         ctx.subscribe_to_view(&settings_pane, move |me, _, event, ctx| {
             me.handle_settings_pane_event(event, ctx);
         });
@@ -998,7 +1019,69 @@ impl Workspace {
             manager.register_view(window_id, settings_pane.clone());
         });
 
-        (settings_pane, theme_chooser_view)
+        settings_pane
+    }
+
+    pub(crate) fn prepare_tab_for_window_transfer(
+        &self,
+        pane_group: &ViewHandle<PaneGroup>,
+        ctx: &mut ViewContext<Self>,
+    ) -> Vec<EntityId> {
+        // A closed Settings wrapper can retain layout ancestry to the shared source view.
+        let workspace_id = ctx.view_id();
+        ctx.set_view_parent(self.settings_pane.id(), workspace_id);
+        pane_group.update(ctx, |group, ctx| {
+            group.discard_closed_settings_panes_for_transfer(ctx);
+            group.window_transfer_roots(ctx)
+        })
+    }
+
+    pub(crate) fn rebind_transferred_file_uploads(
+        &mut self,
+        source_workspace: &ViewHandle<Workspace>,
+        ctx: &mut ViewContext<Self>,
+    ) {
+        let pane_ids = self.active_tab_pane_group().read(ctx, |group, _| {
+            group
+                .terminal_pane_ids()
+                .filter_map(|id| id.as_terminal_pane_id())
+                .collect()
+        });
+        source_workspace.update(ctx, |source, _| {
+            source
+                .file_upload_sessions
+                .transfer_to(&mut self.file_upload_sessions, &pane_ids);
+        });
+    }
+
+    pub(crate) fn rebind_transferred_settings_pane(
+        &mut self,
+        source_workspace: &ViewHandle<Workspace>,
+        ctx: &mut ViewContext<Self>,
+    ) {
+        let source_window_id = source_workspace.window_id(ctx);
+        let pane_group_id = self.active_tab_pane_group().id();
+        let settings_view = SettingsPaneManager::handle(ctx).update(ctx, |manager, _| {
+            manager.transfer_pane(source_window_id, self.window_id, pane_group_id)
+        });
+        let Some(settings_view) = settings_view else {
+            return;
+        };
+
+        source_workspace.update(ctx, |source, ctx| {
+            ctx.unsubscribe_to_view(&source.settings_pane);
+            source.settings_pane = Self::build_settings_view(ctx);
+            source.sync_settings_error_state_into_settings_pane(ctx);
+        });
+
+        ctx.unsubscribe_to_view(&self.settings_pane);
+        self.settings_pane = settings_view;
+        let workspace_id = ctx.view_id();
+        ctx.set_view_parent(self.settings_pane.id(), workspace_id);
+        ctx.subscribe_to_view(&self.settings_pane, |workspace, _, event, ctx| {
+            workspace.handle_settings_pane_event(event, ctx);
+        });
+        self.sync_settings_error_state_into_settings_pane(ctx);
     }
 
     fn build_theme_creator_modal(ctx: &mut ViewContext<Self>) -> ViewHandle<ThemeCreatorModal> {
@@ -1761,8 +1844,6 @@ impl Workspace {
             vertical_tabs_panel: Default::default(),
             tab_fixed_width: None,
             lightbox_view: None,
-            pending_pane_group_transfer: false,
-            is_drag_preview_workspace: false,
             new_session_sidecar_menu,
             show_new_session_sidecar: false,
             worktree_sidecar_active: false,
@@ -1794,6 +1875,16 @@ impl Workspace {
     #[cfg(any(test, feature = "integration_tests"))]
     pub fn command_palette_view(&self) -> ViewHandle<crate::search::command_palette::View> {
         self.palette.clone()
+    }
+
+    #[cfg(feature = "integration_tests")]
+    pub fn select_tab_context_menu_item(
+        &mut self,
+        name: &str,
+        ctx: &mut ViewContext<Self>,
+    ) -> bool {
+        self.tab_right_click_menu
+            .update(ctx, |menu, ctx| menu.set_selected_by_name(name, ctx))
     }
 
     fn workspace_contains_terminal_view(
@@ -1961,23 +2052,14 @@ impl Workspace {
                 None,
                 ctx,
             ),
-            NewWorkspaceSource::TransferredTab {
-                tab_color,
-                custom_title,
-                for_drag_preview,
-                ..
-            } => {
-                self.is_drag_preview_workspace = for_drag_preview;
-                self.add_tab_with_pane_layout(
-                    Default::default(),
-                    Arc::new(HashMap::new()),
-                    custom_title,
-                    ctx,
-                );
-                if let (Some(color), Some(tab)) = (tab_color, self.tabs.last_mut()) {
-                    tab.selected_color = SelectedTabColor::Color(color);
-                }
-                self.pending_pane_group_transfer = true;
+            NewWorkspaceSource::TransferredTab { tab, .. } => {
+                let workspace_id = ctx.view_id();
+                ctx.set_view_parent(tab.pane_group.id(), workspace_id);
+                ctx.subscribe_to_view(&tab.pane_group, |me, pane_group, event, ctx| {
+                    me.handle_pane_group_event(pane_group, event, ctx);
+                });
+                self.tabs.push(tab);
+                self.activate_tab_internal(0, ctx);
             }
         }
         debug_assert!(
@@ -2241,20 +2323,15 @@ impl Workspace {
 
     /// Get information needed for transferring a tab to another window.
     /// Returns None if the index is invalid or if this is the last tab.
-    pub fn get_tab_transfer_info(&self, index: usize, ctx: &AppContext) -> Option<TransferredTab> {
+    pub fn get_tab_transfer_info(&self, index: usize) -> Option<TransferredTab> {
         if self.tabs.len() <= 1 {
             return None;
         }
         let tab = self.tabs.get(index)?;
-        let pane_group = tab.pane_group.clone();
-        let color = tab.color();
-        let custom_title = pane_group.read(ctx, |pg, ctx| pg.custom_title(ctx));
         let vertical_tabs_panel_open = self.vertical_tabs_panel_open;
 
         Some(TransferredTab {
-            pane_group,
-            color,
-            custom_title,
+            tab: tab.clone(),
             vertical_tabs_panel_open,
         })
     }
@@ -4741,44 +4818,23 @@ impl Workspace {
     }
 
     pub fn remove_tab_without_undo(&mut self, index: usize, ctx: &mut ViewContext<Self>) {
+        ctx.unsubscribe_to_view(&self.tabs[index].pane_group);
         self.remove_tab(index, false, false, ctx);
+        self.update_active_session(ctx);
+        self.update_window_title(ctx);
+        self.focus_active_tab(ctx);
     }
-    /// Adopts a transferred PaneGroup into the placeholder tab created during window transfer.
-    /// This replaces the placeholder tab's PaneGroup with the actual transferred one.
-    pub fn adopt_transferred_pane_group(
-        &mut self,
-        new_pane_group: ViewHandle<PaneGroup>,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        if !self.pending_pane_group_transfer {
-            debug_assert!(
-                false,
-                "adopt_transferred_pane_group called without pending transfer"
-            );
-            return;
-        }
 
-        if self.tabs.is_empty() {
-            debug_assert!(false, "adopt_transferred_pane_group called with no tabs");
-            return;
-        }
-        let Some(placeholder_tab) = self.tabs.last_mut() else {
-            debug_assert!(
-                false,
-                "adopt_transferred_pane_group missing placeholder tab"
+    pub(crate) fn show_tab_transfer_error(&mut self, reason: &str, ctx: &mut ViewContext<Self>) {
+        self.toast_stack.update(ctx, |toasts, ctx| {
+            toasts.add_persistent_toast(
+                DismissibleToast::error(format!(
+                    "Could not move tab to a new window: {reason}. Try again from the tab menu."
+                )),
+                ctx,
             );
-            return;
-        };
-
-        let placeholder_pane_group =
-            std::mem::replace(&mut placeholder_tab.pane_group, new_pane_group);
-        placeholder_pane_group.update(ctx, |pg, ctx| {
-            pg.detach_panes(ctx);
         });
-        self.pending_pane_group_transfer = false;
-
-        ctx.dispatch_global_action("workspace:save_app", ());
-        ctx.notify();
+        self.focus_active_tab(ctx);
     }
 
     /// Checks whether the provided tab indices need quit-warning confirmation before closing.
@@ -4943,6 +4999,8 @@ impl Workspace {
         tab_data: TabData,
         ctx: &mut ViewContext<Self>,
     ) {
+        // Other tabs may have moved to another window since this tab closed.
+        let tab_index = tab_index.min(self.tabs.len());
         // When restoring a closed tab, we have to reattach its panes so that they know they're
         // user-accessible again.
         tab_data.pane_group.update(ctx, |pane_group, ctx| {
@@ -5917,12 +5975,11 @@ impl Workspace {
                         .get(local_pane_id)
                         .expect("Local session should map to upload ID");
 
-                    let terminal_view =
-                        self.active_tab_pane_group().read(ctx, |pane_group, ctx| {
-                            pane_group
-                                .terminal_view_from_pane_id(*remote_pane_id, ctx)
-                                .expect("PaneGroup should find remote pane ID")
-                        });
+                    let terminal_view = pane_group.read(ctx, |pane_group, ctx| {
+                        pane_group
+                            .terminal_view_from_pane_id(*remote_pane_id, ctx)
+                            .expect("PaneGroup should find remote pane ID")
+                    });
                     terminal_view.update(ctx, |terminal_view, ctx| {
                         terminal_view
                             .ssh_file_upload()
@@ -5947,12 +6004,11 @@ impl Workspace {
                         .get(local_pane_id)
                         .expect("Local session should map to upload ID");
 
-                    let terminal_view =
-                        self.active_tab_pane_group().read(ctx, |pane_group, ctx| {
-                            pane_group
-                                .terminal_view_from_pane_id(*remote_pane_id, ctx)
-                                .expect("PaneGroup should find remote pane ID")
-                        });
+                    let terminal_view = pane_group.read(ctx, |pane_group, ctx| {
+                        pane_group
+                            .terminal_view_from_pane_id(*remote_pane_id, ctx)
+                            .expect("PaneGroup should find remote pane ID")
+                    });
 
                     terminal_view.update(ctx, |terminal_view, ctx| {
                         terminal_view
@@ -5975,13 +6031,12 @@ impl Workspace {
                     .expect("Upload ID should map to a local session");
 
                 // Toggle the visibility of the local pane.
-                let local_pane_open =
-                    self.active_tab_pane_group().update(ctx, |pane_group, ctx| {
-                        pane_group.toggle_pane_visibility_for_job(local_pane_id.into(), ctx)
-                    });
+                let local_pane_open = pane_group.update(ctx, |pane_group, ctx| {
+                    pane_group.toggle_pane_visibility_for_job(local_pane_id.into(), ctx)
+                });
 
                 // Inform the remote pane of the state of the local pane.
-                let terminal_view = self.active_tab_pane_group().read(ctx, |pane_group, ctx| {
+                let terminal_view = pane_group.read(ctx, |pane_group, ctx| {
                     pane_group
                         .terminal_view_from_pane_id(*remote_pane_id, ctx)
                         .expect("PaneGroup should find remote pane ID")
@@ -6010,7 +6065,7 @@ impl Workspace {
                     .expect("Upload ID should map to a local session");
 
                 // Close the local pane.
-                self.active_tab_pane_group().update(ctx, |pane_group, ctx| {
+                pane_group.update(ctx, |pane_group, ctx| {
                     pane_group.close_pane(local_pane_id.into(), ctx);
                 });
             }
@@ -8745,6 +8800,21 @@ impl TypedActionView for Workspace {
             MoveActiveTabRight => self.move_tab(self.active_tab_index, TabMovement::Right, ctx),
             MoveTabLeft(index) => self.move_tab(*index, TabMovement::Left, ctx),
             MoveTabRight(index) => self.move_tab(*index, TabMovement::Right, ctx),
+            MoveTabToNewWindow(index) => {
+                self.show_tab_right_click_menu = None;
+                if let Some(tab) = self.tabs.get(*index) {
+                    ctx.dispatch_global_action(
+                        "root_view:move_tab_to_new_window",
+                        MoveTabToNewWindowArg {
+                            pane_group_id: tab.pane_group.id(),
+                            source_window_id: window_id,
+                        },
+                    );
+                } else {
+                    self.show_tab_transfer_error("The tab is no longer available", ctx);
+                }
+                ctx.notify();
+            }
             RenameTab(index) => self.rename_tab(*index, ctx),
             ResetTabName(index) => self.clear_tab_name(*index, ctx),
             RenamePane(locator) => self.rename_pane(*locator, ctx),

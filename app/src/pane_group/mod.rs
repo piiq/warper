@@ -3306,6 +3306,31 @@ impl PaneGroup {
         }
     }
 
+    /// Include unrendered panes and stacked terminal views when moving an inactive tab.
+    pub fn window_transfer_roots(&self, ctx: &AppContext) -> Vec<EntityId> {
+        self.pane_contents
+            .values()
+            .flat_map(|pane| pane.as_pane().window_transfer_roots(ctx))
+            .collect()
+    }
+
+    /// Closed Settings panes share the window's backing view, which may have been reopened elsewhere.
+    pub(crate) fn discard_closed_settings_panes_for_transfer(
+        &mut self,
+        ctx: &mut ViewContext<Self>,
+    ) {
+        let closed_settings = self
+            .panes
+            .get_closed_pane_ids()
+            .into_iter()
+            .filter(|id| self.downcast_pane_by_id::<SettingsPane>(*id).is_some())
+            .collect::<Vec<_>>();
+        for pane_id in closed_settings {
+            self.cleanup_closed_pane(pane_id, ctx);
+            UndoCloseStack::handle(ctx).update(ctx, |stack, _| stack.forget_pane(pane_id));
+        }
+    }
+
     pub fn focus(&mut self, ctx: &mut ViewContext<Self>) {
         self.update_session_visibility(ctx);
 
@@ -3718,13 +3743,5 @@ impl View for PaneGroup {
         column.add_child(Shrinkable::new(1., main_content).finish());
 
         Stack::new().with_child(column.finish()).finish()
-    }
-
-    fn on_window_transferred(
-        &mut self,
-        _old_window_id: WindowId,
-        _new_window_id: WindowId,
-        _ctx: &mut ViewContext<Self>,
-    ) {
     }
 }

@@ -6,12 +6,12 @@ use crate::persistence::ModelEvent;
 use crate::settings::QuakeModeSettings;
 use crate::settings_view::flags;
 use crate::settings_view::SettingsSection;
+use crate::tab::TabData;
 use crate::terminal::available_shells::AvailableShell;
 use crate::terminal::general_settings::GeneralSettings;
 use crate::terminal::keys_settings::KeysSettings;
 use crate::terminal::shell::ShellType;
 use crate::terminal::view::cell_size_and_padding;
-use crate::themes::theme::AnsiColorIdentifier;
 use crate::util::bindings::{self, is_binding_pty_compliant};
 use crate::window_settings::WindowSettings;
 use crate::workspace::WorkspaceAction;
@@ -23,6 +23,7 @@ use crate::{
     UpdateQuakeModeEventArg,
 };
 use crate::{GlobalResourceHandles, GlobalResourceHandlesProvider};
+use anyhow::{Context as _, Result};
 use lazy_static::lazy_static;
 use parking_lot::Mutex;
 use pathfinder_geometry::rect::RectF;
@@ -39,7 +40,7 @@ use warpui::windowing::WindowManager;
 
 use warpui::elements::{ParentElement, Stack};
 use warpui::rendering::OnGPUDeviceSelected;
-use warpui::{id, AddWindowOptions, DisplayId, SingletonEntity};
+use warpui::{id, AddWindowOptions, DisplayId, DisplayIdx, SingletonEntity};
 use warpui::{
     platform::{WindowBounds, WindowStyle},
     presenter::ChildView,
@@ -138,26 +139,10 @@ pub struct SubshellCommandArg {
     pub shell_type: Option<ShellType>,
 }
 
-/// Arguments for the immediate tab detach action dispatched during drag.
-/// This contains minimal info needed to identify which tab to detach.
-pub struct DetachTabImmediateArg {
-    /// Index of the tab to detach
-    pub tab_index: usize,
-    /// Pre-calculated window position for the new window (in screen coordinates).
-    /// This is calculated to position the window so the mouse is in the tab bar region.
-    pub window_position: Option<Vector2F>,
-    /// Source window ID - the window containing the tab to detach.
-    /// We need this because the active window might be the preview window.
-    pub source_window_id: WindowId,
-}
-
-/// Pre-gathered information for creating a transferred window.
-/// This is used when the caller already has access to the workspace (e.g., from within a view method)
-/// and cannot rely on workspace lookup (which fails during view updates).
-pub struct TabTransferInfo {
-    pub transferred_tab: crate::workspace::view::TransferredTab,
-    pub window_size: Vector2F,
-    pub window_position: Vector2F,
+/// Identifies the tab independently of its position when the menu action was dispatched.
+#[derive(Clone, Copy)]
+pub struct MoveTabToNewWindowArg {
+    pub pane_group_id: EntityId,
     pub source_window_id: WindowId,
 }
 
@@ -175,8 +160,10 @@ pub fn init(app: &mut AppContext) {
         open_new_tab_insert_subshell_command_and_bootstrap_if_supported,
     );
     app.add_global_action("root_view:send_feedback", send_feedback);
-    app.add_global_action("root_view:detach_tab_immediate", |arg, ctx| {
-        let _ = detach_tab_with_transfer(arg, ctx);
+    app.add_global_action("root_view:move_tab_to_new_window", |arg, ctx| {
+        if let Err(error) = move_tab_to_new_window(arg, ctx) {
+            report_tab_transfer_error(arg.source_window_id, error, ctx);
+        }
     });
     app.add_global_action(
         "root_view:toggle_quake_mode_window",
@@ -312,118 +299,150 @@ fn send_feedback(_: &(), ctx: &mut AppContext) {
     }
 }
 
-/// Handler for tab detachment using the transferable views framework.
-/// Instead of extracting and recreating views, this transfers the PaneGroup view tree directly.
-/// Returns the new window ID if successful.
-pub fn detach_tab_with_transfer(
-    arg: &DetachTabImmediateArg,
+fn report_tab_transfer_error(
+    source_window_id: WindowId,
+    error: anyhow::Error,
     ctx: &mut AppContext,
-) -> Option<WindowId> {
-    let Some(source_workspace) = workspace_for_window(arg.source_window_id, ctx) else {
-        log::warn!(
-            "No workspace found for source window {:?}",
-            arg.source_window_id
-        );
-        return None;
-    };
-
-    let transferred_tab = source_workspace.read(ctx, |workspace, ctx| {
-        workspace.get_tab_transfer_info(arg.tab_index, ctx)
-    })?;
-
-    let window_size = ctx
-        .windows()
-        .platform_window(arg.source_window_id)
-        .map(|window| window.as_ctx().size())
-        .unwrap_or(*FALLBACK_WINDOW_SIZE);
-
-    let window_position = arg.window_position.unwrap_or_default();
-
-    let info = TabTransferInfo {
-        transferred_tab,
-        window_size,
-        window_position,
-        source_window_id: arg.source_window_id,
-    };
-
-    let (new_window_id, _transferred_view_ids) = create_transferred_window(info, false, ctx);
-
-    source_workspace.update(ctx, |workspace, ctx| {
-        workspace.remove_tab_without_undo(arg.tab_index, ctx);
-    });
-
-    Some(new_window_id)
+) {
+    log::error!("Could not move tab to a new window: {error:#}");
+    if let Some(workspace) = workspace_for_window(source_window_id, ctx) {
+        workspace.update(ctx, |workspace, ctx| {
+            workspace.show_tab_transfer_error(&error.to_string(), ctx);
+        });
+    }
 }
 
-/// Creates a new window with the transferred pane group.
-/// This function takes pre-gathered TabTransferInfo, allowing it to be called
-/// from within a view method where workspace lookup would fail.
-///
-/// If `for_drag` is true, the window is created without stealing focus (for drag preview).
-///
-/// Returns the new window ID and the list of transferred view entity IDs.
-/// The transferred view IDs are needed by `tab_drag::on_tab_drag` to track which
-/// views must follow the tab during subsequent handoff/reverse-handoff cycles.
-pub fn create_transferred_window(
-    info: TabTransferInfo,
-    for_drag: bool,
-    ctx: &mut AppContext,
-) -> (WindowId, Vec<EntityId>) {
-    let global_resource_handles = GlobalResourceHandlesProvider::handle(ctx)
-        .as_ref(ctx)
-        .get()
-        .clone();
-    let window_settings = WindowSettings::handle(ctx).as_ref(ctx);
-
-    let window_bounds =
-        WindowBounds::ExactPosition(RectF::new(info.window_position, info.window_size));
-
-    let window_style = if for_drag {
-        WindowStyle::PositionedNoFocus
-    } else {
-        WindowStyle::Normal
+/// Moves live views after native window creation succeeds, including on asynchronous backends.
+fn move_tab_to_new_window(arg: &MoveTabToNewWindowArg, ctx: &mut AppContext) -> Result<()> {
+    let source_workspace = workspace_for_window(arg.source_window_id, ctx)
+        .context("The source window is no longer available")?;
+    source_workspace
+        .read(ctx, |workspace, _| {
+            let index = workspace
+                .tab_views()
+                .position(|pane_group| pane_group.id() == arg.pane_group_id)?;
+            workspace.get_tab_transfer_info(index)
+        })
+        .context("The tab is no longer available, or it is the window's last tab")?;
+    let source_window = ctx
+        .windows()
+        .platform_window(arg.source_window_id)
+        .context("The source window is no longer available")?;
+    let source_bounds = RectF::new(source_window.origin(), source_window.size());
+    let window_bounds = transferred_window_bounds(source_bounds, ctx);
+    let window_settings = WindowSettings::as_ref(ctx);
+    let options = AddWindowOptions {
+        window_style: WindowStyle::Normal,
+        window_bounds: WindowBounds::ExactPosition(window_bounds),
+        title: Some(WINDOW_TITLE.to_owned()),
+        background_blur_radius_pixels: Some(*window_settings.background_blur_radius),
+        background_blur_texture: *window_settings.background_blur_texture,
+        on_gpu_driver_selected: on_gpu_driver_selected_callback(),
+        ..Default::default()
     };
-
-    let (new_window_id, _) = ctx.add_window(
-        AddWindowOptions {
-            window_style,
-            window_bounds,
-            title: Some(WINDOW_TITLE.to_owned()),
-            background_blur_radius_pixels: Some(*window_settings.background_blur_radius),
-            background_blur_texture: *window_settings.background_blur_texture,
-            on_gpu_driver_selected: on_gpu_driver_selected_callback(),
-            ..Default::default()
-        },
-        |ctx| {
-            let mut view = RootView::new(
-                global_resource_handles.clone(),
-                NewWorkspaceSource::TransferredTab {
-                    tab_color: info.transferred_tab.color,
-                    custom_title: info.transferred_tab.custom_title.clone(),
-                    vertical_tabs_panel_open: info.transferred_tab.vertical_tabs_panel_open,
-                    for_drag_preview: for_drag,
-                },
-                ctx,
-            );
-            if !for_drag {
-                view.focus(ctx);
+    let arg = *arg;
+    ctx.try_add_window_async(
+        options,
+        move |destination, ctx| {
+            // The user may change tabs while the OS is opening the window.
+            let source_workspace = workspace_for_window(arg.source_window_id, ctx)
+                .context("The source window is no longer available")?;
+            let transferred_tab = source_workspace
+                .read(ctx, |workspace, _| {
+                    let index = workspace
+                        .tab_views()
+                        .position(|pane_group| pane_group.id() == arg.pane_group_id)?;
+                    workspace.get_tab_transfer_info(index)
+                })
+                .context("The tab is no longer available, or it is the window's last tab")?;
+            let transfer_roots = source_workspace.update(ctx, |workspace, ctx| {
+                workspace.prepare_tab_for_window_transfer(&transferred_tab.tab.pane_group, ctx)
+            });
+            for root in std::iter::once(arg.pane_group_id).chain(transfer_roots) {
+                ctx.transfer_view_tree_to_window(root, arg.source_window_id, destination);
             }
-            view
+            let resources = GlobalResourceHandlesProvider::as_ref(ctx).get().clone();
+            Ok(ctx.add_typed_action_view(destination, |ctx| {
+                RootView::new(
+                    resources,
+                    NewWorkspaceSource::TransferredTab {
+                        tab: transferred_tab.tab,
+                        vertical_tabs_panel_open: transferred_tab.vertical_tabs_panel_open,
+                    },
+                    ctx,
+                )
+            }))
+        },
+        move |result, ctx| match result {
+            Ok((destination, root)) => {
+                // Build and completion run together; the source tab was just validated.
+                let source_workspace = workspace_for_window(arg.source_window_id, ctx)
+                    .expect("The source workspace was validated before transfer");
+                source_workspace.update(ctx, |workspace, ctx| {
+                    let index = workspace
+                        .tab_views()
+                        .position(|pane_group| pane_group.id() == arg.pane_group_id)
+                        .expect("The source tab was validated before transfer");
+                    workspace.remove_tab_without_undo(index, ctx);
+                });
+                root.read(ctx, |root, _| root.workspace.clone())
+                    .update(ctx, |workspace, ctx| {
+                        workspace.rebind_transferred_file_uploads(&source_workspace, ctx);
+                        workspace.rebind_transferred_settings_pane(&source_workspace, ctx);
+                    });
+                root.update(ctx, |root, ctx| {
+                    root.focus(ctx);
+                });
+                ctx.windows().show_window_and_focus_app(destination);
+                ctx.dispatch_global_action("workspace:save_app", &());
+            }
+            Err(error) => report_tab_transfer_error(
+                arg.source_window_id,
+                error.context("The new window could not be opened"),
+                ctx,
+            ),
         },
     );
+    Ok(())
+}
 
-    let pane_group_id = info.transferred_tab.pane_group.id();
-    let transferred_view_ids =
-        ctx.transfer_view_tree_to_window(pane_group_id, info.source_window_id, new_window_id);
+/// Cascade within the display containing most of the source window.
+fn transferred_window_bounds(source: RectF, ctx: &AppContext) -> RectF {
+    let display = (0..ctx.windows().display_count())
+        .filter_map(|index| {
+            ctx.windows().bounds_for_display_idx(if index == 0 {
+                DisplayIdx::Primary
+            } else {
+                DisplayIdx::External(index - 1)
+            })
+        })
+        .filter_map(|bounds| {
+            source
+                .intersection(bounds)
+                .map(|intersection| (bounds, intersection.width() * intersection.height()))
+        })
+        .max_by(|(_, a), (_, b)| a.total_cmp(b))
+        .map(|(bounds, _)| bounds);
+    display.map_or(source, |display| cascade_tab_window_bounds(source, display))
+}
 
-    if let Some(new_workspace) = workspace_for_window(new_window_id, ctx) {
-        new_workspace.update(ctx, |workspace, ctx| {
-            workspace.adopt_transferred_pane_group(info.transferred_tab.pane_group.clone(), ctx);
-        });
-    } else {
-        log::warn!("Failed to find workspace in newly created window {new_window_id:?}");
-    }
-    (new_window_id, transferred_view_ids)
+fn cascade_tab_window_bounds(source: RectF, display: RectF) -> RectF {
+    let size = vec2f(
+        source.width().min(display.width()),
+        source.height().min(display.height()),
+    );
+    let origin = source.origin() + vec2f(24., 24.);
+    RectF::new(
+        vec2f(
+            origin
+                .x()
+                .clamp(display.min_x(), display.max_x() - size.x()),
+            origin
+                .y()
+                .clamp(display.min_y(), display.max_y() - size.y()),
+        ),
+        size,
+    )
 }
 
 fn on_gpu_driver_selected_callback() -> Option<Box<OnGPUDeviceSelected>> {
@@ -1004,18 +1023,10 @@ pub enum NewWorkspaceSource {
         options: Box<NewTerminalOptions>,
     },
 
-    /// A tab is being transferred from another window via the transferable views framework.
-    /// The workspace will create a placeholder tab, which will be replaced by the transferred
-    /// PaneGroup after window creation.
+    /// Existing live tab views, transferred before the workspace is constructed.
     TransferredTab {
-        /// Tab color from the source tab
-        tab_color: Option<AnsiColorIdentifier>,
-        /// Custom title from the source tab
-        custom_title: Option<String>,
-        /// Whether the source window's vertical tabs panel was open.
+        tab: TabData,
         vertical_tabs_panel_open: bool,
-        /// Whether this transferred tab window is currently being used as a drag preview.
-        for_drag_preview: bool,
     },
 }
 
@@ -1259,3 +1270,7 @@ impl WorkspaceArgs {
         })
     }
 }
+
+#[cfg(test)]
+#[path = "root_view_tests.rs"]
+mod tests;

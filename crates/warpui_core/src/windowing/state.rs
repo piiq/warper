@@ -1,4 +1,6 @@
 use pathfinder_geometry::rect::RectF;
+#[cfg(any(test, feature = "test-util"))]
+use std::cell::Cell;
 use std::{
     collections::VecDeque,
     fmt::{Display, Formatter},
@@ -57,6 +59,8 @@ pub struct State {
 pub struct WindowManager {
     state: State,
     platform: Box<dyn platform::WindowManager>,
+    #[cfg(any(test, feature = "test-util"))]
+    fail_next_open_window: Cell<bool>,
 }
 
 impl WindowManager {
@@ -67,7 +71,14 @@ impl WindowManager {
         Self {
             state: Default::default(),
             platform: window_manager,
+            #[cfg(any(test, feature = "test-util"))]
+            fail_next_open_window: Cell::new(false),
         }
+    }
+
+    #[cfg(any(test, feature = "test-util"))]
+    pub fn fail_next_open_window_for_test(&self) {
+        self.fail_next_open_window.set(true);
     }
 
     #[cfg(any(test, feature = "test-util", feature = "integration_tests"))]
@@ -199,6 +210,10 @@ impl WindowManager {
         window_options: platform::WindowOptions,
         callbacks: WindowCallbacks,
     ) -> anyhow::Result<()> {
+        #[cfg(any(test, feature = "test-util"))]
+        if self.fail_next_open_window.replace(false) {
+            anyhow::bail!("Injected window creation failure");
+        }
         self.platform
             .open_window(window_id, window_options, callbacks)
     }

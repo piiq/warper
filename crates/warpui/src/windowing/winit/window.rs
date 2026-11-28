@@ -471,7 +471,11 @@ impl platform::WindowManager for IntegrationTestWindowManager {
     }
 
     fn remove_window(&mut self, window_id: WindowId) {
-        self.window_manager.remove_window(window_id)
+        self.window_manager.remove_window(window_id);
+        self.app_state
+            .lock()
+            .window_id_stack
+            .retain(|id| *id != window_id);
     }
 
     fn active_window_id(&self) -> Option<WindowId> {
@@ -1409,6 +1413,10 @@ fn maybe_adjust_window_vertically(window: &winit::window::Window) -> Option<i32>
 }
 
 impl crate::platform::Window for Window {
+    fn is_ready(&self) -> bool {
+        self.inner.borrow().is_some()
+    }
+
     fn callbacks(&self) -> &WindowCallbacks {
         &self.callbacks
     }

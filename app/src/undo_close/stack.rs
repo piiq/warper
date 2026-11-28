@@ -165,6 +165,13 @@ impl UndoCloseStack {
         self.push_item(ClosedItem::Pane { data: pane_data }, ctx);
     }
 
+    /// Forgets a pane that has already been discarded, without requesting cleanup again.
+    pub(crate) fn forget_pane(&mut self, pane_id: PaneId) {
+        self.stack.retain(|item| {
+            !matches!(&item.closed_item, ClosedItem::Pane { data } if data.pane_id == pane_id)
+        });
+    }
+
     /// Undoes the last close action in the stack, if possible.
     pub fn undo_close(&mut self, ctx: &mut AppContext) {
         let Some(UndoData { closed_item, .. }) = self.stack.pop() else {

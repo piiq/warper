@@ -1149,6 +1149,10 @@ pub trait WindowExt {
 
     /// Sets whether or not to show the native macOS window buttons (traffic lights).
     fn set_window_buttons(&self, window_buttons: bool);
+
+    /// Checks native hit testing and schedules a click on the red close button.
+    #[cfg(feature = "integration_tests")]
+    fn click_native_close_button(&self);
 }
 
 /// Utility for interacting with the native [`Window`] implementation. The native window is always
@@ -1174,6 +1178,44 @@ impl WindowExt for &dyn platform::Window {
     fn set_window_buttons(&self, window_buttons: bool) {
         if let Some(window) = native_window(*self) {
             window.0.set_window_buttons(window_buttons)
+        }
+    }
+
+    #[cfg(feature = "integration_tests")]
+    fn click_native_close_button(&self) {
+        use cocoa::appkit::NSEventType;
+
+        let window = native_window(*self).expect("This test requires a native macOS window");
+        unsafe {
+            let native = window.0.native_window;
+            let button: id =
+                msg_send![native, standardWindowButton: NSWindowButton::NSWindowCloseButton];
+            assert_ne!(button, nil, "The native close button must exist");
+            let enabled: BOOL = msg_send![button, isEnabled];
+            assert_eq!(enabled, YES, "The native close button must be enabled");
+            let bounds: NSRect = msg_send![button, bounds];
+            let center = NSPoint::new(
+                bounds.origin.x + bounds.size.width / 2.,
+                bounds.origin.y + bounds.size.height / 2.,
+            );
+            let content: id = msg_send![native, contentView];
+            let frame: id = msg_send![content, superview];
+            let point: NSPoint = msg_send![button, convertPoint: center toView: frame];
+            let hit: id = msg_send![frame, hitTest: point];
+            assert_eq!(
+                hit, button,
+                "The native close button must receive mouse clicks"
+            );
+            let location: NSPoint = msg_send![button, convertPoint: center toView: nil];
+            let number: NSInteger = msg_send![native, windowNumber];
+            for event_type in [NSEventType::NSLeftMouseDown, NSEventType::NSLeftMouseUp] {
+                let event: id = msg_send![class!(NSEvent), mouseEventWithType: event_type
+                    location: location modifierFlags: 0_usize timestamp: 0.0_f64
+                    windowNumber: number context: nil eventNumber: 0_isize
+                    clickCount: 1_isize pressure: 1.0_f32];
+                // Queue both events so AppKit's button tracking loop can consume the mouse-up.
+                let _: () = msg_send![NSApp(), postEvent: event atStart: NO];
+            }
         }
     }
 }

@@ -39,6 +39,10 @@ impl Entity for PtyRecorder {
 }
 
 impl PtyRecorder {
+    pub fn set_window_id(&mut self, window_id: WindowId) {
+        self.window_id = window_id;
+    }
+
     /// Creates a new recorder. Recording is enabled for a session if it
     /// is toggled on or if the global recording mode in [`DebugSettings`]
     /// is set.
