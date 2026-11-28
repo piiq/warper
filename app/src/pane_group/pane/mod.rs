@@ -277,6 +277,11 @@ pub trait PaneContent: 'static {
     /// The corresponding identifier for this pane.
     fn id(&self) -> PaneId;
 
+    /// Roots owned by this pane, including backing views hidden below the active view.
+    fn window_transfer_roots(&self, _ctx: &AppContext) -> Vec<EntityId> {
+        vec![self.id().creation_order_id()]
+    }
+
     /// Pre-attachment hook that allows panes to perform some work before attachment.
     /// Returns true if the pane can be attached normally, false if attachment should be prevented.
     fn pre_attach(&self, _group: &PaneGroup, _ctx: &mut ViewContext<PaneGroup>) -> bool {
@@ -589,6 +594,20 @@ impl<P: BackingView<AssociatedData = ()>> PaneStack<P> {
     /// around [`Self::push`] for panes with no associated data.
     pub fn push_view(&mut self, view: ViewHandle<P>, ctx: &mut ModelContext<Self>) {
         self.push((), view, ctx);
+    }
+
+    /// Rebinds the active entry while preserving the pane and its navigation depth.
+    pub(crate) fn replace_active_view(
+        &mut self,
+        view: ViewHandle<P>,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        let weak_handle = ctx.handle();
+        view.update(ctx, |view, ctx| {
+            view.set_pane_stack(weak_handle, ctx);
+        });
+        self.children.last_mut().1 = view.clone();
+        ctx.emit(PaneStackEvent::ViewAdded(view));
     }
 }
 

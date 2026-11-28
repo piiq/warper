@@ -8,6 +8,7 @@ mod ctrl_d;
 mod history;
 mod input;
 mod keyboard_protocol;
+mod move_tab;
 mod pane_restoration;
 #[cfg(target_os = "macos")]
 mod preview_config_migration;
@@ -29,6 +30,7 @@ pub use ctrl_d::*;
 pub use history::*;
 pub use input::*;
 pub use keyboard_protocol::*;
+pub use move_tab::*;
 pub use pane_restoration::*;
 #[cfg(target_os = "macos")]
 pub use preview_config_migration::*;

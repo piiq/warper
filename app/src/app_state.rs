@@ -121,9 +121,6 @@ pub fn get_app_state(app: &AppContext) -> AppState {
             .and_then(|workspaces| workspaces.first())
         {
             let ws = first_workspace.as_ref(app);
-            if ws.is_drag_preview_workspace() {
-                continue;
-            }
             let snapshot = ws.snapshot(
                 window_id,
                 quake_mode_id.map(|id| id == window_id).unwrap_or(false),

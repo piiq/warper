@@ -21,6 +21,8 @@ integration_tests! {
     test_rc_files_only_sourced_once_during_bootstrapping,
     // Test ctrl-c terminates long-running commands.
     test_ctrl_c,
+    // Test running commands and shell input survive moving a tab and closing its source window.
+    test_move_tab_to_new_window_preserves_running_command,
     // Test copying a block's command gives us the expected command string.
     test_open_context_menu_and_execute_command,
     // Test we get the right metadata from a bootstrapped shell.

@@ -204,6 +204,10 @@ impl AppCallbackDispatcher {
     }
 
     pub fn window_will_close(&mut self, window_id: WindowId) {
+        // Failed asynchronous openings have no app views or undoable window contents.
+        if !self.ui_app.read(|ctx| ctx.is_window_open(window_id)) {
+            return;
+        }
         log::info!("{window_id:?} will close");
         if let Some(callback) = &mut self.callbacks.on_window_will_close {
             self.ui_app.update(|ctx| {

@@ -35,6 +35,8 @@ Warper keeps Warp's terminal and third-party CLI-agent integration. Built-in AI 
 
 Native Rust app with blocks, panes, tabs, session restoration, command history, shell integration, command palette, themes, keybindings, tab configs, Git worktree helpers, external file opening, and a background image picker.
 
+Right-click a tab and choose “Move Tab to New Window” to move it with all its panes and running sessions. The source window must contain at least two tabs.
+
 ### Third-party CLI agents
 
 Run `codex`, `claude`, `gemini`, or another supported CLI agent in the terminal. Warper adds a status indicator, optional rich input, and a finish notification.

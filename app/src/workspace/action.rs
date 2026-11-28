@@ -75,6 +75,7 @@ pub enum WorkspaceAction {
     MoveActiveTabRight,
     MoveTabLeft(usize),
     MoveTabRight(usize),
+    MoveTabToNewWindow(usize),
     RenameTab(usize),
     ResetTabName(usize),
     RenamePane(PaneViewLocator),
@@ -354,6 +355,7 @@ impl WorkspaceAction {
             | MoveActiveTabRight
             | MoveTabLeft(_)
             | MoveTabRight(_)
+            | MoveTabToNewWindow(_)
             | DropTab
             | RenameTab(_)
             | ResetTabName(_)

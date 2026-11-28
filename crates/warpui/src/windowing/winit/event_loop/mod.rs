@@ -597,6 +597,13 @@ impl EventLoop {
                     self.downrank_non_nvidia_vulkan_adapters,
                 ) {
                     Ok(winit_window_id) => {
+                        self.callbacks.for_window(window).window_opened(Ok(()));
+                        if self
+                            .ui_app
+                            .read(|ctx| ctx.windows().platform_window(window_id).is_none())
+                        {
+                            return;
+                        }
                         let window_state = WindowState::new(window_id);
                         self.state.windows.insert(winit_window_id, window_state);
                         // Now that the window has opened and we know its
@@ -606,8 +613,9 @@ impl EventLoop {
                     }
                     Err(err) => {
                         log::error!("Failed to open window: {err:#}");
-                        // Tell the app that the window is "closing".
-                        self.callbacks.window_will_close(window_id);
+                        if !self.callbacks.for_window(window).window_opened(Err(err)) {
+                            self.callbacks.window_will_close(window_id);
+                        }
                     }
                 }
             }

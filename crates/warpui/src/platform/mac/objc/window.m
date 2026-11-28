@@ -316,6 +316,8 @@ void init_warp_nswindow(NSWindow<WarpWindowProtocol> *window, bool testMode, boo
     // macOS from cascading or clamping the window position while a tab-drag preview window is
     // being created and positioned under the cursor.
     BOOL _suppressFrameConstraintsDuringDrag;
+    // Keep content drags captured without intercepting native titlebar button tracking.
+    BOOL _forwardingContentMouseEvents;
 }
 
 @synthesize testMode;
@@ -387,19 +389,36 @@ void init_warp_nswindow(NSWindow<WarpWindowProtocol> *window, bool testMode, boo
 
 - (void)sendEvent:(NSEvent *)event {
     switch (event.type) {
+        case NSEventTypeLeftMouseDown: {
+            NSView *frameView = self.contentView.superview;
+            NSPoint point = [frameView convertPoint:event.locationInWindow fromView:nil];
+            NSView *target = [frameView hitTest:point];
+            _forwardingContentMouseEvents = [target isDescendantOf:self.contentView];
+            [super sendEvent:event];
+            break;
+        }
         // In some cases, NSWindow's default sendEvent: implementation will dispatch a MouseDown
         // event and subsequent MouseDragged events to the content view, but then dispatch the
         // remaining MouseDragged events and MouseUp event elsewhere.
         // This is inconsistent with the Cocoa event architecture documentation
         // (https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/EventOverview/EventArchitecture/EventArchitecture.html),
         // but it's unclear how or why the events get redirected.
-        // This breaks drag-and-drop for panes and tabs (see CLD-2581), so we work around it with
-        // custom dispatching.
+        // Keep content drags captured (CLD-2581). Native titlebar controls need their own
+        // mouse-up and drag events to complete clicks.
         case NSEventTypeLeftMouseUp:
-            [self.contentView mouseUp:event];
+            if (_forwardingContentMouseEvents) {
+                [self.contentView mouseUp:event];
+            } else {
+                [super sendEvent:event];
+            }
+            _forwardingContentMouseEvents = NO;
             break;
         case NSEventTypeLeftMouseDragged:
-            [self.contentView mouseDragged:event];
+            if (_forwardingContentMouseEvents) {
+                [self.contentView mouseDragged:event];
+            } else {
+                [super sendEvent:event];
+            }
             break;
 
         // The NSWindow's default sendEvent: implementation does not propagate RightMouseDown events

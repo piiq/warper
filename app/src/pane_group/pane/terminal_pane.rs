@@ -139,6 +139,19 @@ impl PaneContent for TerminalPane {
         PaneId::from_terminal_pane_view(&self.view)
     }
 
+    fn window_transfer_roots(&self, ctx: &AppContext) -> Vec<EntityId> {
+        let mut roots = vec![self.view.id()];
+        roots.extend(
+            self.view
+                .as_ref(ctx)
+                .pane_stack()
+                .as_ref(ctx)
+                .views()
+                .map(|view| view.id()),
+        );
+        roots
+    }
+
     fn attach(
         &self,
         group: &PaneGroup,

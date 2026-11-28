@@ -110,6 +110,11 @@ fn register_tests() -> HashMap<&'static str, BoxedBuilderFn> {
     register_test!(test_single_command);
     register_test!(test_add_and_close_session);
     register_test!(test_add_many_sessions);
+    register_test!(test_move_tab_to_new_window_preserves_session);
+    register_test!(test_move_tab_to_new_window_can_close_destination);
+    #[cfg(target_os = "macos")]
+    register_test!(test_move_tab_to_new_window_native_close_button);
+    register_test!(test_move_tab_to_new_window_preserves_running_command);
     register_test!(test_ctrl_tab_session_switching);
     register_test!(test_ctrl_d_eot);
     register_test!(test_ctrl_d_exit);

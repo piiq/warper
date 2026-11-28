@@ -426,6 +426,11 @@ pub enum FullscreenState {
 }
 
 pub trait Window: 'static + WindowContext + std::any::Any {
+    /// Whether native creation and rendering-resource initialization have completed.
+    fn is_ready(&self) -> bool {
+        true
+    }
+
     fn minimize(&self);
     fn toggle_maximized(&self);
     fn toggle_fullscreen(&self);

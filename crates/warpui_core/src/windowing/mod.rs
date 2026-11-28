@@ -27,10 +27,13 @@ pub(crate) type ActiveCursorPositionCallback = Box<dyn Fn(&mut AppContext) -> Op
 pub(crate) type MoveCallback = Box<dyn Fn(RectF, &mut AppContext)>;
 pub(crate) type FrameCallback = Box<dyn Fn(&mut AppContext)>;
 pub(crate) type BuildSceneCallback = Box<dyn Fn(&dyn WindowContext, &mut AppContext) -> Rc<Scene>>;
+pub(crate) type OpenedCallback = Box<dyn Fn(anyhow::Result<()>, &mut AppContext) -> bool>;
 
 /// A collection of callbacks that are used to update UI framework state in
 /// response to platform-level events.
 pub struct WindowCallbacks {
+    /// Reports native creation; returns whether an asynchronous opening handled the result.
+    pub opened_callback: OpenedCallback,
     /// Dispatches a [`StandardAction`].
     pub standard_action_callback: StandardActionCallback,
     /// Dispatches an [`Event`].
@@ -64,6 +67,10 @@ impl<'a> WindowCallbackDispatcher<'a> {
 
     pub fn dispatch_event(&mut self, event: Event) -> EventDispatchResult {
         (self.callbacks.event_callback)(event, &mut self.ctx)
+    }
+
+    pub fn window_opened(&mut self, result: anyhow::Result<()>) -> bool {
+        (self.callbacks.opened_callback)(result, &mut self.ctx)
     }
 
     pub fn window_resized(&mut self, window: &dyn WindowContext) {

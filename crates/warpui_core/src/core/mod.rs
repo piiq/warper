@@ -450,11 +450,11 @@ type SubscriptionFromViewCallback =
     dyn FnMut(&mut dyn Any, &dyn Any, &mut AppContext, WindowId, EntityId);
 type SubscriptionFromAppCallback = dyn FnMut(&dyn Any, &mut AppContext, EntityId);
 
-/// Key that uniquely identifies a subscription for deferred unsubscribe tracking.
+/// Identity of a subscriber, independent of a view's current window.
 #[derive(Hash, Eq, PartialEq, Clone, Copy)]
 pub(super) enum SubscriptionKey {
     Model(EntityId),
-    View(WindowId, EntityId),
+    View(EntityId),
 }
 
 /// Tracks pending unsubscribes during event emission.
@@ -489,14 +489,12 @@ enum Subscription {
 }
 
 impl Subscription {
-    /// Returns a key that uniquely identifies this subscription for deferred unsubscribe tracking.
+    /// Returns the subscriber identity used for deferred unsubscription.
     /// Returns `None` for `FromApp` subscriptions since they cannot be unsubscribed.
     fn subscription_key(&self) -> Option<SubscriptionKey> {
         match self {
             Subscription::FromModel { model_id, .. } => Some(SubscriptionKey::Model(*model_id)),
-            Subscription::FromView {
-                window_id, view_id, ..
-            } => Some(SubscriptionKey::View(*window_id, *view_id)),
+            Subscription::FromView { view_id, .. } => Some(SubscriptionKey::View(*view_id)),
             Subscription::FromApp { .. } => None,
         }
     }

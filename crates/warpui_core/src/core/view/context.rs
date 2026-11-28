@@ -144,7 +144,9 @@ impl<'a, T: View> ViewContext<'a, T> {
         S: View,
         F: FnOnce(&mut ViewContext<S>) -> S,
     {
-        self.app.add_view(self.window_id, build_view)
+        let handle = self.app.add_view(self.window_id, build_view);
+        self.app.set_view_parent(handle.id(), self.view_id);
+        handle
     }
 
     pub fn add_typed_action_view<V, F>(&mut self, build_view: F) -> ViewHandle<V>
@@ -162,7 +164,9 @@ impl<'a, T: View> ViewContext<'a, T> {
         S: View,
         F: FnOnce(&mut ViewContext<S>) -> Option<S>,
     {
-        self.app.add_option_view(self.window_id, build_view)
+        let handle = self.app.add_option_view(self.window_id, build_view)?;
+        self.app.set_view_parent(handle.id(), self.view_id);
+        Some(handle)
     }
 
     pub fn subscribe_to_model<E, F>(&mut self, handle: &ModelHandle<E>, mut callback: F)
@@ -226,9 +230,7 @@ impl<'a, T: View> ViewContext<'a, T> {
         // If we're currently emitting events for this entity, defer the unsubscribe.
         if let Some(ref mut pending) = self.app.pending_unsubscribes {
             if pending.entity_id == target_entity {
-                pending
-                    .keys
-                    .insert(SubscriptionKey::View(self.window_id, self.view_id));
+                pending.keys.insert(SubscriptionKey::View(self.view_id));
 
                 // Remove subscriptions created earlier in this emission so subscribe-then-unsubscribe ordering is preserved.
                 if let std::collections::hash_map::Entry::Occupied(mut entry) =
@@ -236,9 +238,7 @@ impl<'a, T: View> ViewContext<'a, T> {
                 {
                     entry.get_mut().retain(|subscription| match subscription {
                         Subscription::FromModel { .. } | Subscription::FromApp { .. } => true,
-                        Subscription::FromView {
-                            window_id, view_id, ..
-                        } => *window_id != self.window_id || *view_id != self.view_id,
+                        Subscription::FromView { view_id, .. } => *view_id != self.view_id,
                     });
 
                     if entry.get().is_empty() {
@@ -257,9 +257,7 @@ impl<'a, T: View> ViewContext<'a, T> {
             .or_default()
             .retain(|subscription| match subscription {
                 Subscription::FromModel { .. } | Subscription::FromApp { .. } => true,
-                Subscription::FromView {
-                    window_id, view_id, ..
-                } => *window_id != self.window_id || *view_id != self.view_id,
+                Subscription::FromView { view_id, .. } => *view_id != self.view_id,
             });
     }
 
@@ -273,9 +271,7 @@ impl<'a, T: View> ViewContext<'a, T> {
         // If we're currently emitting events for this entity, defer the unsubscribe.
         if let Some(ref mut pending) = self.app.pending_unsubscribes {
             if pending.entity_id == target_entity {
-                pending
-                    .keys
-                    .insert(SubscriptionKey::View(self.window_id, self.view_id));
+                pending.keys.insert(SubscriptionKey::View(self.view_id));
 
                 // Remove subscriptions created earlier in this emission so subscribe-then-unsubscribe ordering is preserved.
                 if let std::collections::hash_map::Entry::Occupied(mut entry) =
@@ -283,9 +279,7 @@ impl<'a, T: View> ViewContext<'a, T> {
                 {
                     entry.get_mut().retain(|subscription| match subscription {
                         Subscription::FromModel { .. } | Subscription::FromApp { .. } => true,
-                        Subscription::FromView {
-                            window_id, view_id, ..
-                        } => *window_id != self.window_id || *view_id != self.view_id,
+                        Subscription::FromView { view_id, .. } => *view_id != self.view_id,
                     });
 
                     if entry.get().is_empty() {
@@ -304,9 +298,7 @@ impl<'a, T: View> ViewContext<'a, T> {
             .or_default()
             .retain(|subscription| match subscription {
                 Subscription::FromModel { .. } | Subscription::FromApp { .. } => true,
-                Subscription::FromView {
-                    window_id, view_id, ..
-                } => *window_id != self.window_id || *view_id != self.view_id,
+                Subscription::FromView { view_id, .. } => *view_id != self.view_id,
             })
     }
 

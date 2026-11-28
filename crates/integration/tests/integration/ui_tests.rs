@@ -8,6 +8,11 @@ use super::integration_tests;
 
 integration_tests! {
     test_add_many_sessions,
+    test_move_tab_to_new_window_preserves_session,
+    test_move_tab_to_new_window_can_close_destination,
+    #[cfg(target_os = "macos")]
+    #[ignore = "AppKit mouse tracking requires visible windows; run this test explicitly with a display"]
+    test_move_tab_to_new_window_native_close_button,
     test_ctrl_tab_session_switching,
     test_hover_over_menu,
     test_shell_reinitializing,
